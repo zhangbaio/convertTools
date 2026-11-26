@@ -88,7 +88,9 @@ public static class KuaishouAuthCookies
 
     private static int AddFromFile(CookieContainer container, string authStatePath)
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(authStatePath));
+        using var stream = new FileStream(authStatePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        using var document = JsonDocument.Parse(reader.ReadToEnd());
         var count = 0;
         if (!document.RootElement.TryGetProperty("cookies", out var cookies) || cookies.ValueKind != JsonValueKind.Array)
             return 0;

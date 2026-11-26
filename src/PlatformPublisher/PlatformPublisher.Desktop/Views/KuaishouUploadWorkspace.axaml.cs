@@ -104,8 +104,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             analyticsModel.Bind(
                 () => viewModel.ListAnalyticsAccounts()
                     .Where(account => account.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
-                    .ToArray(),
-                account => viewModel.IsKuaishouPublishRunning(account.Id, account.Platform));
+                    .ToArray());
             analytics.DataContext = analyticsModel;
         }
         return true;

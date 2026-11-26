@@ -19,7 +19,6 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     private readonly AnalyticsCollectionCoordinator _coordinator;
     private readonly KuaishouWorksPlayCollector _collector;
     private Func<IReadOnlyList<AnalyticsAccount>> _accountProvider = () => [];
-    private Func<AnalyticsAccount, bool> _publishRunning = _ => false;
     private CancellationTokenSource? _cts;
     private DispatcherTimer? _dailyTimer;
     private IReadOnlyList<AnalyticsAccount> _accounts = [];
@@ -48,10 +47,9 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     [ObservableProperty] private bool _isBusy;
     public string RangeTitle => RangeDays <= 7 ? "每日播放量 · 近7天" : "每日播放量 · 近30天";
 
-    public void Bind(Func<IReadOnlyList<AnalyticsAccount>> accountProvider, Func<AnalyticsAccount, bool> publishRunning)
+    public void Bind(Func<IReadOnlyList<AnalyticsAccount>> accountProvider)
     {
         _accountProvider = accountProvider;
-        _publishRunning = publishRunning;
         _dailyTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
         _dailyTimer.Tick -= OnDailyTick;
         _dailyTimer.Tick += OnDailyTick;
@@ -167,12 +165,6 @@ public sealed partial class AnalyticsViewModel : ObservableObject
             {
                 _cts.Token.ThrowIfCancellationRequested();
                 var label = KuaishouPlayBoard.Label(account);
-                if (_publishRunning(account))
-                {
-                    failures.Add(label + "：该账号正在上传，请稍后再更新播放量。");
-                    StatusMessage = failures[^1];
-                    continue;
-                }
                 StatusMessage = "正在采集 " + label;
                 try
                 {

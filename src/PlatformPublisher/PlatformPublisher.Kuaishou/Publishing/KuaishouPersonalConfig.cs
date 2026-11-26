@@ -220,8 +220,7 @@ public sealed class KuaishouPersonalConfig
         var platform = job.Platform == PublishPlatform.KuaishouEnterpriseRevenue
             ? PublishPlatform.KuaishouEnterpriseRevenue
             : PublishPlatform.KuaishouPersonalRevenue;
-        var accountKey = string.IsNullOrWhiteSpace(job.AccountId) ? "default" : Safe(job.AccountId);
-        var accountRoot = Path.Combine(PlatformPublisherPaths.DataRoot, "kuaishou-personal", "accounts", accountKey);
+        var accountRoot = AccountRoot(job.AccountId);
         Directory.CreateDirectory(accountRoot);
         var config = LoadSharedConfig(job);
         ApplyLegacySettings(config, platform);
@@ -241,10 +240,7 @@ public sealed class KuaishouPersonalConfig
             DatabaseStore.Save(job.AccountId, EnterpriseDatabaseKey, config);
         }
 
-        config.AuthStatePath = Resolve(config.AuthStatePath, accountRoot,
-            platform == PublishPlatform.KuaishouEnterpriseRevenue
-                ? "kuaishou_enterprise_kdj_auth_state.json"
-                : "kuaishou_personal_kdj_auth_state.json");
+        config.AuthStatePath = ResolveAuthStatePath(config, accountRoot, platform);
         config.BrowserProfileDirectory = Resolve(config.BrowserProfileDirectory, accountRoot, "browser-profile");
         if (!string.IsNullOrWhiteSpace(config.CommitmentPdfPath))
             config.CommitmentPdfPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(config.CommitmentPdfPath));
@@ -252,6 +248,22 @@ public sealed class KuaishouPersonalConfig
         Directory.CreateDirectory(config.BrowserProfileDirectory);
         return config;
     }
+
+    internal static string ReadAuthStatePath(PublishJob job)
+    {
+        var config = LoadSharedConfig(job);
+        ApplyLegacySettings(config, job.Platform);
+        return ResolveAuthStatePath(config, AccountRoot(job.AccountId), job.Platform);
+    }
+
+    private static string AccountRoot(string? accountId) => Path.Combine(
+        PlatformPublisherPaths.DataRoot, "kuaishou-personal", "accounts",
+        string.IsNullOrWhiteSpace(accountId) ? "default" : Safe(accountId));
+
+    private static string ResolveAuthStatePath(KuaishouPersonalConfig config, string accountRoot, PublishPlatform platform) =>
+        Resolve(config.AuthStatePath, accountRoot, platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? "kuaishou_enterprise_kdj_auth_state.json"
+            : "kuaishou_personal_kdj_auth_state.json");
 
     public static string DefaultConfigPath(string? accountId, PublishPlatform platform = PublishPlatform.KuaishouPersonalRevenue)
     {

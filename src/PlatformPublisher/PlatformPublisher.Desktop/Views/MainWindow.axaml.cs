@@ -412,8 +412,7 @@ public partial class MainWindow : Window
         analyticsViewModel.Bind(
             () => mainViewModel.ListAnalyticsAccounts()
                 .Where(account => account.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
-                .ToArray(),
-            account => mainViewModel.IsKuaishouPublishRunning(account.Id, account.Platform));
+                .ToArray());
         AnalyticsPage.DataContext = analyticsViewModel;
     }
 

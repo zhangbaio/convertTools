@@ -145,6 +145,28 @@ public sealed class KuaishouPlayStatisticsTests : IDisposable
     }
 
     [Fact]
+    public void OverviewApiUsesOnlyDailyPlayPointsWithinTheRequestedWindow()
+    {
+        var start = new DateOnly(2026, 11, 1);
+        var end = start.AddDays(2);
+        var points = KuaishouWorksPlayParser.ParseOverview("""
+            {"result":1,"data":{"basicData":[
+              {"tab":"PLAY","sumCount":99,"trendData":[
+                {"date":"20261031","count":99},{"date":"20261101","count":0},
+                {"date":"20261103","count":14},{"date":"20261104","count":17}
+              ]},
+              {"tab":"LIKE","trendData":[{"date":"20261102","count":91}]}
+            ],"trafficData":[{"tab":"PLAY","trendData":[{"date":"20261101","count":100}]}]}}
+            """, start, end);
+
+        Assert.Equal(2, points.Count);
+        Assert.Equal(0, points[start]);
+        Assert.False(points.ContainsKey(start.AddDays(1)));
+        Assert.Equal(14, points[end]);
+        Assert.Empty(KuaishouWorksPlayParser.ParseOverview("""{"result":109}""", start, end));
+    }
+
+    [Fact]
     public void ScheduledRefreshWaitsUntilNoonForYesterdayOnly()
     {
         var window = KuaishouPlayWindow.Dates(Today);

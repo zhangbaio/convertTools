@@ -20,6 +20,25 @@ public static class KuaishouWorksPlayParser
         return result;
     }
 
+    public static Dictionary<DateOnly, long> ParseOverview(string json, DateOnly start, DateOnly end)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("result", out var result) || result.ToString() != "1" ||
+            !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("basicData", out var metrics) || metrics.ValueKind != JsonValueKind.Array)
+            return [];
+
+        var found = new Dictionary<DateOnly, long>();
+        foreach (var metric in metrics.EnumerateArray())
+        {
+            if (metric.ValueKind == JsonValueKind.Object)
+                TryReadPlayTrend(metric, found);
+        }
+        return found.Where(point => point.Key >= start && point.Key <= end && point.Value >= 0).ToDictionary();
+    }
+
     public static void Merge(IDictionary<DateOnly, long> target, string json)
     {
         if (string.IsNullOrWhiteSpace(json)) return;

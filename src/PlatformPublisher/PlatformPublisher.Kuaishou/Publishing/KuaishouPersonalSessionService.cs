@@ -22,7 +22,7 @@ public sealed class KuaishouPersonalSessionService
             {
                 if (!saved && await IsLoggedInAsync(page))
                 {
-                    await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath });
+                    await SaveStorageStateAsync(context, config.AuthStatePath);
                     saved = true;
                 }
                 await Task.Delay(500, ct);
@@ -51,7 +51,8 @@ public sealed class KuaishouPersonalSessionService
         Func<IPage, KuaishouPersonalConfig, CancellationToken, Task> action,
         CancellationToken cancellationToken,
         bool holdUntilClosed = false,
-        bool? headless = null)
+        bool? headless = null,
+        bool saveStorageState = true)
     {
         var config = KuaishouPersonalConfig.Load(job);
         var label = job.Platform.DisplayName();
@@ -68,7 +69,7 @@ public sealed class KuaishouPersonalSessionService
                 while (!ct.IsCancellationRequested && context.Pages.Count > 0)
                     await Task.Delay(500, ct);
             }
-        }, cancellationToken);
+        }, cancellationToken, saveStorageState: saveStorageState);
     }
 
     /// <summary>
@@ -105,7 +106,8 @@ public sealed class KuaishouPersonalSessionService
         bool headless,
         Func<IPage, IBrowserContext, CancellationToken, Task> action,
         CancellationToken cancellationToken,
-        bool allowInvalidStateFallback = false)
+        bool allowInvalidStateFallback = false,
+        bool saveStorageState = true)
     {
         var runtime = await _runtimeService.InspectAsync(cancellationToken);
         if (!runtime.IsReady) throw new InvalidOperationException(runtime.Message);
@@ -156,8 +158,8 @@ public sealed class KuaishouPersonalSessionService
             {
                 try
                 {
-                    if (succeeded && context.Pages.Count > 0)
-                        await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath });
+                    if (saveStorageState && succeeded && context.Pages.Count > 0)
+                        await SaveStorageStateAsync(context, config.AuthStatePath);
                 }
                 catch { /* 登录态保存失败由下次校验暴露。 */ }
             }
@@ -172,6 +174,21 @@ public sealed class KuaishouPersonalSessionService
 
             try { await browser.CloseAsync(); }
             catch { /* 停止时浏览器可能已经关掉。 */ }
+        }
+    }
+
+    private static async Task SaveStorageStateAsync(IBrowserContext context, string path)
+    {
+        var state = await context.StorageStateAsync();
+        var pending = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await File.WriteAllTextAsync(pending, state);
+            File.Move(pending, path, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(pending);
         }
     }
 
@@ -192,10 +209,23 @@ public sealed class KuaishouPersonalSessionService
     private static async Task<IBrowserContext> CreateContextAsync(IBrowser browser, BrowserNewContextOptions options,
         bool allowInvalidStateFallback)
     {
-        try { return await browser.NewContextAsync(options); }
-        catch when (allowInvalidStateFallback && !string.IsNullOrWhiteSpace(options.StorageStatePath))
+        var path = options.StorageStatePath;
+        try
+        {
+            if (path is not null)
+            {
+                // 读取完整快照，允许正在退出的上传浏览器替换登录态文件。
+                await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                options.StorageState = await reader.ReadToEndAsync();
+            }
+            options.StorageStatePath = null;
+            return await browser.NewContextAsync(options);
+        }
+        catch when (allowInvalidStateFallback && path is not null)
         {
             options.StorageStatePath = null;
+            options.StorageState = null;
             return await browser.NewContextAsync(options);
         }
     }

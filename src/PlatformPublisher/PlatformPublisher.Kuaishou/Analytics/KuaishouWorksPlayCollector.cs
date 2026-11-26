@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Microsoft.Playwright;
 using PlatformPublisher.Analytics.Models;
 using PlatformPublisher.Common.Models;
@@ -16,7 +17,6 @@ public sealed class KuaishouWorksPlayCollector
     public async Task<IReadOnlyDictionary<DateOnly, long>> CollectAsync(
         AnalyticsAccount account, DateOnly start, DateOnly end, CancellationToken cancellationToken)
     {
-        var found = new Dictionary<DateOnly, long>();
         var job = new PublishJob
         {
             Platform = account.Platform,
@@ -26,6 +26,23 @@ public sealed class KuaishouWorksPlayCollector
             ProjectDirectory = string.IsNullOrWhiteSpace(account.SessionDirectory) ? Path.GetTempPath() : account.SessionDirectory,
             ConfigPath = account.ConfigPath,
         };
+        try
+        {
+            var authStatePath = KuaishouPersonalConfig.ReadAuthStatePath(job);
+            var plays = await KuaishouWorksPlayApi.CollectAsync(authStatePath, start, end, cancellationToken);
+            if (plays.Count > 0)
+                return plays;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // 请求超时，继续使用浏览器采集。
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException or IOException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        var found = new Dictionary<DateOnly, long>();
         await _sessionService.ExecuteAuthenticatedAsync(job, async (page, _, ct) =>
         {
             var bodies = new ConcurrentQueue<string>();
@@ -51,7 +68,7 @@ public sealed class KuaishouWorksPlayCollector
             {
                 page.Response -= Handler;
             }
-        }, cancellationToken, headless: true);
+        }, cancellationToken, headless: true, saveStorageState: false);
         if (found.Count == 0)
             throw new InvalidOperationException("没有读到按日播放量。请确认这个账号能打开创作者服务平台的作品数据页。");
         return found;
