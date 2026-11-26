@@ -190,6 +190,9 @@
                             </UniformGrid>
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
+                            <views:KuaishouAccountAiEditor x:Name="AiEditor" />
+                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
+
                             <TextBlock Classes="configurationHeading" Text="剧名与合规" />
                             <Expander Header="内容合规词库" HorizontalContentAlignment="Stretch">
                                 <StackPanel Spacing="10">
@@ -210,8 +213,6 @@
                                     <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
                                 </StackPanel>
                             </Expander>
-                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
-                            <views:KuaishouAccountAiEditor x:Name="AiEditor" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
