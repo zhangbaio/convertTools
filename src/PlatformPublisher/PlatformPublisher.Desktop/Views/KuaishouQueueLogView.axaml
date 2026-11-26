@@ -68,8 +68,9 @@
                     CornerRadius="6"
                     Padding="10,8">
                 <ScrollViewer x:Name="LogScrollViewer"
+                              AllowAutoHide="False"
                               HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto">
+                              VerticalScrollBarVisibility="Visible">
                     <SelectableTextBlock x:Name="LogTextBlock"
                                          TextWrapping="Wrap"
                                          FontFamily="Cascadia Mono,Consolas,Microsoft YaHei UI"
