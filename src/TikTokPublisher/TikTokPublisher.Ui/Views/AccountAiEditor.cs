@@ -46,10 +46,10 @@ public sealed class AccountAiEditor : UserControl
         var title = new TextBlock { Text = "AI 生成" };
         title.Classes.Add("configurationHeading");
         form.Children.Add(title);
-        form.Children.Add(PresetRow("AI 文本模型预设", _textPresets, () => EditTextAsync(false), () => EditTextAsync(true)));
+        form.Children.Add(PresetRow("AI 文本模型", _textPresets, () => EditTextAsync(false), () => EditTextAsync(true)));
         form.Children.Add(KeyRow("AI 文本 API Key", _textKey));
-        form.Children.Add(PromptRow("发布信息提示词", _publish, ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt));
-        form.Children.Add(PresetRow("AI 图片模型预设", _imagePresets, () => EditImageAsync(false), () => EditImageAsync(true)));
+        form.Children.Add(PromptRow("文本提示词", _publish, ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt));
+        form.Children.Add(PresetRow("AI 图片模型", _imagePresets, () => EditImageAsync(false), () => EditImageAsync(true)));
         form.Children.Add(KeyRow("AI 图片 API Key", _imageKey));
         form.Children.Add(Field("海报模式", _posterMode));
         var resetImagePrompt = new Button { Content = "恢复默认" };

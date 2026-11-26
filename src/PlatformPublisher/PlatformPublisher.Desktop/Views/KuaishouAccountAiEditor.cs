@@ -44,10 +44,10 @@ public sealed class KuaishouAccountAiEditor : UserControl
         var title = new TextBlock { Text = "AI 生成" };
         title.Classes.Add("configurationHeading");
         var panel = new StackPanel { Spacing = 10, Children = { title } };
-        panel.Children.Add(Field("AI 文本模型预设", PresetRow(_textPresets, EditTextAsync)));
+        panel.Children.Add(Field("AI 文本模型", PresetRow(_textPresets, EditTextAsync)));
         panel.Children.Add(Field("AI 文本 API Key", KeyRow(_textKey)));
-        panel.Children.Add(Field("发布信息提示词", PromptRow(_publish, () => ClientSettingsDefaults.KuaishouPublishInfoPrompt)));
-        panel.Children.Add(Field("AI 图片模型预设", PresetRow(_imagePresets, EditImageAsync)));
+        panel.Children.Add(Field("文本提示词", PromptRow(_publish, () => ClientSettingsDefaults.KuaishouPublishInfoPrompt)));
+        panel.Children.Add(Field("AI 图片模型", PresetRow(_imagePresets, EditImageAsync)));
         panel.Children.Add(Field("AI 图片 API Key", KeyRow(_imageKey)));
         _direct.GroupName = _erase.GroupName = $"kuaishou-poster-{Guid.NewGuid():N}";
         panel.Children.Add(Field("海报模式", new WrapPanel
