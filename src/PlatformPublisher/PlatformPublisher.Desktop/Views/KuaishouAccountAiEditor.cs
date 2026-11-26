@@ -99,8 +99,10 @@ public sealed class KuaishouAccountAiEditor : UserControl
             _direct.IsChecked = !erase;
             _erase.IsChecked = erase;
             ShowPoster(mode);
-            _publish.Text = _shownPublish = _draft.PublishPrompt.Length > 0
-                ? _draft.PublishPrompt : ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(_defaults);
+            var promptSettings = _defaults.Clone();
+            if (_draft.PublishPrompt.Length > 0)
+                promptSettings.KuaishouPublishInfoPrompt = _draft.PublishPrompt;
+            _publish.Text = _shownPublish = ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(promptSettings);
             ShowKeys();
         }
         finally { _loading = false; }

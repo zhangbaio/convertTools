@@ -199,7 +199,7 @@ public sealed class KuaishouPersonalProjectDataService
     }
 
     private static IEnumerable<string> Split(string? value) =>
-        (value ?? string.Empty).Split([',', '，', ';', '；', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        (value ?? string.Empty).Split([' ', ',', '，', '、', ';', '；', '|', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static IReadOnlyList<KuaishouPersonalActor> ParseActors(string? value)
     {

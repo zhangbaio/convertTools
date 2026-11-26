@@ -185,7 +185,7 @@ public static class ClientSettingsDefaults
         {"title":"","short_title":"","description":"","tags":[""],"audience":"","categories":[""],"plots":[""]}
         """;
 
-    public const string KuaishouPublishInfoPrompt = """
+    public const string KuaishouPublishInfoPromptBeforeStrictValidation = """
         你是快手分账短剧发布信息助手。根据原始短剧信息，一次生成个人版和企业版都要使用的发布信息。不生成推荐语。
 
         title（新剧名）：2 到 title_max_length 个字，不得包含空格、标点和书名号，必须与原剧名明显不同。这是硬性限制，输出前逐字计数，超长就压缩，不得用空格或标点规避。
@@ -200,6 +200,23 @@ public static class ClientSettingsDefaults
 
         只返回 JSON，不要解释，不要 Markdown：
         {"title":"","short_title":"","description":"","tags":[""],"audience":"","categories":[""],"plots":[""]}
+        """;
+
+    public const string KuaishouPublishInfoPrompt = """
+        你负责为快手分账短剧整理发布资料。根据 original_title 和 synopsis 生成适合发布表单的信息。以原简介为事实来源，写清主要人物、他们面临的难题和已有的情节转折。
+
+        title：用 2 至 title_max_length 个汉字拟定新剧名。不得与原剧名相同，不使用标点、空格、字母或数字。如果 keep_existing_title 非空，原样保留该值。
+        short_title：写 6 至 16 个汉字，概括剧情看点。不得含空格，不得与原剧名或新剧名相同。
+        description：改写为 100 至 400 字，以句号结束。保留原有的人物关系、关键事件、因果和结局。可以突出人物如何应对困难、做出选择，以及原作已有的转折。不得照抄、重复句子，或为凑字数补造人物、身份及剧情。
+        tags：填写 3 个互不重复的短标签，从作品题材、人物关系和主要矛盾中提取。每项只填一个标签，不带 #、空格或分隔符。
+        audience：从 audience_options 中原样选择 1 个最符合剧情的受众选项。
+        categories：从 category_options 中原样选择 1 至 3 个分类，不得重复。优先选覆盖主线的分类。
+        plots：从 plot_options 中原样选择 1 至 3 个情节，不得重复。每一项都要有原简介中的情节依据。
+
+        用自然、克制的书面语表达。遵守输入 compliance 中的禁用词和组合规则。涉及敏感情节时，用合规表述保留剧情因果，不用近义词规避词库，不把炫富、羞辱、极端报复或低俗内容写成看点。若输入包含 retry.reason，先修正指出的问题，再检查全部字段。
+
+        只返回一个合法 JSON 对象，不添加解释或 Markdown：
+        {"title":"","short_title":"","description":"","tags":["","",""],"audience":"","categories":[""],"plots":[""]}
         """;
 
     public const string AiTagSystemPrompt = "";

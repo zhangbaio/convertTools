@@ -697,7 +697,9 @@ public static class ClientSettingsStore
         var current = settings.KuaishouPublishInfoPrompt?.Trim() ?? "";
         if (current.Length > 0)
         {
-            return string.Equals(current, ClientSettingsDefaults.KuaishouPublishInfoPromptPrevious.Trim(), StringComparison.Ordinal)
+            var normalized = current.Replace("\r\n", "\n", StringComparison.Ordinal);
+            return normalized == ClientSettingsDefaults.KuaishouPublishInfoPromptPrevious.Trim().Replace("\r\n", "\n", StringComparison.Ordinal) ||
+                   normalized == ClientSettingsDefaults.KuaishouPublishInfoPromptBeforeStrictValidation.Trim().Replace("\r\n", "\n", StringComparison.Ordinal)
                 ? ClientSettingsDefaults.KuaishouPublishInfoPrompt
                 : current;
         }

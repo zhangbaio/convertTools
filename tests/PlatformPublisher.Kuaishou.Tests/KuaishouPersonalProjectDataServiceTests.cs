@@ -15,7 +15,7 @@ public sealed class KuaishouPersonalProjectDataServiceTests
         var workflow = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_赶山"));
         File.WriteAllText(Path.Combine(source.FullName, "短剧信息.txt"), "原剧名：赶山\n新剧名：赶山\n简介：测试简介\n");
         File.WriteAllText(Path.Combine(source.FullName, "1.mp4"), "video");
-        File.WriteAllText(Path.Combine(workflow.FullName, "短剧信息.txt"), "原剧名：赶山\n新剧名：赶山\n简介：测试简介\n");
+        File.WriteAllText(Path.Combine(workflow.FullName, "短剧信息.txt"), "原剧名：赶山\n新剧名：赶山\n简介：测试简介\n标签：乡村 成长 团圆\n");
         File.WriteAllText(Path.Combine(workflow.FullName, "工程图_1.png"), "image");
         File.WriteAllText(
             Path.Combine(workflow.FullName, "kuaishou-auto-fill.json"),
@@ -36,6 +36,7 @@ public sealed class KuaishouPersonalProjectDataServiceTests
 
         Assert.Equal(Path.GetFullPath(workflow.FullName), data.WorkflowDirectory);
         Assert.Equal(Path.GetFullPath(source.FullName), data.SourceDirectory);
+        Assert.Equal(new[] { "乡村", "成长", "团圆" }, data.Tags);
         Assert.Single(data.ProjectImagePaths);
         Assert.Equal(Path.Combine(workflow.FullName, "videos", "赶山-第1集.mp4"), Assert.Single(data.VideoPaths));
         Assert.False(File.Exists(Path.Combine(source.FullName, "1.mp4")));

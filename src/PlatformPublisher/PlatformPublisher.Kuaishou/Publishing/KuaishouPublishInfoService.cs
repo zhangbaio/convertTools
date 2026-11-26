@@ -154,32 +154,37 @@ public sealed class KuaishouPublishInfoService
         string existingTitle)
     {
         var issues = new List<string>();
-        var title = Text(payload, "title");
-        var shortTitle = Text(payload, "short_title");
+        var title = Text(payload, "title", trim: false);
+        var shortTitle = Text(payload, "short_title", trim: false);
         var description = Collapse(Text(payload, "description"));
-        var tags = Texts(payload, "tags");
         if (rewrite)
         {
-            if (title.Length < TitleMinLength || title.Length > TitleMaxLength || title.Any(char.IsWhiteSpace))
-                issues.Add($"新剧名必须是 {TitleMinLength}-{TitleMaxLength} 个字且不含空格，当前「{title}」");
+            if (!IsHanTitle(title, TitleMinLength, TitleMaxLength))
+                issues.Add($"新剧名必须是 {TitleMinLength}-{TitleMaxLength} 个汉字，当前「{title}」");
             else if (SameText(title, originalTitle))
                 issues.Add("新剧名不能与原剧名相同");
-            if (shortTitle.Length < ShortTitleMinLength || shortTitle.Length > ShortTitleMaxLength || shortTitle.Any(char.IsWhiteSpace))
-                issues.Add($"短标题必须是 {ShortTitleMinLength}-{ShortTitleMaxLength} 个字且不含空格，当前「{shortTitle}」");
+            if (!IsHanTitle(shortTitle, ShortTitleMinLength, ShortTitleMaxLength))
+                issues.Add($"短标题必须是 {ShortTitleMinLength}-{ShortTitleMaxLength} 个汉字，当前「{shortTitle}」");
             else if (SameText(shortTitle, title) || SameText(shortTitle, originalTitle))
                 issues.Add("短标题不能与新剧名或原剧名相同");
-            if (tags.Count is < 3 or > 6 || tags.Any(tag => tag.Contains('#')))
-                issues.Add("标签需要 3-6 个，且不带 #");
+            if (!TryReadOutputStrings(payload, "tags", out var tags) || tags.Count != 3)
+                issues.Add("标签必须是包含 3 个非空字符串的数组");
+            else if (tags.Any(tag => tag.Contains('#') || tag.Contains('＃')))
+                issues.Add("标签不能带 # 或 ＃");
+            else if (tags.Any(tag => tag.Trim().Any(char.IsWhiteSpace) || tag.IndexOfAny([',', '，', '、', ';', '；', '|']) >= 0))
+                issues.Add("每项只填写一个短标签，不能包含空格或分隔符");
+            else if (tags.Select(tag => tag.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != tags.Count)
+                issues.Add("3 个标签不能重复");
         }
-        else if (existingTitle.Length > 0 && title.Length > 0 && !SameText(title, existingTitle))
+        else if (existingTitle.Length > 0 && title != existingTitle)
         {
             issues.Add("这次只补齐字段，新剧名必须保持「" + existingTitle + "」");
         }
 
         if (description.Length < SynopsisMinLength || description.Length > SynopsisMaxLength)
             issues.Add($"简介必须是 {SynopsisMinLength}-{SynopsisMaxLength} 个字，当前 {description.Length} 字");
-        else if (description[^1] is not ('。' or '！' or '？' or '!' or '?'))
-            issues.Add("简介必须以完整句子结束");
+        else if (description[^1] != '。')
+            issues.Add("简介必须以句号结束");
         else if (HasRepeatedContent(description))
             issues.Add("简介存在明显重复");
         else if (SameText(description, sourceSynopsis))
@@ -187,7 +192,7 @@ public sealed class KuaishouPublishInfoService
 
         if (autoFill)
         {
-            if (!KuaishouFormCatalog.TryMatch(KuaishouFormCatalog.Audience, AudienceText(Text(payload, "audience")), out _))
+            if (!KuaishouFormCatalog.Audience.Any(option => option.Label == Text(payload, "audience", trim: false)))
                 issues.Add("目标观众必须是「男频」或「女频」");
             issues.AddRange(OptionIssues(payload, "categories", KuaishouFormCatalog.Categories, 1, 3, "短剧分类"));
             issues.AddRange(OptionIssues(payload, "plots", KuaishouFormCatalog.Plots, 1, 3, "情节"));
@@ -387,11 +392,12 @@ public sealed class KuaishouPublishInfoService
     private static IReadOnlyList<string> OptionIssues(
         JsonElement payload, string name, IReadOnlyList<KuaishouFormOption> options, int min, int max, string label)
     {
-        var values = Texts(payload, name);
-        if (values.Count < min || values.Count > max)
-            return [$"{label}需要 {min}-{max} 个"];
-        var unknown = values.Where(value => !KuaishouFormCatalog.TryMatch(options, value, out _)).ToArray();
-        return unknown.Length == 0 ? [] : [$"{label}不在选项中：{string.Join('、', unknown)}"];
+        if (!TryReadOutputStrings(payload, name, out var values) || values.Count < min || values.Count > max)
+            return [$"{label}必须是包含 {min}-{max} 个非空字符串的数组"];
+        var unknown = values.Where(value => !options.Any(option => option.Label == value)).ToArray();
+        if (unknown.Length > 0)
+            return [$"{label}不在选项中：{string.Join('、', unknown)}"];
+        return values.Distinct(StringComparer.Ordinal).Count() == values.Count ? [] : [$"{label}不能重复"];
     }
 
     private static IReadOnlyList<KuaishouFormOption> MatchAll(
@@ -486,10 +492,42 @@ public sealed class KuaishouPublishInfoService
 
     private static string AudienceText(string value) => value is "男" or "女" ? value + "频" : value;
 
-    private static string Text(JsonElement payload, string name) =>
-        payload.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-            ? (value.GetString() ?? "").Trim()
-            : "";
+    private static string Text(JsonElement payload, string name, bool trim = true)
+    {
+        var text = payload.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? "" : "";
+        return trim ? text.Trim() : text;
+    }
+
+    private static bool TryReadOutputStrings(JsonElement payload, string name, out IReadOnlyList<string> values)
+    {
+        values = [];
+        if (!payload.TryGetProperty(name, out var field) || field.ValueKind != JsonValueKind.Array)
+            return false;
+        var items = new List<string>();
+        foreach (var item in field.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString()))
+                return false;
+            items.Add(item.GetString()!);
+        }
+        values = items;
+        return true;
+    }
+
+    private static bool IsHanTitle(string title, int min, int max)
+    {
+        var count = 0;
+        foreach (var rune in title.EnumerateRunes())
+        {
+            if (rune.Value is not (0x3007 or >= 0x3400 and <= 0x4DBF or
+                >= 0x4E00 and <= 0x9FFF or >= 0xF900 and <= 0xFAFF or
+                >= 0x20000 and <= 0x2FA1F or >= 0x30000 and <= 0x323AF))
+                return false;
+            count++;
+        }
+        return count >= min && count <= max;
+    }
 
     private static IReadOnlyList<string> Texts(JsonElement payload, string name)
     {

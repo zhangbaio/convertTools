@@ -187,6 +187,12 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                 KuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPromptPrevious,
             })
             .Should().Be(ClientSettingsDefaults.KuaishouPublishInfoPrompt);
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings
+            {
+                KuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPromptBeforeStrictValidation
+                    .Replace("\r\n", "\n", StringComparison.Ordinal),
+            })
+            .Should().Be(ClientSettingsDefaults.KuaishouPublishInfoPrompt);
     }
 
     [Fact]

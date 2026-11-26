@@ -51,6 +51,60 @@ public sealed class KuaishouPublishInfoServiceTests
     }
 
     [Fact]
+    public void Validator_rejects_invalid_title_labels_duplicate_options_and_non_array_tags()
+    {
+        var cases = new (string Field, string JsonValue, string Error)[]
+        {
+            ("title", "\"归途A火\"", "新剧名"),
+            ("title", "\" 归途灯火\"", "新剧名"),
+            ("title", "\"归途灯火！\"", "新剧名"),
+            ("short_title", "\"灯火亮起123\"", "短标题"),
+            ("tags", "[\"家庭\",\"误会\",\"团圆\",\"成长\"]", "3 个"),
+            ("tags", "[\"家庭\",\"误会\",\"家庭 \"]", "标签不能重复"),
+            ("tags", "[\"家庭\",\"误会\",\"＃团圆\"]", "标签不能带"),
+            ("tags", "[\"家庭 团圆\",\"误会\",\"成长\"]", "分隔符"),
+            ("tags", "[\"家庭\",\"误会\",42]", "非空字符串"),
+            ("tags", "\"家庭 误会 团圆\"", "数组"),
+            ("audience", "\"女\"", "目标观众"),
+            ("categories", "[\"家庭\",\"家庭\"]", "短剧分类不能重复"),
+            ("plots", "[\"守护家人\",\"守护家人\"]", "情节不能重复"),
+        };
+        foreach (var (field, json, error) in cases)
+        {
+            var payload = PublishPayload();
+            payload[field] = System.Text.Json.Nodes.JsonNode.Parse(json);
+            var issues = KuaishouPublishInfoService.Validate(Json(payload.ToJsonString()),
+                new(), "原来的剧名", "原来的简介。", true, true, "");
+            Assert.Contains(issues, issue => issue.Contains(error, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void Only_filling_fields_preserves_existing_title_and_requires_a_final_period()
+    {
+        const string existingTitle = "旧剧名·续";
+        var payload = PublishPayload();
+        payload["title"] = existingTitle;
+        payload.Remove("tags");
+        var config = new KuaishouPersonalConfig();
+        Assert.Empty(KuaishouPublishInfoService.Validate(Json(payload.ToJsonString()),
+            config, "原来的剧名", "原来的简介。", false, true, existingTitle));
+
+        payload["description"] = Synopsis().TrimEnd('。') + "！";
+        payload.Remove("title");
+        var issues = KuaishouPublishInfoService.Validate(Json(payload.ToJsonString()),
+            config, "原来的剧名", "原来的简介。", false, true, existingTitle);
+        Assert.Contains(issues, issue => issue.Contains("新剧名必须保持"));
+        Assert.Contains(issues, issue => issue.Contains("句号"));
+    }
+
+    private static System.Text.Json.Nodes.JsonObject PublishPayload() =>
+        System.Text.Json.Nodes.JsonNode.Parse("""
+            {"title":"归途灯火","short_title":"灯火再亮起来","description":"DESCRIPTION","tags":["家庭","误会","团圆"],
+             "audience":"女频","categories":["家庭"],"plots":["守护家人"]}
+            """.Replace("DESCRIPTION", Synopsis()))!.AsObject();
+
+    [Fact]
     public void Compliance_prompt_carries_the_configured_terms_and_combinations()
     {
         var config = new KuaishouPersonalConfig
