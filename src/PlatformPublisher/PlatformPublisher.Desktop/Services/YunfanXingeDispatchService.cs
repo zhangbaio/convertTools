@@ -314,6 +314,7 @@ public sealed class YunfanXingeDispatchService
             device_name = $"云帆-{Environment.MachineName}",
             app_version = $"Yunfan/{version}",
             xinge_managed_dispatch = true,
+            ks_settle_video_dedup = true,
             workspace_path = accounts.FirstOrDefault()?.Workspace ?? "",
             active_account_profile_id = accounts.FirstOrDefault()?.Id ?? "",
             drama_source = dramaSource,

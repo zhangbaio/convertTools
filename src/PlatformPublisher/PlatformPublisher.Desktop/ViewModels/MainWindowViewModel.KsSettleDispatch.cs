@@ -654,9 +654,13 @@ public sealed partial class MainWindowViewModel
                                 var detail = work.Request.Upload
                                     ? $"上传流程完成：{work.Command.Title}"
                                     : $"所选步骤已完成：{work.Command.Title}";
-                                await work.ReportAsync("success", work.Request.Upload ? "upload_series" : "", detail, "").ConfigureAwait(false);
+                                var step = work.Request.Upload ? "upload_series" :
+                                    work.Request.RunVideoDedup ? KuaishouVideoDedup.DispatchStep : "";
+                                await work.ReportAsync("success", step, detail, "").ConfigureAwait(false);
                             }
-                        }).ConfigureAwait(false);
+                        },
+                        reportDispatchStep: (step, detail) => work.ReportAsync("running", step, detail, ""))
+                        .ConfigureAwait(false);
                     SetKuaishouLogTone(directory, "ok");
                     RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
                 }
@@ -685,7 +689,7 @@ public sealed partial class MainWindowViewModel
                     SetKuaishouLogTone(dir, "none");
             }
         }
-        catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+        catch (Exception ex) when (ex is not KuaishouVideoDedup.FailedException && KuaishouDailyUploadLimit.Is(ex))
         {
             foreach (var dir in work.Directories)
                 SetKuaishouLogTone(dir, "failed");
@@ -701,7 +705,7 @@ public sealed partial class MainWindowViewModel
                 KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
             await work.ReportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
         }
-        catch (Exception ex) when (IsKuaishouLoginFailure(ex))
+        catch (Exception ex) when (ex is not KuaishouVideoDedup.FailedException && IsKuaishouLoginFailure(ex))
         {
             foreach (var dir in work.Directories)
             {
@@ -726,7 +730,9 @@ public sealed partial class MainWindowViewModel
                 SetKuaishouLogTone(dir, "failed");
                 KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
             }
-            await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
+            var step = ex is KuaishouVideoDedup.FailedException ? KuaishouVideoDedup.DispatchStep : "";
+            var failureKind = step.Length > 0 ? step : KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message);
+            await work.ReportAsync("failed", step, ShortDispatchFailure(ex.Message), failureKind).ConfigureAwait(false);
         }
         finally
         {
@@ -791,6 +797,7 @@ public sealed partial class MainWindowViewModel
             AccountId = account.Id,
             ConfigPath = configPath,
         });
+        var dedup = selected.Contains(KuaishouVideoDedup.DispatchStep);
         return new KuaishouPipelineRequest(
             platform,
             account.Id,
@@ -806,8 +813,7 @@ public sealed partial class MainWindowViewModel
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版",
             Has("auto_archive"),
-            GetKuaishouDedupPreset(account.Id, config, selected.Contains("video_dedup") ||
-                (Has("upload_series") && KuaishouVideoDedup.IsEnabled(account.Id))));
+            RemoteVideoDedup: dedup);
     }
 
     private void ApplyVisibleKuaishouSteps(IReadOnlyList<string> steps, bool? forceRerun)
@@ -824,6 +830,7 @@ public sealed partial class MainWindowViewModel
             PipelineForceRerun = force;
         var names = new List<string>();
         if (PipelineDownloadEnabled) names.Add("下载");
+        if (selected.Contains(KuaishouVideoDedup.DispatchStep)) names.Add(KuaishouVideoDedup.Label);
         if (PipelineRewriteEnabled) names.Add("改写信息");
         if (PipelinePosterEnabled) names.Add("生成海报");
         if (PipelineProjectImageEnabled) names.Add("生成工程图");

@@ -2059,7 +2059,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         int Parallelism,
         string EditionLabel,
         bool AutoArchive = false,
-        VideoDedupPreset? VideoDedupPreset = null);
+        VideoDedupPreset? VideoDedupPreset = null,
+        bool? RemoteVideoDedup = null)
+    {
+        public bool RunVideoDedup => RemoteVideoDedup ?? (VideoDedupPreset is not null);
+    }
 
     private KuaishouPipelineRequest CreateKuaishouPipelineRequest()
     {
@@ -2453,7 +2457,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         var steps = new List<(string Key, string Label)>();
         if (request.Download) steps.Add(("download", "下载剧集"));
-        if (request.VideoDedupPreset is not null) steps.Add((KuaishouVideoDedup.Step, KuaishouVideoDedup.Label));
+        if (request.RunVideoDedup) steps.Add((KuaishouVideoDedup.Step, KuaishouVideoDedup.Label));
         if (request.Rewrite) steps.Add(("rewrite", "改写信息"));
         if (request.Poster) steps.Add(("poster-rename", "生成海报"));
         if (request.ProjectImages) steps.Add(("project-image", "生成工程图"));
@@ -2627,7 +2631,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouPipelineRequest request,
         CancellationToken cancellationToken,
         int listOrder = int.MaxValue,
-        Func<Task>? beforeArchive = null)
+        Func<Task>? beforeArchive = null,
+        Func<string, string, Task>? reportDispatchStep = null)
     {
         var runLock = _kuaishouProjectRunLocks.GetOrAdd(Path.GetFullPath(projectDirectory), _ => new SemaphoreSlim(1, 1));
         if (!await runLock.WaitAsync(0, cancellationToken))
@@ -2642,7 +2647,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             await RunKuaishouSettlementPipelineCoreAsync(
-                projectDirectory, trackedJob, trackedRow, request, cancellationToken, listOrder, beforeArchive);
+                projectDirectory, trackedJob, trackedRow, request, cancellationToken, listOrder, beforeArchive, reportDispatchStep);
         }
         finally
         {
@@ -2657,12 +2662,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouPipelineRequest request,
         CancellationToken cancellationToken,
         int listOrder,
-        Func<Task>? beforeArchive)
+        Func<Task>? beforeArchive,
+        Func<string, string, Task>? reportDispatchStep)
     {
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
         {
             ("download", "download", "下载剧集", request.Download),
-            (KuaishouVideoDedup.Step, "video_dedup", KuaishouVideoDedup.Label, request.VideoDedupPreset is not null),
+            (KuaishouVideoDedup.Step, KuaishouVideoDedup.DispatchStep, KuaishouVideoDedup.Label, request.RunVideoDedup),
             ("rewrite", "rewrite_info", "改写信息", request.Rewrite),
             ("poster-rename", "generate_poster", "生成海报", request.Poster),
             ("project-image", "generate_project_images", "生成工程图", request.ProjectImages),
@@ -2835,10 +2841,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("download");
                 }
-                if (request.VideoDedupPreset is not null)
-                    await RunTrackedStepAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step, KuaishouVideoDedup.Label,
-                        force: true, async () => preparedVideos = await PrepareKuaishouDedupAsync(
-                            projectDirectory, projectName, config, request, cancellationToken));
+                if (request.RunVideoDedup)
+                {
+                    if (reportDispatchStep is not null)
+                        await reportDispatchStep(KuaishouVideoDedup.DispatchStep, "正在执行视频去重");
+                    try
+                    {
+                        await RunTrackedStepAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step, KuaishouVideoDedup.Label,
+                            force: true, async () => preparedVideos = await PrepareKuaishouDedupAsync(
+                                projectDirectory, projectName, config, request, cancellationToken));
+                    }
+                    catch (Exception ex) when (reportDispatchStep is not null && ex is not OperationCanceledException)
+                    {
+                        throw new KuaishouVideoDedup.FailedException(ex);
+                    }
+                    if (reportDispatchStep is not null)
+                        await reportDispatchStep(KuaishouVideoDedup.DispatchStep, "视频去重已完成，成片通过整批校验");
+                }
 
                 await SkipIfCompletedMeanwhileAsync("rewrite");
                 await SkipIfCompletedMeanwhileAsync("auto-fill-info");
@@ -3003,6 +3022,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", rerunUploadStep, async () =>
             {
+                if (reportDispatchStep is not null && request.RunVideoDedup)
+                    await reportDispatchStep("upload_series", "正在上传剧集");
                 var adapter = _coordinator.GetAdapter(trackedJob.Platform);
                 if (!adapter.IsAvailable)
                     throw new InvalidOperationException(adapter.AvailabilityMessage);
@@ -3026,6 +3047,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     AppendActivityLog(line, projectName);
                 });
                 trackedJob.PreparedUploadVideos = preparedVideos;
+                trackedJob.UseOriginalUploadVideos = request.RemoteVideoDedup == false;
                 try
                 {
                     await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
@@ -3033,6 +3055,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 finally
                 {
                     trackedJob.PreparedUploadVideos = null;
+                    trackedJob.UseOriginalUploadVideos = false;
                 }
                 trackedJob.Status = PublishJobStatus.Succeeded;
                 trackedJob.StatusMessage = "发布流程执行完成";

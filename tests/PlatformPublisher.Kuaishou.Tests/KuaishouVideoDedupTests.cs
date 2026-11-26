@@ -56,13 +56,29 @@ public sealed class KuaishouVideoDedupTests
                 job.PreparedUploadVideos = new PublishVideoBatch(new string('B', 64), [merged]);
                 await Assert.ThrowsAsync<InvalidOperationException>(
                     () => dataService.ResolveForUploadAsync(job, config, CancellationToken.None));
+
+                job.PreparedUploadVideos = null;
+                job.UseOriginalUploadVideos = true;
+                var originals = await dataService.ResolveForUploadAsync(job, config, CancellationToken.None);
+                Assert.Equal(new[] { Path.Combine(root.FullName, "第1集.mp4"), Path.Combine(root.FullName, "第2集.mp4") },
+                    originals.VideoPaths);
+                Assert.Empty(originals.VideoBatchIdentity);
             }
 
             Assert.Equal(2, KuaishouSettlementEpisodeVideoService.ReadSource(root.FullName, root.FullName).Count);
             File.WriteAllText(Path.Combine(videos.FullName, KuaishouSettlementEpisodeVideoService.DedupWritingName), "[]");
             var blocked = new PublishJob { AccountId = account, ProjectDirectory = root.FullName };
+            blocked.PreparedUploadVideos = new PublishVideoBatch(identity, [merged]);
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => dataService.ResolveForUploadAsync(blocked, config, CancellationToken.None));
+
+            blocked.PreparedUploadVideos = null;
+            blocked.UseOriginalUploadVideos = true;
+            File.Delete(Path.Combine(root.FullName, "第1集.mp4"));
+            File.Delete(Path.Combine(root.FullName, "第2集.mp4"));
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => dataService.ResolveForUploadAsync(blocked, config, CancellationToken.None));
+            Assert.Contains("未找到可上传的原片", failure.Message);
         }
         finally
         {

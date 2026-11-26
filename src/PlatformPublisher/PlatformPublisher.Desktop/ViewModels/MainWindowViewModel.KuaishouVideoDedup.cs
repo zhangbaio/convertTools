@@ -59,7 +59,8 @@ public sealed partial class MainWindowViewModel
             projectDirectory, config, cancellationToken, prepareVideos: false);
         void Log(string message) => AppendActivityLog($"视频去重：{message}", projectName);
         Log($"使用账号「{request.AccountName}」的去重方案。");
-        return await KuaishouVideoDedup.RunAsync(data, request.AccountId, request.AccountName, request.VideoDedupPreset!,
+        var preset = request.VideoDedupPreset ?? KuaishouVideoDedup.LoadPreset(request.AccountId, config.VideoDedupTemplateId);
+        return await KuaishouVideoDedup.RunAsync(data, request.AccountId, request.AccountName, preset,
             Log, _dramaDownloader.HasFfmpegSupportedVideoAsync, cancellationToken);
     }
 }

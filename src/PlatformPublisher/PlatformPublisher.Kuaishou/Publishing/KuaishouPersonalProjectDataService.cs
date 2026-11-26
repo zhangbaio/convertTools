@@ -42,6 +42,16 @@ public sealed class KuaishouPersonalProjectDataService
         var lease = await KuaishouSettlementEpisodeVideoService.AcquireOutputLockAsync(data.WorkflowDirectory, cancellationToken);
         try
         {
+            if (job.UseOriginalUploadVideos)
+            {
+                var videosDirectory = Path.Combine(data.WorkflowDirectory, KuaishouSettlementEpisodeVideoService.VideosDirectoryName);
+                data = await ResolveAsync(job.ProjectDirectory, config, cancellationToken,
+                    prepareVideos: !KuaishouSettlementEpisodeVideoService.HasManagedDedupVideos(videosDirectory));
+                if (data.VideoPaths.Count == 0)
+                    throw new InvalidOperationException("远程派单未启用视频去重，未找到可上传的原片，请重新下载或导入剧集。");
+                return (data, lease);
+            }
+
             var batch = KuaishouSettlementEpisodeVideoService.ReadCurrentDedupBatch(data.WorkflowDirectory, job.AccountId);
             if (job.PreparedUploadVideos is { } expected && expected.Identity != batch?.Identity)
                 throw new InvalidOperationException("去重成片批次已变更，请确认最新成片后重新执行上传。");

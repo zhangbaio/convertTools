@@ -39,6 +39,8 @@ public sealed class PublishJob
 {
     [System.Text.Json.Serialization.JsonIgnore]
     public PublishVideoBatch? PreparedUploadVideos { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool UseOriginalUploadVideos { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public PublishPlatform Platform { get; set; } = PublishPlatform.WeixinChannel;
     public PublishJobKind Kind { get; set; } = PublishJobKind.Series;

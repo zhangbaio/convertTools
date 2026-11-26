@@ -13,6 +13,7 @@ namespace PlatformPublisher.Desktop.Services;
 internal static class KuaishouVideoDedup
 {
     internal const string Step = "kuaishou-video-dedup";
+    internal const string DispatchStep = "video_dedup";
     internal const string Label = "视频去重";
     private const string LibraryKey = "kuaishou.video-dedup.templates";
     private static readonly PlatformDatabase Database = new(PlatformPublisherPaths.MainDatabasePath);
@@ -22,6 +23,10 @@ internal static class KuaishouVideoDedup
     private const string PresetKey = "kuaishou.video-dedup.account-preset";
     private const string ManifestName = ".validated.json";
     private const string BatchPrefix = "批次-";
+
+    internal sealed class FailedException(Exception cause) : InvalidOperationException($"视频去重失败：{cause.Message}", cause)
+    {
+    }
 
     private sealed record PublishedManifest(string Identity, string AccountKey, string[] Files, string[] EpisodeKeys);
 
