@@ -81,13 +81,14 @@ internal static class KuaishouVideoDedup
         if (!force)
         {
             PublishVideoBatch? current = null;
+            string? reuseFailure = null;
             try
             {
                 current = ReadCurrentDedupBatch(workflow, accountId);
             }
             catch (InvalidOperationException ex)
             {
-                log(ex.Message);
+                reuseFailure = ex.Message;
             }
 
             var upload = new KuaishouPersonalUploadStateStore().Load(workflow, platform);
@@ -105,6 +106,8 @@ internal static class KuaishouVideoDedup
                 log($"复用当前账号已校验的 {current.Paths.Count} 集去重成片。");
                 return current;
             }
+            if (reuseFailure is not null)
+                log($"无法复用旧去重批次，将继续使用原片重新生成：{reuseFailure}");
         }
 
         Validate(preset);

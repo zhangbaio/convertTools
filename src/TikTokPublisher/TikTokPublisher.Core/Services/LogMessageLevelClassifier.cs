@@ -14,8 +14,9 @@ public static partial class LogMessageLevelClassifier
             return level == "warning" ? "warn" : level;
         }
 
-        // 表单字段记录的是填写内容，正文里的「无法」「失败」不是这次操作的结果。
-        if (message.Contains("接口上传：表单「", StringComparison.Ordinal))
+        // 表单内容和去重方案说明按记录类型分类。
+        if (message.Contains("接口上传：表单「", StringComparison.Ordinal) ||
+            DedupConfigurationRegex().IsMatch(message))
             return "info";
 
         var errorScanMessage = ZeroFailureCountRegex().Replace(message, "");
@@ -65,6 +66,9 @@ public static partial class LogMessageLevelClassifier
 
     private static bool ContainsAny(string text, params string[] keywords) =>
         keywords.Any(keyword => text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+    [GeneratedRegex(@"^\s*(?:\[[^\]\r\n]+\]\s*)*(?:视频去重[：:]\s*)?去重操作[：:]")]
+    private static partial Regex DedupConfigurationRegex();
 
     [GeneratedRegex(
         @"(?ix)

@@ -80,6 +80,18 @@ public sealed class LogMessageLevelClassifierTests
     }
 
     [Theory]
+    [InlineData("去重操作：按总时长平均分集，无法落在最短和最长之内就停止，不开始编码。", "info")]
+    [InlineData("[花剪改命路] 去重操作：无法落在最短和最长之内就停止，不开始编码。", "info")]
+    [InlineData("[18:01:39] [测试剧集] 视频去重：去重操作：无法落在最短和最长之内就停止，不开始编码。", "info")]
+    [InlineData("[18:01:35] [测试剧集] 视频去重：无法复用旧去重批次，将继续使用原片重新生成：去重成片尚未通过整批校验。", "warn")]
+    [InlineData("[18:01:35] [测试剧集] 上传剧集失败：已有快手草稿绑定的去重成片缺失或未通过校验。", "error")]
+    [InlineData("[花剪改命路] 视频去重失败：无法在最短和最长之内完成分集。", "error")]
+    public void Dedup_configuration_and_actual_failure_have_separate_levels(string message, string expected)
+    {
+        LogMessageLevelClassifier.InferLevel(message).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("[O Bilionário que Vivia como Sem-Teto] 标题区域校验发现文字差异，开始全图复核：识别标题为“OBilionario”；检测到异体字或非标准字符")]
     [InlineData("标题校验发现差异，改为去字后重绘：检测到异体字或异常字符")]
     public void Poster_verification_that_continues_is_info(string message)

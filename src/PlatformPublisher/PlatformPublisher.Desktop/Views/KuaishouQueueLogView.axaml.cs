@@ -400,8 +400,9 @@ public partial class KuaishouQueueLogView : UserControl
         if (_vm is null) return;
         var problemsOnly = ProblemsOnlyBox.IsChecked == true;
         var lines = ReadLogLines()
-            .Where(line => !problemsOnly || IsProblem(line.Text))
-            .Select(line => (Text: FormatProjectLogLine(line.Text, line.ProjectName), Foreground: BrushForLogLine(line.Text)))
+            .Select(line => (Line: line, Level: LogMessageLevelClassifier.InferLevel(line.Text)))
+            .Where(entry => !problemsOnly || entry.Level is "warn" or "error")
+            .Select(entry => (Text: FormatProjectLogLine(entry.Line.Text, entry.Line.ProjectName), Foreground: BrushForLogLevel(entry.Level)))
             .ToList();
         var running = _projects.Count(row => row.Tone == "running");
         var succeeded = _projects.Count(row => row.Tone == "ok");
@@ -434,19 +435,13 @@ public partial class KuaishouQueueLogView : UserControl
         }
     }
 
-    private static IBrush BrushForLogLine(string line) => LogMessageLevelClassifier.InferLevel(line) switch
+    private static IBrush BrushForLogLevel(string level) => level switch
     {
         "error" => FailedForeground,
         "warn" => WaitingForeground,
         "success" => SuccessForeground,
         _ => DefaultForeground,
     };
-
-    private static bool IsProblem(string text) =>
-        text.Contains("失败", StringComparison.OrdinalIgnoreCase) ||
-        text.Contains("错误", StringComparison.OrdinalIgnoreCase) ||
-        text.Contains("WARN", StringComparison.OrdinalIgnoreCase) ||
-        text.Contains("ERROR", StringComparison.OrdinalIgnoreCase);
 
     private void OnStopClick(object? sender, RoutedEventArgs e) => _vm?.StopCommand.Execute(null);
 
