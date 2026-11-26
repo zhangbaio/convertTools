@@ -730,7 +730,12 @@ public sealed partial class MainWindowViewModel
                 SetKuaishouLogTone(dir, "failed");
                 KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
             }
-            var step = ex is KuaishouVideoDedup.FailedException ? KuaishouVideoDedup.DispatchStep : "";
+            var step = ex switch
+            {
+                KuaishouVideoDedup.FailedException => KuaishouVideoDedup.DispatchStep,
+                KuaishouVideoDedup.DraftBatchUnavailableException when work.Request.Upload => "upload_series",
+                _ => "",
+            };
             var failureKind = step.Length > 0 ? step : KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message);
             await work.ReportAsync("failed", step, ShortDispatchFailure(ex.Message), failureKind).ConfigureAwait(false);
         }

@@ -390,6 +390,28 @@ public partial class WeixinWorkflowView : UserControl
     private void OnViewKuaishouLogsClick(object? sender, RoutedEventArgs e) =>
         ViewLogsRequested?.Invoke(this, EventArgs.Empty);
 
+    private async void OnKuaishouDraftActionClick(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner || ViewModel is not { } viewModel || sender is not Button button)
+            return;
+        var submit = button.Tag as string == "submit";
+        KuaishouCheckDraftButton.IsEnabled = false;
+        KuaishouSubmitDraftButton.IsEnabled = false;
+        try
+        {
+            var message = await viewModel.CheckKuaishouDraftAsync(submit
+                ? inspection => ConfirmDialog.ShowAsync(owner, "仅提交审核", inspection.Describe() + "\n\n确认提交原草稿？",
+                    560, 300, "确认提交")
+                : null);
+            await InfoDialog.ShowAsync(owner, message, submit ? "仅提交审核" : "检查草稿", 620, 370);
+        }
+        finally
+        {
+            KuaishouCheckDraftButton.IsEnabled = true;
+            KuaishouSubmitDraftButton.IsEnabled = true;
+        }
+    }
+
     private async void OnResubmitKuaishouCommitmentClick(object? sender, RoutedEventArgs e)
     {
         var owner = TopLevel.GetTopLevel(this) as Window;

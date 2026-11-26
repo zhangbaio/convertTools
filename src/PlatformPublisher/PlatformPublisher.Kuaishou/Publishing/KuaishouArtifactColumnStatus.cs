@@ -20,6 +20,7 @@ public sealed record KuaishouArtifactColumnStatus(
     string OverallStatus)
 {
     public bool HasSubmittedDedupBatch { get; init; }
+    public bool HasBoundDedupBatch { get; init; }
 }
 
 public static class KuaishouArtifactColumnStatusReader
@@ -100,6 +101,8 @@ public static class KuaishouArtifactColumnStatusReader
         var autoFillStatus = BoolStatus(IsAutoFillCompleted(prepare, workflowDir, autoFillName, completed));
         var uploadStatus = UploadStatusText(upload);
         var overallStatus = OverallStatusText(OverallState(prepare, upload), uploadStatus);
+        var batchIdentity = FirstText(upload.Str("VideoBatchIdentity"), upload.Str("videoBatchIdentity"), upload.Str("video_batch_identity"));
+        var draftId = FirstText(upload.Str("MiniSeriesId"), upload.Str("miniSeriesId"), upload.Str("mini_series_id"));
 
         return new KuaishouArtifactColumnStatus(
             originalTitle,
@@ -113,7 +116,8 @@ public static class KuaishouArtifactColumnStatusReader
             uploadStatus,
             overallStatus)
         {
-            HasSubmittedDedupBatch = HasSubmittedDedupBatch(upload),
+            HasSubmittedDedupBatch = HasSubmittedDedupBatch(upload, batchIdentity),
+            HasBoundDedupBatch = KuaishouPersonalUploadState.HasBoundDedupBatch(draftId, batchIdentity),
         };
     }
 
@@ -268,12 +272,9 @@ public static class KuaishouArtifactColumnStatusReader
         return "未执行";
     }
 
-    private static bool HasSubmittedDedupBatch(JsonMap upload)
-    {
-        var batch = FirstText(upload.Str("VideoBatchIdentity"), upload.Str("videoBatchIdentity"), upload.Str("video_batch_identity"));
-        return batch is { Length: 64 } && batch.All(Uri.IsHexDigit) &&
+    private static bool HasSubmittedDedupBatch(JsonMap upload, string? batchIdentity) =>
+        batchIdentity is { Length: 64 } && batchIdentity.All(Uri.IsHexDigit) &&
             (upload.Bool("ReviewSubmitted") || upload.Bool("reviewSubmitted") || upload.Bool("review_submitted"));
-    }
 
     private static JsonMap OverallState(JsonMap prepare, JsonMap upload)
     {

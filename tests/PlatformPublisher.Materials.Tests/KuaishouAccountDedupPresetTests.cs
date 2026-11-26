@@ -65,7 +65,7 @@ public sealed class KuaishouAccountDedupPresetTests
                 new KuaishouPersonalUploadState { MiniSeriesId = "100", VideoBatchIdentity = new string('A', 64) },
                 CancellationToken.None);
 
-            var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => KuaishouVideoDedup.RunAsync(
+            var failure = await Assert.ThrowsAsync<KuaishouVideoDedup.DraftBatchUnavailableException>(() => KuaishouVideoDedup.RunAsync(
                 Project(root.FullName), "account-a", "测试账号", VideoDedupPreset.CreateDefault(),
                 PublishPlatform.KuaishouPersonalRevenue, force: false, _ => { }, (_, _) => Task.FromResult(true),
                 CancellationToken.None));

@@ -145,6 +145,76 @@ public sealed class PublishJobRowStatusTests
         }
     }
 
+    [Theory]
+    [InlineData(true, true, "已完成")]
+    [InlineData(true, false, "失败")]
+    [InlineData(false, true, "失败")]
+    public void Bound_draft_keeps_historical_dedup_success_when_only_the_batch_is_missing(
+        bool hasBoundBatch, bool missingBatchError, string expected)
+    {
+        var root = Directory.CreateTempSubdirectory("ks-draft-dedup-status-");
+        try
+        {
+            var upload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                Status = "failed",
+                MiniSeriesId = "100",
+                VideoBatchIdentity = hasBoundBatch ? new string('A', 64) : "",
+                ReviewSubmitted = false,
+            });
+            File.WriteAllText(Path.Combine(root.FullName, ".kuaishou-personal-upload-state.json"), upload);
+            var job = KuaishouJob();
+            job.ProjectDirectory = root.FullName;
+            job.StepStates["kuaishou-video-dedup"] = new PublishJobStepState
+            {
+                Status = PublishJobStepStatus.Failed,
+                Message = missingBatchError
+                    ? "已有快手草稿绑定的去重成片缺失或未通过校验。请恢复原批次后续传，或按新分集另建草稿。"
+                    : "视频编码失败",
+            };
+            job.StepStates["weixin-upload"] = new PublishJobStepState { Status = PublishJobStepStatus.Failed };
+
+            var row = new PublishJobRowViewModel(job, loadArtifacts: true, loadTableInfo: false);
+
+            Assert.Equal(expected, row.VideoDedupStepStatus);
+            Assert.Equal("失败", row.UploadStepStatus);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Draft_waiting_for_confirmation_replaces_an_old_upload_failure_without_scheduling_a_retry()
+    {
+        var root = Directory.CreateTempSubdirectory("ks-draft-review-hold-");
+        try
+        {
+            File.WriteAllText(Path.Combine(root.FullName, ".kuaishou-personal-upload-state.json"),
+                """{"status":"failed","current_stage":"episode_upload"}""");
+            var job = KuaishouJob();
+            job.ProjectDirectory = root.FullName;
+            job.Status = PublishJobStatus.Blocked;
+            job.ScheduledAt = DateTimeOffset.Now.AddMinutes(-1);
+            job.StepStates["weixin-upload"] = new PublishJobStepState
+            {
+                Status = PublishJobStepStatus.Pending,
+                Message = "待确认",
+            };
+
+            var row = new PublishJobRowViewModel(job, loadArtifacts: true, loadTableInfo: false);
+
+            Assert.Equal("待确认", row.StatusText);
+            Assert.Equal("待确认", row.UploadStepStatus);
+            Assert.False(PlatformPublisher.Common.Services.PublishSchedulePolicy.IsDue(job, DateTimeOffset.Now));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static PublishJobRowViewModel RowWith(PublishJobStepStatus rewriteStatus, string message)
     {
         var job = KuaishouJob();

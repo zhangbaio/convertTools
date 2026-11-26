@@ -2303,7 +2303,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 SetStatusMessage(message);
         }
 
-        var counts = new int[2];
+        var counts = new int[3];
         var loginDetail = "";
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var work = targets.Select(directory =>
@@ -2363,6 +2363,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ReportRunStatus(done);
                     AppendActivityLog(done, projectName);
                     Interlocked.Increment(ref counts[0]);
+                }
+                catch (KuaishouDraftOnHoldException ex)
+                {
+                    SetKuaishouLogTone(item.directory, "none");
+                    ReportRunStatus(ex.Message);
+                    AppendActivityLog(ex.Message, projectName);
+                    Interlocked.Increment(ref counts[2]);
                 }
                 catch (OperationCanceledException)
                 {
@@ -2445,7 +2452,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return (counts[0], counts[1], "已停止");
         }
 
-        var summary = $"勾选队列已停止：成功 {counts[0]}，失败 {counts[1]}。";
+        var pending = counts[2] > 0 ? $"，待确认 {counts[2]}" : "";
+        var summary = $"勾选队列已停止：成功 {counts[0]}，失败 {counts[1]}{pending}。";
         ReportRunStatus(summary);
         AppendActivityLog(summary);
         return (counts[0], counts[1], lastError);
@@ -2665,6 +2673,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         Func<Task>? beforeArchive,
         Func<string, string, Task>? reportDispatchStep)
     {
+        if (request.Upload && !request.Force && reportDispatchStep is null && trackedJob is not null)
+            await CheckKuaishouDraftBeforeRetryAsync(trackedJob, trackedRow, cancellationToken);
+
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
         {
             ("download", "download", "下载剧集", request.Download),
@@ -2868,6 +2879,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         await RunTrackedStepAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step, KuaishouVideoDedup.Label,
                             force: true, async () => preparedVideos = await PrepareKuaishouDedupAsync(
                                 projectDirectory, projectName, config, request, cancellationToken));
+                    }
+                    catch (KuaishouVideoDedup.DraftBatchUnavailableException ex)
+                    {
+                        AppendActivityLog($"视频去重历史已完成，续传检查失败：{ex.Message}", projectName);
+                        if (request.Upload)
+                            await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集",
+                                PublishJobStepStatus.Failed, ex.Message);
+                        throw;
                     }
                     catch (Exception ex) when (reportDispatchStep is not null && ex is not OperationCanceledException)
                     {
@@ -3355,7 +3374,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 job.StatusMessage = ex.Message;
                 job.LastCompletedAt = DateTimeOffset.Now;
             }
-            await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Failed, ex.Message);
+            var historicalDedupCompleted = key == KuaishouVideoDedup.Step && ex is KuaishouVideoDedup.DraftBatchUnavailableException;
+            await UpdateStepStateAsync(job, row, key, label,
+                historicalDedupCompleted ? PublishJobStepStatus.Succeeded : PublishJobStepStatus.Failed,
+                historicalDedupCompleted ? "历史去重已完成" : ex.Message);
             throw;
         }
     }

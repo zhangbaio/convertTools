@@ -25,7 +25,7 @@ public sealed class KuaishouApiVideoUploader
         bool replaceExisting = false)
     {
         var label = "快手分账";
-        var episodes = await ReadEpisodesAsync(session, seriesId, cancellationToken, replaceExisting);
+        var episodes = await ReadEpisodesAsync(session, seriesId, cancellationToken);
         if (episodes.Count != videoPaths.Count)
             throw new InvalidOperationException($"短剧 {seriesId} 有 {episodes.Count} 集，本地有 {videoPaths.Count} 集，已停止上传。");
         var ready = episodes.Count(episode => episode.Ready);
@@ -42,6 +42,13 @@ public sealed class KuaishouApiVideoUploader
             if (SkipUploadedEpisode(episode.Ready, replaceExisting))
             {
                 progress?.Report($"{label}：第 {index + 1} 集已在线上，跳过。");
+                if (afterEpisode is not null)
+                    await afterEpisode(index, cancellationToken);
+                continue;
+            }
+            if (episode.Processing && !replaceExisting)
+            {
+                await WaitUntilReadyAsync(session, seriesId, episode.Id, progress, index + 1, cancellationToken);
                 if (afterEpisode is not null)
                     await afterEpisode(index, cancellationToken);
                 continue;
@@ -91,7 +98,7 @@ public sealed class KuaishouApiVideoUploader
         }
     }
 
-    public async Task SubmitAsync(KuaishouApiSession session, string seriesId, CancellationToken cancellationToken)
+    public async Task SubmitAsync(IKuaishouKdjGateway session, string seriesId, CancellationToken cancellationToken)
     {
         await session.PostJsonAsync(
             SubmitUrl,
@@ -163,28 +170,35 @@ public sealed class KuaishouApiVideoUploader
 
     public static bool EpisodeReady(JsonElement row)
     {
-        if (row.TryGetProperty("videoUploadStatus", out var status))
-        {
-            if (status.ValueKind == JsonValueKind.String)
-            {
-                var text = status.GetString()?.Trim() ?? string.Empty;
-                if (text.Equals("FAIL", StringComparison.OrdinalIgnoreCase) ||
-                    text.Equals("FAILED", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("快手确认分集视频状态失败。");
-                if (text.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            else if (status.TryGetInt32(out var code) && code >= 3)
-            {
-                throw new InvalidOperationException("快手确认分集视频状态失败。");
-            }
-        }
+        if (EpisodeFailed(row))
+            throw new InvalidOperationException("快手确认分集视频状态失败。");
+        if (EpisodeProcessing(row))
+            return false;
+        var status = FirstString(row, "videoUploadStatus");
+        if (status.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase) || status == "2")
+            return true;
 
         if (FirstString(row, "previewVideoPlayUrl", "videoId", "previewVideoId").Length > 0)
             return true;
-        if (row.TryGetProperty("videoStatus", out var videoStatus) && videoStatus.TryGetInt32(out var videoCode))
-            return videoCode == 1;
-        return row.TryGetProperty("videoUploadStatus", out status) && status.TryGetInt32(out var ready) && ready == 2;
+        return FirstString(row, "videoStatus") == "1";
+    }
+
+    internal static bool EpisodeFailed(JsonElement row)
+    {
+        var status = FirstString(row, "videoUploadStatus");
+        return status.Equals("FAIL", StringComparison.OrdinalIgnoreCase) || status.Equals("FAILED", StringComparison.OrdinalIgnoreCase) ||
+            int.TryParse(status, NumberStyles.None, CultureInfo.InvariantCulture, out var code) && code >= 3 ||
+            FirstString(row, "videoStatus") == "2";
+    }
+
+    internal static bool EpisodeProcessing(JsonElement row)
+    {
+        var status = FirstString(row, "videoUploadStatus");
+        return status.Equals("PROCESSING", StringComparison.OrdinalIgnoreCase) ||
+            status.Equals("UPLOADING", StringComparison.OrdinalIgnoreCase) ||
+            FirstString(row, "videoStatus") == "0" &&
+            (status is "1" or "2" || status.Equals("SUCCESS", StringComparison.OrdinalIgnoreCase) ||
+             FirstString(row, "previewVideoPlayUrl", "videoId", "previewVideoId").Length > 0);
     }
 
     public static bool EpisodeUploaded(JsonElement row, bool replaceExisting)
@@ -238,6 +252,8 @@ public sealed class KuaishouApiVideoUploader
             var match = episodes.FirstOrDefault(item => item.Id == episodeId);
             if (match.Ready)
                 return;
+            if (match.Failed)
+                throw new InvalidOperationException($"快手确认第 {number} 集视频处理失败。");
             progress?.Report($"快手分账：第 {number} 集视频处理中。");
             await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
         }
@@ -248,14 +264,13 @@ public sealed class KuaishouApiVideoUploader
     private async Task<IReadOnlyList<EpisodeSlot>> ReadEpisodesAsync(
         KuaishouApiSession session,
         string seriesId,
-        CancellationToken cancellationToken,
-        bool replaceExisting = false)
+        CancellationToken cancellationToken)
     {
         var detail = await session.PostJsonAsync(DetailUrl, "{\"miniSeriesId\":" + seriesId + "}", cancellationToken);
         using var document = JsonDocument.Parse(detail);
         var rows = new List<(int Order, int Index, EpisodeSlot Episode)>();
         var index = 0;
-        foreach (var row in Enumerate(document.RootElement))
+        foreach (var row in ReadEpisodeRows(document.RootElement))
         {
             var id = FirstString(row, "episodeId");
             if (id.Length == 0)
@@ -267,7 +282,8 @@ public sealed class KuaishouApiVideoUploader
             var order = row.TryGetProperty("orderNo", out var orderNo) && orderNo.TryGetInt32(out var value)
                 ? value
                 : index;
-            rows.Add((order, index, new EpisodeSlot(id, EpisodeUploaded(row, replaceExisting))));
+            var failed = EpisodeFailed(row);
+            rows.Add((order, index, new EpisodeSlot(id, !failed && EpisodeReady(row), failed, !failed && EpisodeProcessing(row))));
             index++;
         }
 
@@ -311,7 +327,7 @@ public sealed class KuaishouApiVideoUploader
         return false;
     }
 
-    private static IEnumerable<JsonElement> Enumerate(JsonElement root)
+    internal static IEnumerable<JsonElement> ReadEpisodeRows(JsonElement root)
     {
         foreach (var name in new[] { "episodeList", "seriesList" })
         {
@@ -396,5 +412,5 @@ public sealed class KuaishouApiVideoUploader
         return filled;
     }
 
-    private readonly record struct EpisodeSlot(string Id, bool Ready);
+    private readonly record struct EpisodeSlot(string Id, bool Ready, bool Failed, bool Processing);
 }

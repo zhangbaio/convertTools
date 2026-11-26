@@ -11,6 +11,8 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class PublishJobRowViewModel : ObservableObject
 {
+    internal const string DraftReviewPendingText = "待确认";
+
     public PublishJobRowViewModel(PublishJob model, bool loadArtifacts = true, bool loadTableInfo = true)
     {
         Model = model;
@@ -56,6 +58,8 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         get
         {
             var kuaishou = Model.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+            if (kuaishou && IsDraftReviewPending)
+                return DraftReviewPendingText;
             if (kuaishou &&
                 Model.StepStates.TryGetValue("weixin-upload", out var uploadStep) &&
                 uploadStep.Status == PublishJobStepStatus.Running)
@@ -89,6 +93,9 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string VideoDedupStepStatus => KuaishouStep(null, PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step) switch
     {
         "已跳过" when _kuaishou?.HasSubmittedDedupBatch == true => "已完成",
+        "失败" when _kuaishou?.HasBoundDedupBatch == true &&
+            Model.StepStates.TryGetValue(PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step, out var dedup) &&
+            dedup.Message == PlatformPublisher.Desktop.Services.KuaishouVideoDedup.MissingDraftBatchMessage => "已完成",
         "执行中" => "进行中",
         var status => status,
     };
@@ -106,7 +113,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string ValidateStepStatus => StepStatus("material-validate");
     public string AiProofStepStatus => StepStatus("ai-proof");
     public string TimestampStepStatus => StepStatus("timestamp-certificate");
-    public string UploadStepStatus => KuaishouStep(_kuaishou?.UploadStatus, "weixin-upload");
+    public string UploadStepStatus => IsDraftReviewPending
+        ? DraftReviewPendingText : KuaishouStep(_kuaishou?.UploadStatus, "weixin-upload");
+    private bool IsDraftReviewPending => Model.Status == PublishJobStatus.Blocked &&
+        Model.StepStates.GetValueOrDefault("weixin-upload") is
+            { Status: PublishJobStepStatus.Pending, Message: DraftReviewPendingText };
     public IBrush DownloadStepBrush => ForegroundBrush(DownloadStepStatus);
     public IBrush RewriteStepBrush => ForegroundBrush(RewriteStepStatus);
     public IBrush PosterStepBrush => ForegroundBrush(PosterStepStatus);
@@ -282,7 +293,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         if (text is "失败" or "异常" or "错误" || text.Contains("失败", StringComparison.Ordinal)) return StepTone.Failed;
         if (text is "已停止" or "停止中" or "已跳过") return StepTone.Stopped;
         if (text is "手工介入" || text.StartsWith("部分完成", StringComparison.Ordinal) || text is "已保持" or "已保存草稿") return StepTone.Held;
-        if (text is "未执行" or "待执行" or "等待执行") return StepTone.Pending;
+        if (text is "未执行" or "待执行" or "等待执行" or DraftReviewPendingText) return StepTone.Pending;
         return StepTone.Default;
     }
 

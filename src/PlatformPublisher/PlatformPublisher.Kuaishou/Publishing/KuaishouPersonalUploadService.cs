@@ -33,6 +33,80 @@ public sealed class KuaishouPersonalUploadService
         _onlineQueueStore = onlineQueueStore;
     }
 
+    public async Task<KuaishouBoundDraftCheck> CheckBoundDraftAsync(PublishJob job, CancellationToken cancellationToken)
+    {
+        var workflow = BoundDraftWorkflow(job);
+        var state = ReadBoundDraft(job, workflow);
+        using var session = KuaishouApiSession.Open(KuaishouPersonalConfig.ReadAuthStatePath(job));
+        var inspection = await KuaishouDraftSubmission.InspectAsync(
+            session, state.MiniSeriesId, state.VideoBatchEpisodeCount, cancellationToken);
+        if (state.ReviewSubmitted && !inspection.AlreadySubmitted)
+            throw new InvalidOperationException("本地已有提审记录，平台尚未确认。请先核对该草稿的审核状态。");
+        return new(inspection, state.VideoBatchIdentity);
+    }
+
+    public async Task<bool> CompleteBoundDraftReviewAsync(
+        PublishJob job, KuaishouBoundDraftCheck check, bool submit, CancellationToken cancellationToken)
+    {
+        var workflow = BoundDraftWorkflow(job);
+        await using var lease = await KuaishouSettlementEpisodeVideoService.AcquireOutputLockAsync(workflow, cancellationToken);
+        var state = ReadBoundDraft(job, workflow);
+        if (state.MiniSeriesId.Trim() != check.Inspection.SeriesId || state.VideoBatchIdentity != check.BatchIdentity ||
+            state.VideoBatchEpisodeCount != check.Inspection.ExpectedEpisodes)
+            throw new InvalidOperationException("项目绑定的草稿或视频批次已变更，请重新检查草稿。");
+
+        using var session = KuaishouApiSession.Open(KuaishouPersonalConfig.ReadAuthStatePath(job));
+        var submitted = false;
+        if (submit && !state.ReviewSubmitted && check.Inspection.CanSubmit)
+        {
+            submitted = await KuaishouDraftSubmission.SubmitAsync(
+                session, state.MiniSeriesId, state.VideoBatchEpisodeCount, cancellationToken);
+        }
+        else
+        {
+            var latest = await KuaishouDraftSubmission.InspectAsync(
+                session, state.MiniSeriesId, state.VideoBatchEpisodeCount, cancellationToken);
+            if (!latest.AlreadySubmitted)
+                throw new InvalidOperationException("平台尚未确认已提审。" + latest.Describe());
+        }
+
+        if (!state.ReviewSubmitted)
+        {
+            if (submitted)
+            {
+                state.VideosUploaded = true;
+                state.ReviewSubmitted = true;
+                state.Status = "completed";
+                state.CurrentStage = "review_submitted";
+                state.LastError = "";
+                state.SubmittedAt = DateTimeOffset.Now;
+            }
+            else
+            {
+                state.MarkAlreadyOnPlatform(check.Inspection.SeriesId);
+            }
+            await _stateStore.SaveAsync(workflow, state, CancellationToken.None, job.Platform);
+        }
+        return submitted;
+    }
+
+    private static string BoundDraftWorkflow(PublishJob job)
+    {
+        if (job.Platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue) ||
+            string.IsNullOrWhiteSpace(job.AccountId) || !Directory.Exists(job.ProjectDirectory))
+            throw new InvalidOperationException("请选中当前快手账号下已有草稿的项目。");
+        return KuaishouArtifactColumnStatusReader.ResolveDirectories(job.ProjectDirectory).WorkflowDirectory;
+    }
+
+    private KuaishouPersonalUploadState ReadBoundDraft(PublishJob job, string workflow)
+    {
+        var state = _stateStore.Load(workflow, job.Platform);
+        if (!state.HasBoundDedupBatch() || state.VideoBatchEpisodeCount <= 0 ||
+            !state.FirstPageCompleted || !state.EpisodeInfoCompleted || state.ReplaceExistingVideos)
+            throw new InvalidOperationException("当前项目没有可核对的原草稿与去重批次，请先检查项目的草稿绑定。");
+        return state;
+    }
+
     public async Task RunAsync(
         PublishJob job,
         IProgress<string>? progress,

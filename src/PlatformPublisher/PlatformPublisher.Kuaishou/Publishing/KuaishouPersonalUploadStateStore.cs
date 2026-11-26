@@ -22,6 +22,11 @@ public sealed class KuaishouPersonalUploadState
     public string VideoBatchIdentity { get; set; } = string.Empty;
     public int VideoBatchEpisodeCount { get; set; }
 
+    public bool HasBoundDedupBatch() => HasBoundDedupBatch(MiniSeriesId, VideoBatchIdentity);
+
+    internal static bool HasBoundDedupBatch(string? miniSeriesId, string? batchIdentity) =>
+        !string.IsNullOrWhiteSpace(miniSeriesId) && batchIdentity is { Length: 64 } && batchIdentity.All(Uri.IsHexDigit);
+
     public void BindVideoBatch(PublishVideoBatch? batch)
     {
         var identity = batch?.Identity ?? "";

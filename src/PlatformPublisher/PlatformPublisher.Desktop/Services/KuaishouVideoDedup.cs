@@ -15,6 +15,7 @@ internal static class KuaishouVideoDedup
     internal const string Step = "kuaishou-video-dedup";
     internal const string DispatchStep = "video_dedup";
     internal const string Label = "视频去重";
+    internal const string MissingDraftBatchMessage = "已有快手草稿绑定的去重成片缺失或未通过校验。请恢复原批次后续传，或按新分集另建草稿。";
     private const string LibraryKey = "kuaishou.video-dedup.templates";
     private static readonly PlatformDatabase Database = new(PlatformPublisherPaths.MainDatabasePath);
     private static readonly JsonSettingStore Settings = new(Database);
@@ -25,6 +26,10 @@ internal static class KuaishouVideoDedup
     private const string BatchPrefix = "批次-";
 
     internal sealed class FailedException(Exception cause) : InvalidOperationException($"视频去重失败：{cause.Message}", cause)
+    {
+    }
+
+    internal sealed class DraftBatchUnavailableException() : InvalidOperationException(MissingDraftBatchMessage)
     {
     }
 
@@ -87,9 +92,13 @@ internal static class KuaishouVideoDedup
 
             var upload = new KuaishouPersonalUploadStateStore().Load(workflow, platform);
             if (current is null && !string.IsNullOrWhiteSpace(upload.MiniSeriesId))
+            {
+                if (upload.HasBoundDedupBatch())
+                    throw new DraftBatchUnavailableException();
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(upload.VideoBatchIdentity)
                     ? "已有快手草稿使用原片。请取消视频去重后续传，或按新分集另建草稿。"
-                    : "已有快手草稿绑定的去重成片缺失或未通过校验。请恢复原批次后续传，或按新分集另建草稿。");
+                    : MissingDraftBatchMessage);
+            }
             if (current is not null)
             {
                 upload.BindVideoBatch(current);

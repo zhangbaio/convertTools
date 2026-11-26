@@ -327,6 +327,12 @@
                             <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" Margin="0,0,6,0" />
                             <Button x:Name="KuaishouRepairVideosButton" Content="视频补传" Click="OnRepairKuaishouVideosClick" Classes="repairAction compactAction"
                                     ToolTip.Tip="按新剧名补传无法播放的集。列表里还有视频就直接补传；已归档的先回退并重新下载。" />
+                            <Button x:Name="KuaishouCheckDraftButton" Content="检查草稿" Click="OnKuaishouDraftActionClick"
+                                    Classes="repairAction compactAction" Margin="6,0,0,0"
+                                    ToolTip.Tip="查询所选项目的原草稿及线上分集状态。" />
+                            <Button x:Name="KuaishouSubmitDraftButton" Content="仅提交审核" Tag="submit" Click="OnKuaishouDraftActionClick"
+                                    Classes="repairAction compactAction" Margin="6,0,0,0"
+                                    ToolTip.Tip="线上分集全部处理完成时，可直接提审原草稿。" />
                             <Button x:Name="KuaishouResubmitButton" Content="重新提交" Click="OnResubmitKuaishouCommitmentClick" Classes="repairAction compactAction" Margin="6,0,0,0"
                                     ToolTip.Tip="筛选当前账号已上架、发布成功，且承诺函提示未加盖机构主体公章的短剧，按原内容重新提交审核。" />
                             <Button x:Name="KuaishouAuditTimeoutButton" Content="审核超时重提" Click="OnResubmitKuaishouAuditTimeoutClick"
