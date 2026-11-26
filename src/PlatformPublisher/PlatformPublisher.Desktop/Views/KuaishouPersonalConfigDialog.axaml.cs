@@ -112,7 +112,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         CommitmentRecipientBox.Text = _config.CommitmentRecipientCompanyName;
 
-        FillChoice(AuthorDeclarationBox, KuaishouFormChoices.AuthorDeclarations, _config.AuthorDeclaration, "1");
         ProductionYearBox.Text = _config.ProductionYear;
         AverageDurationBox.Text = _config.AverageEpisodeMinutes;
         ProductionCostBox.Text = _config.ProductionCost;
@@ -309,7 +308,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         _config.CommitmentRecipientCompanyName = CommitmentRecipientBox.Text?.Trim() ?? string.Empty;
 
-        _config.AuthorDeclaration = ChoiceValue(AuthorDeclarationBox, "1");
         _config.ProductionYear = ProductionYearBox.Text?.Trim() ?? string.Empty;
         _config.AverageEpisodeMinutes = AverageDurationBox.Text?.Trim() ?? string.Empty;
         _config.ProductionCost = ProductionCostBox.Text?.Trim() ?? string.Empty;

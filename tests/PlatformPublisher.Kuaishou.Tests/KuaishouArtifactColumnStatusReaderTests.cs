@@ -273,7 +273,6 @@ public sealed class KuaishouFormChoicesTests
     {
         var config = new KuaishouPersonalConfig
         {
-            AuthorDeclaration = "1",
             SaleType = "3",
             BroadcastTimeMode = "today",
             RevenueShareFullSceneDisplay = true,

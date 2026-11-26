@@ -81,10 +81,6 @@
                             <TextBlock Classes="configurationHeading" Text="剧集与售卖" />
                             <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
                                 <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="作者声明" />
-                                    <ComboBox x:Name="AuthorDeclarationBox" Classes="configurationInput" AutomationProperties.Name="作者声明" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="出品年份" />
                                     <TextBox x:Name="ProductionYearBox" Classes="configurationInput" AutomationProperties.Name="出品年份" />
                                 </StackPanel>

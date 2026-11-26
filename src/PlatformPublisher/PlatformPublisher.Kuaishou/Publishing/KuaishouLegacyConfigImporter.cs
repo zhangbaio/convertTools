@@ -47,7 +47,6 @@ public static class KuaishouLegacyConfigImporter
         [nameof(KuaishouPersonalConfig.FullSceneDisplay)] = "kuaishou_full_scene_display",
         [nameof(KuaishouPersonalConfig.PlotLabels)] = "kuaishou_plot_list",
         [nameof(KuaishouPersonalConfig.TagLabels)] = "kuaishou_tag_list",
-        [nameof(KuaishouPersonalConfig.AuthorDeclaration)] = "kuaishou_author_declaration",
         [nameof(KuaishouPersonalConfig.HasCopyrightProof)] = "kuaishou_has_copyright_proof",
         [nameof(KuaishouPersonalConfig.CopyrightValidStartTime)] = "kuaishou_copyright_valid_start_time",
         [nameof(KuaishouPersonalConfig.CopyrightValidEndTime)] = "kuaishou_copyright_valid_end_time",

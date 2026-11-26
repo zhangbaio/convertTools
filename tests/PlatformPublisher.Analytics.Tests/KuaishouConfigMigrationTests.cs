@@ -75,11 +75,11 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         PublishPlatform platform, int width, int height, string productionForm)
     {
         var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>("""
-            {"ContentType":"短剧","ProductionMethod":"2","ProductionForm":"横屏",
+            {"ContentType":"短剧","ProductionMethod":"2","ProductionForm":"横屏","AuthorDeclaration":"0",
              "CopyrightProofType":"授权版权","BroadcastPlatform":"其他平台","BroadcastChannel":"PC端"}
             """)!;
         using var legacy = JsonDocument.Parse("""
-            {"kuaishou_content_type":"短剧","kuaishou_comic_production_method":4,"kuaishou_production_form":"竖屏",
+            {"kuaishou_content_type":"短剧","kuaishou_comic_production_method":4,"kuaishou_production_form":"竖屏","kuaishou_author_declaration":0,
              "kuaishou_copyright_proof_type":2,"kuaishou_broadcast_platform":"其他平台","kuaishou_broadcast_channel":"PC端"}
             """);
 
@@ -89,6 +89,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         foreach (var name in new[]
                  {
                      nameof(config.ContentType), nameof(config.ProductionMethod), nameof(config.ProductionForm),
+                     nameof(config.AuthorDeclaration),
                      nameof(config.CopyrightProofType), nameof(config.BroadcastPlatform), nameof(config.BroadcastChannel),
                  })
             Assert.False(saved.RootElement.TryGetProperty(name, out _), name);
@@ -96,6 +97,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         var form = KuaishouPersonalFormResolver.Resolve(config, width, height);
         Assert.Equal("漫剧", form.ContentTypeLabel);
         Assert.Equal("AIGC剧", form.ComicMethodLabel);
+        Assert.Equal("含AI生成内容", form.AuthorDeclarationLabel);
         Assert.Equal(productionForm, form.ProductionForm);
         Assert.Equal("自有版权", form.CopyrightProofTypeLabel);
         Assert.Equal("快手", form.BroadcastPlatform);
@@ -104,6 +106,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         var overlay = KuaishouPersonalFormResolver.SettingsOverlay(config, platform == PublishPlatform.KuaishouEnterpriseRevenue);
         Assert.Equal("漫剧", overlay["kuaishou_content_type"]);
         Assert.Equal(3, overlay["kuaishou_comic_production_method"]);
+        Assert.Equal(1, overlay["kuaishou_author_declaration"]);
         Assert.Equal("auto", overlay["kuaishou_production_form"]);
         Assert.Equal(1, overlay["kuaishou_copyright_proof_type"]);
         Assert.Equal("快手", overlay["kuaishou_broadcast_platform"]);

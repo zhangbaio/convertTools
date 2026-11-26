@@ -81,7 +81,7 @@ public sealed class KuaishouPersonalConfig
     public string AudienceGender { get; set; } = "男频";
     public string PlotLabels { get; set; } = string.Empty;
     public string TagLabels { get; set; } = string.Empty;
-    public string AuthorDeclaration { get; set; } = "1";
+    [JsonIgnore] public string AuthorDeclaration => "1";
     public string MaterialTitleTemplate { get; set; } = "{新剧名}{排名}-{素材ID}";
     public string MaterialType { get; set; } = "高光";
     public string MaterialAuthorDeclaration { get; set; } = "含AI生成内容";
