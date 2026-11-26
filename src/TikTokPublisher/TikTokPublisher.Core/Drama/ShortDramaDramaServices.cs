@@ -172,21 +172,21 @@ public static class ShortDramaDramaServices
         return enriched.Select(FromCore).ToArray();
     }
 
-    public readonly record struct HongguoAppNewReleasePage(
+    public readonly record struct HongguoNewReleasePage(
         IReadOnlyList<DramaSearchItem> Items,
         bool HasMore,
         int NextOffset,
         string SessionId);
 
-    public static async Task<HongguoAppNewReleasePage> GetHongguoAppNewReleasePageAsync(
+    public static async Task<HongguoNewReleasePage> GetHongguoNewReleasePageAsync(
         bool ai,
         int offset,
         string? sessionId,
         CancellationToken cancellationToken)
     {
         RefreshSettings();
-        var page = await Router.Value.GetHongguoAppNewReleasePageAsync(ai, offset, sessionId, cancellationToken);
-        return new HongguoAppNewReleasePage(
+        var page = await Router.Value.GetHongguoNewReleasePageAsync(ai, offset, sessionId, cancellationToken);
+        return new HongguoNewReleasePage(
             page.Items.Select(FromCore).ToArray(),
             page.HasMore,
             page.NextOffset,

@@ -163,6 +163,43 @@ public sealed class PlayletDramaChainTests
         handler.ComicNewUrls[0].Should().NotContain("shortplay");
     }
 
+    [Theory]
+    [InlineData(true, "ai_series")]
+    [InlineData(false, "comic_series")]
+    public async Task Shelf_pages_preserve_the_cursor_and_playlet_download_route_beyond_eight_pages(bool ai, string genre)
+    {
+        var handler = new PlayletHandler();
+        using var httpClient = new HttpClient(handler);
+        var router = new DramaSourceRouter(
+            httpClient,
+            new PlayletSettings(new DramaSourceSettings
+            {
+                DramaSourceChain = "playlet",
+                HongguoAppDeviceId = "1234567890123456",
+                HongguoAppInstallId = "1234567890123457",
+            }),
+            new HongguoNewApiService(httpClient),
+            new HongguoDramaSearchService(httpClient),
+            new HongguoDramaDownloader(httpClient),
+            new HongguoMemoryReaderService());
+
+        var offset = 0;
+        var session = "";
+        for (var index = 0; index < 9; index++)
+        {
+            var page = await router.GetHongguoNewReleasePageAsync(ai, offset, session, CancellationToken.None);
+            page.Items.Should().ContainSingle().Which.BookId.Should().Be($"playlet:{7000000000000000000L + offset}");
+            page.HasMore.Should().Be(index < 8);
+            page.NextOffset.Should().Be(offset + 18);
+            page.SessionId.Should().Be("shelfSession");
+            handler.ShelfRequests[index].Should().Be((genre, offset, session));
+            offset = page.NextOffset;
+            session = page.SessionId;
+        }
+
+        handler.ShelfRequests.Should().HaveCount(9);
+    }
+
     private static DateOnly ChinaToday()
     {
         TimeZoneInfo zone;
@@ -198,11 +235,35 @@ public sealed class PlayletDramaChainTests
         public string? VideoDeviceId { get; private set; }
         public string RankUrl { get; private set; } = "";
         public List<string> ComicNewUrls { get; } = [];
+        public List<(string Genre, int Offset, string Session)> ShelfRequests { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri?.AbsolutePath ?? "";
             Paths.Add(path);
+            if (path == HongguoAppDirectClient.LandpagePath)
+            {
+                using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+                var offset = body.RootElement.GetProperty("offset").GetInt32();
+                ShelfRequests.Add((body.RootElement.GetProperty("req_scene").GetString()!, offset,
+                    body.RootElement.GetProperty("session_id").GetString()!));
+                return Json(JsonSerializer.Serialize(new
+                {
+                    code = 0,
+                    data = new
+                    {
+                        has_more = offset < 144,
+                        next_offset = offset + 18,
+                        session_id = "shelfSession",
+                        cell_list = new[] { new { video_data = new
+                        {
+                            series_id = (7000000000000000000L + offset).ToString(CultureInfo.InvariantCulture),
+                            series_title = "分页测试剧",
+                            episode_cnt = 12,
+                        } } },
+                    },
+                }));
+            }
             if (path.EndsWith("/api/business/member/memberInfo", StringComparison.OrdinalIgnoreCase))
             {
                 var body = request.Content is null

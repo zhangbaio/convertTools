@@ -167,7 +167,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
         {
             progress?.Report("正在读取漫剧上新，最新上架，7天内...");
-            var items = await LoadPlayletShelfNewAsync("comic_series", cancellationToken);
+            var items = await LoadPlayletShelfNewAsync(ai: false, cancellationToken);
             partialResults?.Report(items);
             return items;
         }
@@ -209,7 +209,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
         {
             progress?.Report("正在读取 AI短剧上新，最新上架，7天内...");
-            var items = await LoadPlayletShelfNewAsync("ai_series", cancellationToken);
+            var items = await LoadPlayletShelfNewAsync(ai: true, cancellationToken);
             partialResults?.Report(items);
             return items;
         }
@@ -223,14 +223,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "ai", days, ct));
     }
 
-    public async Task<HongguoAppReleasePage> GetHongguoAppNewReleasePageAsync(
+    public async Task<HongguoAppReleasePage> GetHongguoNewReleasePageAsync(
         bool ai,
         int offset,
         string? sessionId,
         CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
-        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
+        var chain = settings.DramaSourceChain?.Trim();
+        var playlet = string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase);
+        if (!playlet && !string.Equals(chain, "hongguoapp", StringComparison.OrdinalIgnoreCase))
             return new HongguoAppReleasePage([], false, Math.Max(0, offset), sessionId ?? "");
 
         var page = await _hongguoApp.GetNewReleasePageAsync(
@@ -242,7 +244,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             settings.HongguoAppInstallId);
         return page with
         {
-            Items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
+            Items = playlet
+                ? page.Items.Select(AsPlayletBook).ToArray()
+                : page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
         };
     }
 
@@ -274,7 +278,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
 
     private async Task<IReadOnlyList<DramaSearchItem>> LoadPlayletShelfNewAsync(
-        string genre,
+        bool ai,
         CancellationToken cancellationToken)
     {
         var items = new List<DramaSearchItem>();
@@ -283,19 +287,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var sessionId = "";
         for (var page = 0; page < 8; page++)
         {
-            var settings = _settingsProvider.Get();
-            var batch = await _hongguoApp.GetNewReleasePageAsync(
-                genre,
-                offset,
-                sessionId,
-                cancellationToken,
-                settings.HongguoAppDeviceId,
-                settings.HongguoAppInstallId);
+            var batch = await GetHongguoNewReleasePageAsync(ai, offset, sessionId, cancellationToken);
             foreach (var item in batch.Items)
             {
-                var retargeted = AsPlayletBook(item);
-                if (!string.IsNullOrWhiteSpace(retargeted.BookId) && seen.Add(retargeted.BookId))
-                    items.Add(retargeted);
+                if (!string.IsNullOrWhiteSpace(item.BookId) && seen.Add(item.BookId))
+                    items.Add(item);
             }
 
             if (!string.IsNullOrWhiteSpace(batch.SessionId))
