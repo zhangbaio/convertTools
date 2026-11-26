@@ -20,7 +20,6 @@ public sealed class KuaishouAccountAiEditor : UserControl
     private readonly ComboBox _imagePresets = new() { DisplayMemberBinding = new Binding(nameof(KuaishouImagePreset.Name)) };
     private readonly RadioButton _direct = new() { Content = "AI 直接生成" };
     private readonly RadioButton _erase = new() { Content = "去字后固定字体写入" };
-    private readonly CheckBox _inheritPosterMode = new() { Content = "使用本机默认" };
     private readonly TextBox _textKey = new() { PasswordChar = '●' };
     private readonly TextBox _imageKey = new() { PasswordChar = '●' };
     private readonly TextBox _publish = Prompt();
@@ -37,6 +36,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
     private string _shownHorizontal = "";
     private string _shownMode = "";
     private bool _loading;
+    private bool _needsExplicitPosterMode;
     internal KuaishouAccountAiStore? Store { get; set; }
 
     public KuaishouAccountAiEditor()
@@ -52,7 +52,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
         _direct.GroupName = _erase.GroupName = $"kuaishou-poster-{Guid.NewGuid():N}";
         panel.Children.Add(Field("海报模式", new WrapPanel
         {
-            Children = { _direct, _erase, _inheritPosterMode },
+            Children = { _direct, _erase },
         }));
         panel.Children.Add(Field("3:4 竖屏海报提示词", PosterPromptRow(_vertical, horizontal: false)));
         panel.Children.Add(Field("16:10 横屏封面提示词", PosterPromptRow(_horizontal, horizontal: true)));
@@ -68,10 +68,6 @@ public sealed class KuaishouAccountAiEditor : UserControl
         {
             if (!_loading && _erase.IsChecked == true) ChangePosterMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
         };
-        _inheritPosterMode.IsCheckedChanged += (_, _) =>
-        {
-            if (!_loading) ChangePosterMode();
-        };
     }
 
     internal void LoadAccount(string? accountId)
@@ -79,10 +75,15 @@ public sealed class KuaishouAccountAiEditor : UserControl
         IsEnabled = Store is not null && !string.IsNullOrWhiteSpace(accountId);
         _feedback.Text = "";
         _draft = new();
+        _needsExplicitPosterMode = false;
         _defaults = IsEnabled ? ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath) : new();
         if (IsEnabled)
         {
-            try { _draft = Store!.Load(accountId!); }
+            try
+            {
+                _draft = Store!.Load(accountId!);
+                _needsExplicitPosterMode = string.IsNullOrWhiteSpace(_draft.PosterMode);
+            }
             catch (InvalidOperationException ex) { _feedback.Text = ex.Message; }
         }
 
@@ -93,9 +94,11 @@ public sealed class KuaishouAccountAiEditor : UserControl
                 _draft.TextPresets, preset => preset.Id, _draft.TextPresetId);
             SelectPreset(_imagePresets, KuaishouAccountAiSettings.DefaultImage(_defaults),
                 _draft.ImagePresets, preset => preset.Id, _draft.ImagePresetId);
-            _inheritPosterMode.IsChecked = _draft.PosterMode.Length == 0;
-            SelectPosterMode(_draft.PosterMode);
-            ShowPoster();
+            var mode = string.IsNullOrWhiteSpace(_draft.PosterMode) ? _defaults.PosterMode : _draft.PosterMode;
+            var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode);
+            _direct.IsChecked = !erase;
+            _erase.IsChecked = erase;
+            ShowPoster(mode);
             _publish.Text = _shownPublish = _draft.PublishPrompt.Length > 0
                 ? _draft.PublishPrompt : ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(_defaults);
             ShowKeys();
@@ -108,11 +111,15 @@ public sealed class KuaishouAccountAiEditor : UserControl
 
     internal KuaishouAccountAiOptions? PendingOptions()
     {
-        if (!HasChanges) return null;
+        if (!HasChanges && !_needsExplicitPosterMode) return null;
         return _draft with { TextKeys = new(_draft.TextKeys), ImageKeys = new(_draft.ImageKeys) };
     }
 
-    internal void Save(string accountId, KuaishouAccountAiOptions options) => Store!.Save(accountId, options);
+    internal void Save(string accountId, KuaishouAccountAiOptions options)
+    {
+        Store!.Save(accountId, options);
+        _needsExplicitPosterMode = false;
+    }
 
     internal void CaptureClean() => _clean = Snapshot();
 
@@ -127,7 +134,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
         {
             TextPresetId = (_textPresets.SelectedItem as KuaishouTextPreset)?.Id ?? "",
             ImagePresetId = (_imagePresets.SelectedItem as KuaishouImagePreset)?.Id ?? "",
-            PosterMode = SelectedPosterMode(),
+            PosterMode = _shownMode,
             PublishPrompt = EditedPrompt(_publish, _shownPublish, _draft.PublishPrompt),
         };
         _shownPublish = _publish.Text ?? "";
@@ -188,32 +195,16 @@ public sealed class KuaishouAccountAiEditor : UserControl
         else keys[address] = text;
     }
 
-    private void ChangePosterMode(string? selected = null)
+    private void ChangePosterMode(string mode)
     {
         CapturePoster();
-        _loading = true;
-        try { SelectPosterMode(selected ?? SelectedPosterMode()); }
-        finally { _loading = false; }
-        ShowPoster();
+        ShowPoster(mode);
     }
 
-    private string SelectedPosterMode() => _inheritPosterMode.IsChecked == true ? "" : _erase.IsChecked == true
-        ? ClientSettingsDefaults.PosterModeEraseFixedTitle : ClientSettingsDefaults.PosterModeDirect;
-
-    private void SelectPosterMode(string mode)
+    private void ShowPoster(string mode)
     {
-        var inherited = _inheritPosterMode.IsChecked == true;
-        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(inherited ? _defaults.PosterMode : mode);
-        _direct.IsEnabled = _erase.IsEnabled = !inherited;
-        _direct.IsChecked = !erase;
-        _erase.IsChecked = erase;
-    }
-
-    private void ShowPoster()
-    {
-        var mode = SelectedPosterMode();
-        _shownMode = mode.Length > 0 ? mode : _defaults.PosterMode;
-        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(_shownMode);
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode);
+        _shownMode = erase ? ClientSettingsDefaults.PosterModeEraseFixedTitle : ClientSettingsDefaults.PosterModeDirect;
         _vertical.Text = _shownVertical = EffectivePrompt(erase ? _draft.VerticalErasePrompt : _draft.VerticalDirectPrompt, false);
         _horizontal.Text = _shownHorizontal = EffectivePrompt(erase ? _draft.HorizontalErasePrompt : _draft.HorizontalDirectPrompt, true);
     }
