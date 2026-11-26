@@ -18,6 +18,39 @@ public sealed class AccountAiDataRootCollection { }
 public sealed class TikTokAccountAiSettingsTests
 {
     [Fact]
+    public void Local_english_publish_text_defaults_off_and_persists_for_each_account()
+    {
+        var previous = AppPaths.DataRootOverride;
+        var root = Directory.CreateTempSubdirectory("tiktok-account-publish-language-");
+        AppPaths.DataRootOverride = root.FullName;
+        try
+        {
+            var store = new AccountStore();
+            store.Load();
+            var enabled = store.ActiveAccount!;
+            var disabled = store.Add("另一个账号");
+            enabled.UsesEnglishPublishText().Should().BeFalse();
+            enabled.TiktokLocalDramaEnglishPublishText = true;
+            store.Update(enabled);
+
+            var reloaded = new AccountStore();
+            reloaded.Load();
+            var restored = reloaded.Accounts.Single(account => account.Id == enabled.Id);
+            restored.UsesEnglishPublishText().Should().BeTrue();
+            reloaded.Accounts.Single(account => account.Id == disabled.Id).UsesEnglishPublishText().Should().BeFalse();
+
+            restored.TiktokDramaMarket = TikTokAccountProfile.DramaMarketOverseas;
+            restored.UsesEnglishPublishText().Should().BeFalse();
+            JsonSerializer.Deserialize<TikTokAccountProfile>("{}")!.UsesEnglishPublishText().Should().BeFalse();
+        }
+        finally
+        {
+            AppPaths.DataRootOverride = previous;
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Account_editor_displays_the_generation_prompt_for_each_account_poster_mode()
     {
         var previous = AppPaths.DataRootOverride;

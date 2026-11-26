@@ -51,6 +51,10 @@
                                 <ComboBoxItem Tag="overseas">海外剧</ComboBoxItem>
                             </ComboBox>
                         </Grid>
+                        <ToggleSwitch x:Name="LocalDramaEnglishPublishTextBox"
+                                      OnContent="新剧名和简介使用英文"
+                                      OffContent="新剧名和简介使用英文"
+                                      AutomationProperties.Name="新剧名和简介使用英文" />
                         <Grid ColumnDefinitions="130,*"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"

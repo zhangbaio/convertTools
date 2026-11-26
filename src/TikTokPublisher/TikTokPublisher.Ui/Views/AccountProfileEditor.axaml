@@ -162,6 +162,10 @@
                                         <ComboBoxItem Tag="male">男性</ComboBoxItem>
                                         <ComboBoxItem Tag="ai_recommend">AI 推荐</ComboBoxItem>
                                     </ComboBox>
+                                    <ToggleSwitch x:Name="LocalDramaEnglishPublishTextBox"
+                                                  OnContent="新剧名和简介使用英文"
+                                                  OffContent="新剧名和简介使用英文"
+                                                  AutomationProperties.Name="新剧名和简介使用英文" />
                                 </StackPanel>
                                 <StackPanel Classes="publishField" Spacing="5">
                                     <TextBlock Classes="formLabel" Text="源语言" TextWrapping="Wrap" />

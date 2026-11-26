@@ -95,6 +95,11 @@ public sealed class TikTokAccountProfile
     /// <summary>剧集类型：local=本土剧；overseas=海外剧。未保存过的账号按本土剧。</summary>
     public string TiktokDramaMarket { get; set; } = DramaMarketLocal;
 
+    public bool TiktokLocalDramaEnglishPublishText { get; set; }
+
+    public bool UsesEnglishPublishText() =>
+        TiktokLocalDramaEnglishPublishText && NormalizeDramaMarket(TiktokDramaMarket) == DramaMarketLocal;
+
     /// <summary>API 站点固定为国内站，界面不再提供切换。</summary>
     public string TiktokApiSite
     {
@@ -107,11 +112,11 @@ public sealed class TikTokAccountProfile
             ? DramaMarketOverseas
             : DramaMarketLocal;
 
-    /// <summary>海外剧的标题和简介按导入短剧的语言改写。本土剧保持中文。</summary>
+    /// <summary>海外剧的标题和简介跟随导入短剧的语言。</summary>
     public static bool RewriteFollowsImportedLanguage(string? dramaMarket) =>
         NormalizeDramaMarket(dramaMarket) == DramaMarketOverseas;
 
-    /// <summary>「AI识别语言」保留为 auto，上传前再按新剧名识别。没选过源语言时，海外剧为英语，本土剧为中文。</summary>
+    /// <summary>「AI识别语言」保留为 auto，上传前再识别。没选过源语言时，海外剧为英语，本土剧为中文。</summary>
     public static string NormalizeStoredSourceLanguage(string? language, string? dramaMarket)
     {
         var text = (language ?? "").Trim();

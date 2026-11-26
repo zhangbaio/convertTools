@@ -56,9 +56,9 @@ public static class ProjectOriginalSynopsisService
             ? ProjectInfoTextHelper.ParseInfoFile(Path.Combine(context.SourceProjectDir, "短剧信息.txt"))
             : workflowInfo;
         var sourceTitle = sourceInfo.GetValueOrDefault("原剧名") ?? originalTitle;
-        var sourceNewTitle = sourceInfo.GetValueOrDefault("新剧名");
-        var sourceInfoIsOriginal = separateSource &&
-            (string.IsNullOrWhiteSpace(sourceNewTitle) || SameTitle(sourceNewTitle, sourceTitle));
+        var sourceNewTitle = sourceInfo.GetValueOrDefault("新剧名") ??
+                             (separateSource ? null : sourceInfo.GetValueOrDefault("剧名"));
+        var sourceInfoIsOriginal = string.IsNullOrWhiteSpace(sourceNewTitle) || SameTitle(sourceNewTitle, sourceTitle);
 
         var sourceSynopsis = new[]
         {

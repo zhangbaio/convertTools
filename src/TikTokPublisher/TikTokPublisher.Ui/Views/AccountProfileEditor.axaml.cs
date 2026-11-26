@@ -256,6 +256,8 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
+        LocalDramaEnglishPublishTextBox.IsChecked = profile.TiktokLocalDramaEnglishPublishText;
+        UpdateLocalDramaEnglishPublishTextVisibility();
         SelectByTag(
             SourceLanguageCombo,
             TikTokAccountProfile.NormalizeStoredSourceLanguage(profile.TiktokSourceLanguage, profile.TiktokDramaMarket),
@@ -394,6 +396,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
+            profile.TiktokLocalDramaEnglishPublishText = LocalDramaEnglishPublishTextBox.IsChecked == true;
             profile.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
                 TagOf(SourceLanguageCombo, "zh"),
                 profile.TiktokDramaMarket);
@@ -483,14 +486,16 @@ public partial class AccountProfileEditor : UserControl
     private void OnSelectMinimumMaterialsClick(object? sender, RoutedEventArgs e) =>
         CopyrightMaterials.SelectMinimumStandard();
 
+    private void UpdateLocalDramaEnglishPublishTextVisibility()
+    {
+        if (LocalDramaEnglishPublishTextBox is { } toggle)
+            toggle.IsVisible = TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal) == TikTokAccountProfile.DramaMarketLocal;
+    }
+
     private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isReloadingFromSelectedAccount)
-            return;
-        if (!string.Equals(
-                TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal),
-                TikTokAccountProfile.DramaMarketOverseas,
-                StringComparison.OrdinalIgnoreCase))
+        UpdateLocalDramaEnglishPublishTextVisibility();
+        if (_isReloadingFromSelectedAccount || TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal) != TikTokAccountProfile.DramaMarketOverseas)
             return;
         if (!string.Equals(TagOf(SourceLanguageCombo, "zh"), "zh", StringComparison.OrdinalIgnoreCase))
             return;
@@ -1045,6 +1050,8 @@ public partial class AccountProfileEditor : UserControl
         CopyrightMaterials.RoleVectorMinimumCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
         CopyrightMaterials.Clear();
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal, TikTokAccountProfile.DramaMarketLocal);
+        LocalDramaEnglishPublishTextBox.IsChecked = false;
+        UpdateLocalDramaEnglishPublishTextVisibility();
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SelectByTag(SubmitActionCombo, "submit", "submit");

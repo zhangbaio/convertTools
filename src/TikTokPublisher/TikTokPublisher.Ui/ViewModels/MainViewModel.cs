@@ -2176,6 +2176,7 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofTemplateDocxPath = account.TiktokProofTemplateDocxPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
+        TiktokLocalDramaEnglishPublishText = account.TiktokLocalDramaEnglishPublishText,
         TiktokRewriteFollowsSourceLanguage = TikTokAccountProfile.RewriteFollowsImportedLanguage(account.TiktokDramaMarket),
         TiktokAiNewTitleRandomness = account.TiktokAiNewTitleRandomness,
         TiktokAiSynopsisRandomness = account.TiktokAiSynopsisRandomness,

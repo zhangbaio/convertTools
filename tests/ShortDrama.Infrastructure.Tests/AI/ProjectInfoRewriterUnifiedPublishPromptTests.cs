@@ -117,6 +117,71 @@ public sealed class ProjectInfoRewriterUnifiedPublishPromptTests
         (await File.ReadAllBytesAsync(fixture.InfoPath)).Should().Equal(previous);
     }
 
+    [Theory]
+    [InlineData(false, "忠实翻译原简介")]
+    [InlineData(true, "轻度改写原简介")]
+    public async Task English_publish_text_generates_both_fields_in_one_request(bool rewriteSynopsis, string instruction)
+    {
+        const string translatedSynopsis = "Two siblings uncover a secret ledger and bring it to court.";
+        const string sourceSynopsis = "兄妹在旧店找到一本账簿，并把它交给法庭。";
+        using var fixture = new RewriteFixture(rewriteSynopsis, false,
+            [Reply("Secrets in the Ledger", translatedSynopsis)], useEnglish: true, originalSynopsis: sourceSynopsis);
+
+        var result = await fixture.RunAsync();
+
+        using var envelope = JsonDocument.Parse(fixture.Requests.Should().ContainSingle().Subject);
+        var messages = envelope.RootElement.GetProperty("messages");
+        messages[0].GetProperty("content").GetString().Should().Contain(instruction);
+        using var input = JsonDocument.Parse(messages[1].GetProperty("content").GetString()!);
+        input.RootElement.GetProperty("output_language").GetString().Should().Be("en");
+        input.RootElement.GetProperty("rewrite_synopsis").GetBoolean().Should().BeTrue();
+        result.Title.Should().Be("Secrets in the Ledger");
+        result.Synopsis.Should().Be(translatedSynopsis);
+        (await File.ReadAllTextAsync(fixture.InfoPath)).Should()
+            .Contain($"原简介: {sourceSynopsis}").And.Contain($"\n简介: {translatedSynopsis}");
+    }
+
+    [Theory]
+    [InlineData("Secrets in the Ledger", "兄妹找到账簿。", "en")]
+    [InlineData("寻找失落的账簿", "They find the missing ledger.", "en")]
+    [InlineData("Secrets in the Ledger", "", "en")]
+    [InlineData("Secrets in the Ledger", "They find the missing ledger.", "zh")]
+    [InlineData("Secrets in the Ledger", "They find the missing ledger.", "unsupported")]
+    public async Task Invalid_english_publish_text_retries_and_preserves_the_existing_output(
+        string title, string synopsis, string language)
+    {
+        var invalidResponse = Reply(title, synopsis, language);
+        using var fixture = new RewriteFixture(false, false, [invalidResponse, invalidResponse], useEnglish: true);
+        var previous = await File.ReadAllBytesAsync(fixture.InfoPath);
+
+        var run = () => fixture.RunAsync();
+        await run.Should().ThrowAsync<InvalidOperationException>();
+        fixture.Requests.Should().HaveCount(2);
+        (await File.ReadAllBytesAsync(fixture.InfoPath)).Should().Equal(previous);
+    }
+
+    [Fact]
+    public async Task English_publish_text_requires_an_original_synopsis_even_in_translation_only_mode()
+    {
+        using var fixture = new RewriteFixture(false, false, [], useEnglish: true, originalSynopsis: "");
+        var run = () => fixture.RunAsync();
+        await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*原简介*");
+        fixture.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Returning_to_the_original_synopsis_replaces_a_saved_translation()
+    {
+        const string sourceSynopsis = "兄妹在旧店找到一本账簿，并把它交给法庭。";
+        using var fixture = new RewriteFixture(false, false, [Reply("寻回旧账簿", "", "zh")],
+            originalSynopsis: sourceSynopsis, restoreOriginalSynopsis: true);
+
+        var result = await fixture.RunAsync();
+
+        result.Synopsis.Should().Be(sourceSynopsis);
+        (await File.ReadAllTextAsync(fixture.InfoPath)).Should().Contain($"\n简介: {sourceSynopsis}");
+    }
+
     private static string Reply(string title, string description, string language = "en") =>
         JsonSerializer.Serialize(new { title, description, themes = new[] { "都市" }, audience = "女", language });
 
@@ -128,7 +193,8 @@ public sealed class ProjectInfoRewriterUnifiedPublishPromptTests
         private readonly ProjectInfoRewriteRequest _request;
 
         public RewriteFixture(bool rewriteSynopsis, bool followSourceLanguage, IEnumerable<string> responses,
-            Action? afterRequest = null)
+            Action? afterRequest = null, bool useEnglish = false, string originalSynopsis = OriginalSynopsis,
+            bool restoreOriginalSynopsis = false)
         {
             InfoPath = Path.Combine(_project.FullName, "短剧信息.txt");
             File.WriteAllText(InfoPath, $"原剧名: The Old Ledger\n新剧名: Previous Title\n简介: {ExistingSynopsis}\n集数: 41\n制作公司: 测试公司\n");
@@ -147,8 +213,8 @@ public sealed class ProjectInfoRewriterUnifiedPublishPromptTests
                 AiRewriteFollowsSourceLanguage = followSourceLanguage,
             }));
             _request = new ProjectInfoRewriteRequest(_project.FullName, config, InfoPath, Overwrite: true,
-                ForbiddenTitles: ["X"], OccupiedExactTitles: ["Occupied title"], OriginalSynopsis: OriginalSynopsis,
-                UseUnifiedPublishPrompt: true);
+                ForbiddenTitles: ["X"], OccupiedExactTitles: ["Occupied title"], OriginalSynopsis: originalSynopsis,
+                UseUnifiedPublishPrompt: true, UseEnglishPublishText: useEnglish, RestoreOriginalSynopsis: restoreOriginalSynopsis);
             _handler = new RecordingHandler(responses, afterRequest);
             _http = new HttpClient(_handler);
         }

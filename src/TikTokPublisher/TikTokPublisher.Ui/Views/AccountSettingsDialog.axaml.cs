@@ -64,6 +64,8 @@ public partial class AccountSettingsDialog : Window
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
+        LocalDramaEnglishPublishTextBox.IsChecked = p.TiktokLocalDramaEnglishPublishText;
+        UpdateLocalDramaEnglishPublishTextVisibility();
         SelectByTag(
             SourceLanguageCombo,
             TikTokAccountProfile.NormalizeStoredSourceLanguage(p.TiktokSourceLanguage, p.TiktokDramaMarket),
@@ -223,6 +225,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
+        p.TiktokLocalDramaEnglishPublishText = LocalDramaEnglishPublishTextBox.IsChecked == true;
         p.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
             TagOf(SourceLanguageCombo, "zh"),
             p.TiktokDramaMarket);
@@ -346,14 +349,16 @@ public partial class AccountSettingsDialog : Window
         ArchiveRootBox.Text = folder.Path.LocalPath;
     }
 
+    private void UpdateLocalDramaEnglishPublishTextVisibility()
+    {
+        if (LocalDramaEnglishPublishTextBox is { } toggle)
+            toggle.IsVisible = TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal) == TikTokAccountProfile.DramaMarketLocal;
+    }
+
     private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_suppressDramaMarketPrompt)
-            return;
-        if (!string.Equals(
-                TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal),
-                TikTokAccountProfile.DramaMarketOverseas,
-                StringComparison.OrdinalIgnoreCase))
+        UpdateLocalDramaEnglishPublishTextVisibility();
+        if (_suppressDramaMarketPrompt || TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal) != TikTokAccountProfile.DramaMarketOverseas)
             return;
         if (!string.Equals(TagOf(SourceLanguageCombo, "zh"), "zh", StringComparison.OrdinalIgnoreCase))
             return;

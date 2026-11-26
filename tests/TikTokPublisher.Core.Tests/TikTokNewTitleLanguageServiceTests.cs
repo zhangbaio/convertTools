@@ -1,6 +1,7 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -92,13 +93,13 @@ public sealed class TikTokNewTitleLanguageServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_detects_a_chinese_title_and_keeps_a_hand_picked_language()
+    public async Task ApplyAsync_detects_an_overseas_drama_by_its_publish_title()
     {
         var detected = new TikTokPublishOptions { SourceLanguage = "auto", IsAiDrama = true };
         var logs = new List<string>();
         await TikTokNewTitleLanguageService.ApplyAsync(
             detected,
-            new TikTokAccountProfile { TiktokSourceLanguage = "auto", TiktokDramaMarket = "local" },
+            new TikTokAccountProfile { TiktokSourceLanguage = "auto", TiktokDramaMarket = "overseas" },
             projectDir: null,
             "我的保安老公是隐世高人",
             logs.Add,
@@ -106,16 +107,56 @@ public sealed class TikTokNewTitleLanguageServiceTests
 
         detected.SourceLanguage.Should().Be("zh");
         logs.Should().Contain(line => line.Contains("识别为中文", StringComparison.Ordinal));
+    }
 
-        var chosen = new TikTokPublishOptions { SourceLanguage = "id" };
-        await TikTokNewTitleLanguageService.ApplyAsync(
-            chosen,
-            new TikTokAccountProfile { TiktokSourceLanguage = "id" },
-            projectDir: null,
-            "我的保安老公是隐世高人",
-            null,
-            CancellationToken.None);
-        chosen.SourceLanguage.Should().Be("id");
+    [Theory]
+    [InlineData("旧梦归途", "兄妹寻找当年失落的账簿。", "auto", "zh")]
+    [InlineData("旧梦归途", "兄妹寻找当年失落的账簿。", "id", "id")]
+    [InlineData("2026", "兄妹寻找当年失落的账簿。", "auto", "zh")]
+    [InlineData("경호원의 비밀", "경호원은 비밀을 알게 된다.", "auto", "ko")]
+    public async Task Local_source_language_uses_account_selection_independently_of_english_publish_text(
+        string originalTitle, string originalSynopsis, string selection, string expected)
+    {
+        var workspace = Directory.CreateTempSubdirectory("original-language-");
+        try
+        {
+            var dir = workspace.CreateSubdirectory("source").FullName;
+            File.WriteAllText(Path.Combine(dir, "shortdrama-project.json"), """{ "rewriteSourceLanguage": "en" }""");
+            var workflow = ProjectWorkspaceService.PrepareWorkflowProject(dir);
+            File.WriteAllText(Path.Combine(workflow, "短剧信息.txt"), $"""
+                原剧名: {originalTitle}
+                新剧名: Secrets in the Ledger
+                原简介: {originalSynopsis}
+                简介: The siblings search for a missing ledger.
+                """);
+            var account = new TikTokAccountProfile { TiktokSourceLanguage = selection };
+            foreach (var useEnglish in new[] { false, true })
+            {
+                account.TiktokLocalDramaEnglishPublishText = useEnglish;
+                var options = TikTokPublishOptionsBuilder.FromAccount(account);
+                await TikTokNewTitleLanguageService.ApplyAsync(options, account,
+                    dir, "Secrets in the Ledger", null, CancellationToken.None);
+
+                options.SourceLanguage.Should().Be(expected);
+            }
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Local_source_language_can_use_the_original_title_from_the_upload_item(bool useEnglish)
+    {
+        var options = new TikTokPublishOptions { SourceLanguage = "auto" };
+        await TikTokNewTitleLanguageService.ApplyAsync(options,
+            new TikTokAccountProfile { TiktokSourceLanguage = "auto", TiktokLocalDramaEnglishPublishText = useEnglish },
+            projectDir: null, "Secrets in the Ledger", null, CancellationToken.None, originalTitle: "경호원의 비밀");
+
+        options.SourceLanguage.Should().Be("ko");
     }
 
     [Fact]

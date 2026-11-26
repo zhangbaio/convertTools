@@ -32,6 +32,8 @@ public static partial class QueueMaterialStepService
     private const string ProofMaterialFrameFallbackVideoFileName = "证明材料抽帧兜底.mp4";
     private const string AiRewriteStateDocumentType = "ai_rewrite_state";
     private const int AiRewriteStateVersion = 2;
+    private const string EnglishRewriteVariantSuffix = "#output=en";
+    private const string PublishTextLanguageField = "发布文案语言";
 
     public static Task RunDownloadAsync(
         QueueProjectItem item,
@@ -1793,6 +1795,7 @@ public static partial class QueueMaterialStepService
         var originalTitle = ResolveOriginalTitle(infoPath, item, context);
         var rewriteHistory = AiRewriteHistoryService.LoadForOriginalTitle(originalTitle);
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
+        var useEnglish = account?.UsesEnglishPublishText() == true;
         var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(infoPath);
         var sourceSynopsis = ProjectOriginalSynopsisService.Resolve(context, originalTitle, workflowInfo, () => rewriteHistory);
         if (sourceSynopsis.Length != 0 &&
@@ -1809,10 +1812,10 @@ public static partial class QueueMaterialStepService
             log($"同原剧名历史记录：{otherHistory.Count} 条，AI 将避开已用新剧名/简介。");
         }
 
-        if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
-        {
+        if (useEnglish)
+            log("本土剧：生成英文新剧名和简介。");
+        else if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
             log("海外剧：按发布提示词中跟随原文的规则生成。");
-        }
 
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings, account);
@@ -1821,7 +1824,9 @@ public static partial class QueueMaterialStepService
         {
             var outputPath = infoPath;
             var outputExists = File.Exists(outputPath);
-            var needsRewrite = outputExists && NeedsAiRewrite(item, context, outputPath, account, rewriteSynopsis);
+            var previousEnglish = false;
+            var needsRewrite = outputExists &&
+                               NeedsAiRewrite(item, context, outputPath, account, rewriteSynopsis, out previousEnglish);
             var recoveredPersistedResult = outputExists &&
                                            !overwriteExisting &&
                                            needsRewrite &&
@@ -1829,7 +1834,7 @@ public static partial class QueueMaterialStepService
                                                context,
                                                outputPath,
                                                rewriteHistory,
-                                               rewriteSynopsis,
+                                               rewriteSynopsis || useEnglish,
                                                rewriteVariantKey);
             if (recoveredPersistedResult)
                 needsRewrite = false;
@@ -1857,6 +1862,7 @@ public static partial class QueueMaterialStepService
                 var forbiddenSynopses = rewriteSynopsis
                     ? UniqueTexts(otherHistory.Select(record => record.NewSynopsis))
                     : [];
+                var restoreOriginalSynopsis = !useEnglish && previousEnglish && !rewriteSynopsis;
                 var archiveOccupancy = NewTitleOccupancyService.LoadArchiveTitles(
                     context.WorkspaceRoot,
                     account?.ResolveArchiveRootPath(context.WorkspaceRoot),
@@ -1878,8 +1884,12 @@ public static partial class QueueMaterialStepService
                         ForbiddenSynopses: forbiddenSynopses,
                         RewriteVariantKey: rewriteVariantKey,
                         OccupiedExactTitles: archiveOccupancy.Titles,
-                        OriginalSynopsis: rewriteSynopsis || sourceSynopsis.Length != 0 ? sourceSynopsis : null,
-                        UseUnifiedPublishPrompt: true),
+                        OriginalSynopsis: rewriteSynopsis || useEnglish || restoreOriginalSynopsis || sourceSynopsis.Length != 0
+                            ? sourceSynopsis
+                            : null,
+                        UseUnifiedPublishPrompt: true,
+                        UseEnglishPublishText: useEnglish,
+                        RestoreOriginalSynopsis: restoreOriginalSynopsis),
                     archiveOccupancy,
                     account,
                     context.SourceProjectDir,
@@ -1960,7 +1970,8 @@ public static partial class QueueMaterialStepService
                 context,
                 infoPath,
                 account,
-                account?.TiktokAiRewriteSynopsis == true);
+                account?.TiktokAiRewriteSynopsis == true,
+                out _);
         }
         catch
         {
@@ -2379,6 +2390,8 @@ public static partial class QueueMaterialStepService
             if (decision.Regenerate)
                 throw new NewTitleOccupiedException($"写入前校验发现新剧名「{title}」已被{decision.Reason}占用，保留原短剧信息。");
 
+            if (request.UseEnglishPublishText)
+                ProjectInfoTextHelper.UpdateFields(temporaryPath, new Dictionary<string, string> { [PublishTextLanguageField] = "en" });
             ApplyConfiguredPublishAudience(temporaryPath, account, log);
             var currentInfo = ProjectInfoTextHelper.ParseInfoFile(outputPath);
             var currentTitle = FirstNonEmpty(currentInfo.GetValueOrDefault("新剧名"), currentInfo.GetValueOrDefault("剧名"));
@@ -2483,8 +2496,12 @@ public static partial class QueueMaterialStepService
         var followSource = TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket)
             ? "#follow=source"
             : "";
-        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}{followSource}#synopsis={synopsisMode}";
+        var output = account?.UsesEnglishPublishText() == true ? EnglishRewriteVariantSuffix : "";
+        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}{followSource}#synopsis={synopsisMode}{output}";
     }
+
+    private static bool IsEnglishRewriteVariant(string? key) =>
+        key?.EndsWith(EnglishRewriteVariantSuffix, StringComparison.OrdinalIgnoreCase) == true;
 
     private static bool RewriteVariantKeysEqual(string? left, string? right) =>
         string.Equals(
@@ -2570,13 +2587,18 @@ public static partial class QueueMaterialStepService
         ProjectWorkspaceContext context,
         string infoPath,
         TikTokAccountProfile? account,
-        bool rewriteSynopsis)
+        bool rewriteSynopsis,
+        out bool previousEnglish)
     {
         var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
         var title = FirstNonEmpty(info.GetValueOrDefault("新剧名"), info.GetValueOrDefault("剧名"));
-        var matchingCompletion = HasMatchingRewriteCompletionState(context, account, info, rewriteSynopsis, out var recordedTitle);
+        var matchingCompletion = HasMatchingRewriteCompletionState(context, account, info, rewriteSynopsis,
+            out var recordedTitle, out previousEnglish);
         if (matchingCompletion && title.Length > 0 && string.Equals(title, recordedTitle, StringComparison.Ordinal))
             return false;
+
+        if (account is not null && (account.UsesEnglishPublishText() || previousEnglish))
+            return true;
 
         // Older projects did not record a completed title. Keep their existing resume behavior.
         if (!IsProjectInfoRewritten(info, item, context, rewriteSynopsis))
@@ -2594,8 +2616,12 @@ public static partial class QueueMaterialStepService
     {
         var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
         var synopsis = CurrentSynopsis(info);
-        if (rewriteSynopsis && string.IsNullOrWhiteSpace(synopsis))
-            throw new InvalidDataException("AI 简介改写已启用，但改写结果中没有简介，无法记录完成状态。");
+        var variantKey = string.IsNullOrWhiteSpace(rewriteVariantKey)
+            ? BuildRewriteVariantKey(context, account)
+            : rewriteVariantKey;
+        var saveSynopsisFingerprint = rewriteSynopsis || IsEnglishRewriteVariant(variantKey);
+        if (saveSynopsisFingerprint && string.IsNullOrWhiteSpace(synopsis))
+            throw new InvalidDataException("改写结果中没有简介，无法记录完成状态。");
 
         ProjectStateDocumentStore.SaveDocument(
             context.WorkspaceRoot,
@@ -2604,11 +2630,9 @@ public static partial class QueueMaterialStepService
             new Dictionary<string, object?>
             {
                 ["version"] = AiRewriteStateVersion,
-                ["variant_key"] = string.IsNullOrWhiteSpace(rewriteVariantKey)
-                    ? BuildRewriteVariantKey(context, account)
-                    : rewriteVariantKey,
+                ["variant_key"] = variantKey,
                 ["rewrite_synopsis"] = rewriteSynopsis,
-                ["synopsis_fingerprint"] = rewriteSynopsis ? SynopsisFingerprint(synopsis) : string.Empty,
+                ["synopsis_fingerprint"] = saveSynopsisFingerprint ? SynopsisFingerprint(synopsis) : string.Empty,
                 ["title"] = FirstNonEmpty(info.GetValueOrDefault("新剧名"), info.GetValueOrDefault("剧名")),
             },
             context.WorkflowProjectDir);
@@ -2619,7 +2643,8 @@ public static partial class QueueMaterialStepService
         TikTokAccountProfile? account,
         IReadOnlyDictionary<string, string> info,
         bool rewriteSynopsis,
-        out string recordedTitle)
+        out string recordedTitle,
+        out bool previousEnglish)
     {
         var state = ProjectStateDocumentStore.LoadDocument(
             context.WorkspaceRoot,
@@ -2627,18 +2652,21 @@ public static partial class QueueMaterialStepService
             AiRewriteStateDocumentType);
 
         recordedTitle = ReadJsonString(state.GetValueOrDefault("title"));
+        var variantKey = ReadJsonString(state.GetValueOrDefault("variant_key"));
+        previousEnglish = IsEnglishRewriteVariant(variantKey) ||
+                          string.Equals(info.GetValueOrDefault(PublishTextLanguageField), "en", StringComparison.OrdinalIgnoreCase);
         if (!TryReadBoolean(state.GetValueOrDefault("rewrite_synopsis"), out var recordedRewriteSynopsis))
             return false;
 
         if (account is not null)
         {
-            var variantKey = ReadJsonString(state.GetValueOrDefault("variant_key"));
             if (recordedRewriteSynopsis != rewriteSynopsis ||
+                previousEnglish != account.UsesEnglishPublishText() ||
                 !RewriteVariantKeysEquivalentForReuse(variantKey, BuildRewriteVariantKey(context, account)))
                 return false;
         }
 
-        if (!recordedRewriteSynopsis)
+        if (!recordedRewriteSynopsis && !previousEnglish)
             return true;
 
         var expectedFingerprint = ReadJsonString(state.GetValueOrDefault("synopsis_fingerprint"));

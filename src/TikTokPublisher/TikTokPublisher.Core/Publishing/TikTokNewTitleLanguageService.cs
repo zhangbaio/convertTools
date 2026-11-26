@@ -1,15 +1,17 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Infrastructure.AI;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Publishing;
 
 /// <summary>
-/// 源语言选「AI识别语言」时，上传前按新剧名识别成具体语种。手选的语种保持不变。
+/// 源语言选「AI识别语言」时，上传前识别成具体语种。本土剧依据原剧资料，海外剧依据发布剧名。
 /// </summary>
 public static class TikTokNewTitleLanguageService
 {
@@ -38,17 +40,16 @@ public static class TikTokNewTitleLanguageService
         string? projectDir,
         string? fallbackTitle,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? originalTitle = null)
     {
         if (!IsAuto(account.TiktokSourceLanguage))
             return;
 
-        options.SourceLanguage = await ResolveAsync(
-            fallbackTitle,
-            projectDir,
-            settings: null,
-            log,
-            ct).ConfigureAwait(false);
+        var market = TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket);
+        options.SourceLanguage = market == TikTokAccountProfile.DramaMarketLocal
+            ? await ResolveOriginalLanguageAsync(projectDir, originalTitle, account, log, ct).ConfigureAwait(false)
+            : await ResolveAsync(fallbackTitle, projectDir, settings: null, log, ct).ConfigureAwait(false);
         if (options.IsAiDrama &&
             string.Equals(options.SourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(options.ContentCreationType, "remake", StringComparison.OrdinalIgnoreCase))
@@ -116,6 +117,67 @@ public static class TikTokNewTitleLanguageService
         }
 
         return "en";
+    }
+
+    private static async Task<string> ResolveOriginalLanguageAsync(
+        string? projectDir, string? originalTitle, TikTokAccountProfile account, Action<string>? log, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var title = (originalTitle ?? "").Trim();
+        var synopsis = "";
+        if (!string.IsNullOrWhiteSpace(projectDir))
+        {
+            var context = ProjectWorkspaceService.LoadContext(projectDir);
+            var source = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(context.SourceProjectDir, "短剧信息.txt"));
+            var workflow = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(context.WorkflowProjectDir, "短剧信息.txt"));
+            title = FirstNonEmpty(source.GetValueOrDefault("原剧名"), workflow.GetValueOrDefault("原剧名"),
+                RewriteSourceLanguage.ReadImported(context.SourceProjectDir).Title,
+                RewriteSourceLanguage.ReadImported(context.WorkflowProjectDir).Title, title);
+            synopsis = ProjectOriginalSynopsisService.Resolve(context, title, workflow);
+        }
+        if (title.Length == 0 && synopsis.Length == 0)
+        {
+            log?.Invoke("未找到原剧资料，源语言按本土剧默认值中文处理。");
+            return RewriteSourceLanguage.Chinese;
+        }
+
+        var sourceText = $"{title}\n{synopsis}";
+        var language = ClassifyScript(sourceText);
+
+        if (language is not null)
+        {
+            log?.Invoke($"源语言按原剧资料识别为{DisplayName(language)}。");
+            return language;
+        }
+
+        // Distinguish original material from the publish-title cache and invalidate when either source field changes.
+        var cacheKey = "original:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sourceText)));
+        if (TryReadCache(projectDir, cacheKey, out var cached))
+        {
+            log?.Invoke($"源语言复用原剧资料的识别结果：{DisplayName(cached)}。");
+            return cached;
+        }
+
+        try
+        {
+            var settings = TikTokAccountAiSettings.Apply(ClientSettingsStore.Load(), account);
+            var prompt = RewriteSourceLanguage.BuildDetectionPrompt(title, synopsis) +
+                         "\n按 JSON 对象返回，例如 {\"language\":\"zh\"}。";
+            var detected = await AskLanguageAsync(prompt, settings, ct).ConfigureAwait(false);
+            if (KnownCodes.Contains(detected, StringComparer.OrdinalIgnoreCase))
+            {
+                SaveCache(projectDir, cacheKey, detected);
+                log?.Invoke($"源语言按原剧资料识别为{DisplayName(detected)}。");
+                return detected;
+            }
+            log?.Invoke("原剧资料的 AI 源语言识别未返回支持的语种，使用文字特征判断。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            log?.Invoke($"原剧资料的 AI 源语言识别失败，使用文字特征判断：{ex.Message}");
+        }
+
+        return RewriteSourceLanguage.Detect(title, synopsis);
     }
 
     private static bool TryReadRewriteLanguage(string? projectDir, string title, out string language)
@@ -247,23 +309,26 @@ public static class TikTokNewTitleLanguageService
         return (fallbackTitle ?? "").Trim();
     }
 
-    private static async Task<string> AskLatinLanguageAsync(
-        string title,
-        ClientSettings settings,
-        CancellationToken ct)
+    private static Task<string> AskLatinLanguageAsync(
+        string title, ClientSettings settings, CancellationToken ct)
     {
-        var endpoint = (settings.AiTextEndpoint ?? "").Trim().TrimEnd('/');
-        var apiKey = (settings.AiTextApiKey ?? "").Trim();
-        var model = (settings.AiTextModel ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
-            throw new InvalidOperationException("AI 文本接口未配置");
-
         var prompt = """
             判断新剧名的语言。只能从 en、id、pt、es、tr 里选一个。
             en=英语，id=印尼语，pt=葡萄牙语，es=西班牙语，tr=土耳其语。
             只输出 JSON：{"language":"en"}
             新剧名：
             """ + title;
+        return AskLanguageAsync(prompt, settings, ct);
+    }
+
+    private static async Task<string> AskLanguageAsync(
+        string prompt, ClientSettings settings, CancellationToken ct)
+    {
+        var endpoint = (settings.AiTextEndpoint ?? "").Trim().TrimEnd('/');
+        var apiKey = (settings.AiTextApiKey ?? "").Trim();
+        var model = (settings.AiTextModel ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
+            throw new InvalidOperationException("AI 文本接口未配置");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);

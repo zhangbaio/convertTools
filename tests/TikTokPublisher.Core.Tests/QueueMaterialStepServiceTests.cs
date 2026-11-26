@@ -793,6 +793,45 @@ public sealed class QueueMaterialStepServiceTests
     }
 
     [Fact]
+    public void NeedsAiRewrite_does_not_reuse_publish_text_after_the_english_setting_changes()
+    {
+        var workspace = Directory.CreateTempSubdirectory("rewrite-publish-language-");
+        var source = workspace.CreateSubdirectory("旧梦归途").FullName;
+        try
+        {
+            var workflow = ProjectWorkspaceService.PrepareWorkflowProject(source);
+            var context = ProjectWorkspaceService.LoadContext(source);
+            var info = Path.Combine(workflow, "短剧信息.txt");
+            var item = new QueueProjectItem { ProjectDir = source, OriginalTitle = "旧梦归途" };
+            var account = new TikTokAccountProfile { Id = "account-a", TiktokAiRewriteSynopsis = false };
+
+            File.WriteAllText(info, "原剧名: 旧梦归途\n新剧名: 归途有光\n简介: 兄妹寻找失落的账簿。\n");
+            QueueMaterialStepService.PersistRewriteCompletionState(context, account, info, rewriteSynopsis: false);
+            account.TiktokLocalDramaEnglishPublishText = true;
+            QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeTrue();
+
+            File.WriteAllText(info, "原剧名: 旧梦归途\n新剧名: Secrets in the Ledger\n简介: The siblings search for a missing ledger.\n发布文案语言: en\n");
+            account.TiktokLocalDramaEnglishPublishText = false;
+            QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeTrue("the English file can precede its completion state");
+
+            account.TiktokLocalDramaEnglishPublishText = true;
+            QueueMaterialStepService.PersistRewriteCompletionState(context, account, info, rewriteSynopsis: false);
+            QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeFalse();
+            QueueMaterialStepService.NeedsAiRewrite(item).Should().BeFalse("the workspace scan has no account context");
+
+            ProjectWorkspaceService.UpdateProjectInfoField(info, "简介", "被手工替换成中文简介。");
+            QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeTrue();
+            account.TiktokLocalDramaEnglishPublishText = false;
+            QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeTrue();
+        }
+        finally
+        {
+            try { workspace.Delete(recursive: true); }
+            catch (IOException) { /* SQLite can retain a pooled Windows handle briefly. */ }
+        }
+    }
+
+    [Fact]
     public void Persisted_ai_result_with_colon_in_synopsis_can_recover_missing_completion_state()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"rewrite-recovery-{Guid.NewGuid():N}");
@@ -885,9 +924,10 @@ public sealed class QueueMaterialStepServiceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Unified_rewrite_checks_title_reservation_before_replacing_short_drama_info(bool occupied)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Unified_rewrite_checks_title_reservation_before_replacing_short_drama_info(bool occupied, bool useEnglish)
     {
         var workspace = Directory.CreateTempSubdirectory("rewrite-reservation-");
         var source = workspace.CreateSubdirectory("原项目").FullName;
@@ -896,6 +936,8 @@ public sealed class QueueMaterialStepServiceTests
         const string originalTitle = "旧梦归途";
         const string synopsis = "旧简介。";
         const string existing = $"原剧名: {originalTitle}\n新剧名: {originalTitle}\n简介: {synopsis}\n集数: 1\n";
+        var rewrittenTitle = useEnglish ? "Secrets in the Ledger" : originalTitle;
+        var rewrittenSynopsis = useEnglish ? "The siblings search for the missing ledger." : "改写简介。";
         File.WriteAllText(infoPath, existing);
         var calls = 0;
         var rewriter = new RecordingInfoRewriter(request =>
@@ -905,21 +947,22 @@ public sealed class QueueMaterialStepServiceTests
             request.UseUnifiedPublishPrompt.Should().BeTrue();
             File.ReadAllText(request.OutputFilePath).Should().Be(existing);
             File.ReadAllText(infoPath).Should().Be(existing);
-            const string updated = $"原剧名: {originalTitle}\n新剧名: {originalTitle}\n简介: 改写简介。\n集数: 1\n";
+            var updated = $"原剧名: {originalTitle}\n新剧名: {rewrittenTitle}\n简介: {rewrittenSynopsis}\n集数: 1\n";
             File.WriteAllText(request.OutputFilePath, updated);
-            return new ProjectInfoRewriteResult(request.OutputFilePath, originalTitle, "", "改写简介。", "", "");
+            return new ProjectInfoRewriteResult(request.OutputFilePath, rewrittenTitle, "", rewrittenSynopsis, "", "");
         });
         var account = new TikTokAccountProfile
         {
             Id = Guid.NewGuid().ToString("N"),
             TiktokAiRewriteSynopsis = true,
+            TiktokLocalDramaEnglishPublishText = useEnglish,
             TiktokTargetAudienceMode = "female",
         };
         try
         {
             var archive = NewTitleOccupancySnapshot.Ready(occupied ? [originalTitle] : []);
             var request = new ProjectInfoRewriteRequest(workflow, "", infoPath, Overwrite: true,
-                OccupiedExactTitles: archive.Titles, UseUnifiedPublishPrompt: true);
+                OccupiedExactTitles: archive.Titles, UseUnifiedPublishPrompt: true, UseEnglishPublishText: useEnglish);
             var rewrite = () => QueueMaterialStepService.RewriteWithTitleReservationAsync(
                 rewriter, request, archive, account, source, _ => { }, CancellationToken.None);
             if (occupied)
@@ -931,19 +974,31 @@ public sealed class QueueMaterialStepServiceTests
             {
                 var generated = await rewrite();
                 generated.OutputFilePath.Should().Be(infoPath);
-                ProjectInfoTextHelper.ParseInfoFile(infoPath).Should().Contain("目标观众", "女").And.Contain("简介", "改写简介。");
+                var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+                info.Should().Contain("目标观众", "女").And.Contain("简介", rewrittenSynopsis);
+                if (useEnglish)
+                    info.Should().Contain("发布文案语言", "en");
+                else
+                    info.Should().NotContainKey("发布文案语言");
                 var context = ProjectWorkspaceService.LoadContext(source);
                 QueueMaterialStepService.PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis: true);
                 var item = new QueueProjectItem { ProjectDir = source };
                 QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeFalse();
                 QueueMaterialStepService.NeedsAiRewrite(item).Should().BeFalse("the workspace scan has no account context");
+                if (useEnglish)
+                {
+                    var state = ProjectStateDocumentStore.LoadDocument(context.WorkspaceRoot, context.SourceProjectDir, "ai_rewrite_state");
+                    state["variant_key"].GetString().Should().EndWith("#output=en");
+                    account.TiktokLocalDramaEnglishPublishText = false;
+                    QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeTrue();
+                }
             }
             calls.Should().Be(1);
             Directory.EnumerateFiles(workflow, ".rewrite-*.tmp").Should().BeEmpty();
         }
         finally
         {
-            NewTitleOccupancyService.Release(NewTitleOccupancyService.ReservationAccountKey(account), originalTitle, source);
+            NewTitleOccupancyService.Release(NewTitleOccupancyService.ReservationAccountKey(account), rewrittenTitle, source);
             try { workspace.Delete(recursive: true); }
             catch (IOException) { /* SQLite can retain a pooled Windows handle briefly. */ }
         }

@@ -11,4 +11,6 @@ public sealed record ProjectInfoRewriteRequest(
     string RewriteVariantKey = "",
     IReadOnlyList<string>? OccupiedExactTitles = null,
     string? OriginalSynopsis = null,
-    bool UseUnifiedPublishPrompt = false);
+    bool UseUnifiedPublishPrompt = false,
+    bool UseEnglishPublishText = false,
+    bool RestoreOriginalSynopsis = false);

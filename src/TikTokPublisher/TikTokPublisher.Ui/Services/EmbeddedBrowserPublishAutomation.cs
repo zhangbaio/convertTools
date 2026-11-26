@@ -113,7 +113,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 item.ProjectDir,
                 item.Title,
                 L,
-                ct).ConfigureAwait(false);
+                ct,
+                originalTitle: item.OriginalTitle).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
