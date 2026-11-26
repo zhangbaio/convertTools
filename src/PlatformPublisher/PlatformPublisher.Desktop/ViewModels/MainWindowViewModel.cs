@@ -2818,7 +2818,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     {
                         await _dramaDownloader.EnsureDownloadReadyAsync(
                             directories.SourceDirectory,
-                            ListDownloadedVideos(projectDirectory),
+                            KuaishouDownloadPolicy.ListVideosForPlaybackCheck(directories.SourceDirectory, directories.WorkflowDirectory),
                             new Progress<string>(message => AppendActivityLog(message, projectName)),
                             cancellationToken);
                     }
@@ -5622,46 +5622,5 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AssignCheckedToCurrentAccountCommand.NotifyCanExecuteChanged();
         PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
-    }
-
-    private static IReadOnlyList<string> ListDownloadedVideos(string projectDirectory)
-    {
-        var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
-        var roots = new[]
-        {
-            directories.SourceDirectory,
-            Path.Combine(directories.SourceDirectory, "videos"),
-            Path.Combine(directories.WorkflowDirectory, "videos"),
-        };
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var paths = new List<string>();
-        foreach (var root in roots)
-        {
-            if (!Directory.Exists(root))
-                continue;
-            foreach (var path in Directory.EnumerateFiles(root))
-            {
-                if (!IsDownloadedVideo(path))
-                    continue;
-                var full = Path.GetFullPath(path);
-                if (seen.Add(full))
-                    paths.Add(full);
-            }
-        }
-
-        return paths;
-    }
-
-    private static bool IsDownloadedVideo(string path)
-    {
-        var extension = Path.GetExtension(path);
-        return extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".mov", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".avi", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".flv", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".wmv", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".webm", StringComparison.OrdinalIgnoreCase);
     }
 }

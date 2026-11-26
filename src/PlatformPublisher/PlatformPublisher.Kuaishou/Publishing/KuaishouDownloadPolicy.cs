@@ -14,6 +14,30 @@ public static class KuaishouDownloadPolicy
         ".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm",
     };
 
+    public static IReadOnlyList<string> ListVideosForPlaybackCheck(string sourceDirectory, string workflowDirectory)
+    {
+        var source = Path.GetFullPath(sourceDirectory);
+        var workflow = Path.GetFullPath(workflowDirectory);
+        var originals = ListUnmanagedVideos(source)
+            .Concat(ListUnmanagedVideos(Path.Combine(source, KuaishouSettlementEpisodeVideoService.VideosDirectoryName)))
+            .ToArray();
+        if (originals.Length > 0)
+            return originals;
+
+        var archivedOriginals = ListUnmanagedVideos(
+            Path.Combine(workflow, KuaishouSettlementEpisodeVideoService.DedupOriginalsDirectoryName)).ToArray();
+        if (archivedOriginals.Length > 0)
+            return archivedOriginals;
+
+        // Older projects may have moved their only originals into workflow/videos.
+        return ListUnmanagedVideos(Path.Combine(workflow, KuaishouSettlementEpisodeVideoService.VideosDirectoryName)).ToArray();
+    }
+
+    private static IEnumerable<string> ListUnmanagedVideos(string directory) =>
+        !Directory.Exists(directory) || KuaishouSettlementEpisodeVideoService.HasManagedDedupVideos(directory)
+            ? []
+            : Directory.EnumerateFiles(directory).Where(path => VideoExtensions.Contains(Path.GetExtension(path)));
+
     public static bool ShouldSkip(string projectDirectory)
     {
         var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
