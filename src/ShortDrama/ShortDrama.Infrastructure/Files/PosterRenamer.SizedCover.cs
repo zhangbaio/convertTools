@@ -18,12 +18,18 @@ public sealed partial class PosterRenamer
         var config = ReadConfig(null);
         var previousCall = CurrentCall.Value;
         CurrentCall.Value = new PosterCallContext(log, IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")));
+        var renderInputPath = inputPath;
         try
         {
-            return await GenerateSizedCoverBytesAsync(config, inputPath, prompt, safeRetryPrompt, requestSize, cancellationToken);
+            renderInputPath = await PrepareRenderableInputAsync(inputPath, cancellationToken);
+            if (renderInputPath != inputPath)
+                log?.Invoke($"已将海报原图 {Path.GetFileName(inputPath)} 转换为 PNG。");
+            return await GenerateSizedCoverBytesAsync(config, renderInputPath, prompt, safeRetryPrompt, requestSize, cancellationToken);
         }
         finally
         {
+            if (renderInputPath != inputPath)
+                TryDeleteFile(renderInputPath);
             CurrentCall.Value = previousCall;
         }
     }

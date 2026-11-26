@@ -232,7 +232,7 @@ public sealed class KuaishouPosterService(HttpClient? imageClient = null)
         var directories = DistinctDirectories(sourceDirectory, workflowDirectory).ToArray();
         foreach (var directory in directories)
         {
-            foreach (var name in new[] { "海报原图.png", "海报原图.jpg", "海报原图.jpeg", "海报原图.webp" })
+            foreach (var name in new[] { "海报原图.png", "海报原图.jpg", "海报原图.jpeg", "海报原图.webp", "海报原图.heic", "海报原图.heif" })
             {
                 var path = Path.Combine(directory, name);
                 if (File.Exists(path))
@@ -334,8 +334,8 @@ public sealed class KuaishouPosterService(HttpClient? imageClient = null)
 
     private static bool IsUsableSourceImage(string path)
     {
-        var extension = Path.GetExtension(path);
-        if (extension is not (".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp"))
+        var extension = Path.GetExtension(path).ToLowerInvariant();
+        if (extension is not (".jpg" or ".jpeg" or ".png" or ".webp" or ".bmp" or ".heic" or ".heif"))
             return false;
         var name = Path.GetFileNameWithoutExtension(path);
         return name is not ("快手横屏封面" or "快手竖屏海报" or "海报处理_已清除标题")

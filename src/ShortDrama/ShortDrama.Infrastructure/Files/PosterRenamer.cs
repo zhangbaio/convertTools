@@ -358,8 +358,16 @@ JSON 结构：
         var tempPngPath = Path.Combine(
             Path.GetTempPath(),
             $"{Path.GetFileNameWithoutExtension(inputPath)}.{Guid.NewGuid():N}.png");
-        await ConvertImageToPngWithFfmpegAsync(inputPath, tempPngPath, cancellationToken);
-        return tempPngPath;
+        try
+        {
+            await ConvertImageToPngWithFfmpegAsync(inputPath, tempPngPath, cancellationToken);
+            return tempPngPath;
+        }
+        catch
+        {
+            TryDeleteFile(tempPngPath);
+            throw;
+        }
     }
 
     private static async Task<bool> CanIdentifyImageAsync(string inputPath, CancellationToken cancellationToken)
@@ -369,7 +377,7 @@ JSON 结构：
             var info = await Image.IdentifyAsync(inputPath, cancellationToken);
             return info is not null;
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return false;
         }
@@ -383,7 +391,7 @@ JSON 结构：
         var ffmpeg = ResolveFfmpegBinary();
         var result = await _processRunner.RunAsync(
             ffmpeg,
-            ["-y", "-hide_banner", "-loglevel", "error", "-i", inputPath, outputPath],
+            ["-y", "-hide_banner", "-loglevel", "error", "-i", inputPath, "-frames:v", "1", outputPath],
             Path.GetDirectoryName(inputPath),
             cancellationToken);
 

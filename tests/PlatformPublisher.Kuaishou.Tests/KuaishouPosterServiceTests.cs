@@ -38,6 +38,28 @@ public sealed class KuaishouPosterServiceTests
         }
     }
 
+    [Theory]
+    [InlineData("海报原图.heic")]
+    [InlineData("原封面.HEIF")]
+    public void Find_source_poster_accepts_heic_and_heif(string fileName)
+    {
+        var root = Directory.CreateTempSubdirectory("kuaishou-poster-heif-");
+        try
+        {
+            var source = Path.Combine(root.FullName, fileName);
+            File.WriteAllBytes(source, [1]);
+            if (fileName.StartsWith("海报原图", StringComparison.Ordinal))
+                File.WriteAllBytes(Path.Combine(root.FullName, "海报图片.png"), [1]);
+
+            Assert.True(KuaishouPosterService.HasSourcePoster(root.FullName, root.FullName));
+            Assert.Equal(source, KuaishouPosterService.FindSourcePoster(root.FullName, root.FullName));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void Missing_source_poster_is_detected_before_generation()
     {
