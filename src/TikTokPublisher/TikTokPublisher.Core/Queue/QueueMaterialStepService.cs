@@ -33,7 +33,7 @@ public static partial class QueueMaterialStepService
     private const string AiRewriteStateDocumentType = "ai_rewrite_state";
     private const int AiRewriteStateVersion = 2;
     private const string EnglishRewriteVariantSuffix = "#output=en";
-    private const string PublishTextLanguageField = "发布文案语言";
+    private const string LegacyPublishTextLanguageField = "发布文案语言";
 
     public static Task RunDownloadAsync(
         QueueProjectItem item,
@@ -2390,8 +2390,6 @@ public static partial class QueueMaterialStepService
             if (decision.Regenerate)
                 throw new NewTitleOccupiedException($"写入前校验发现新剧名「{title}」已被{decision.Reason}占用，保留原短剧信息。");
 
-            if (request.UseEnglishPublishText)
-                ProjectInfoTextHelper.UpdateFields(temporaryPath, new Dictionary<string, string> { [PublishTextLanguageField] = "en" });
             ApplyConfiguredPublishAudience(temporaryPath, account, log);
             var currentInfo = ProjectInfoTextHelper.ParseInfoFile(outputPath);
             var currentTitle = FirstNonEmpty(currentInfo.GetValueOrDefault("新剧名"), currentInfo.GetValueOrDefault("剧名"));
@@ -2654,7 +2652,7 @@ public static partial class QueueMaterialStepService
         recordedTitle = ReadJsonString(state.GetValueOrDefault("title"));
         var variantKey = ReadJsonString(state.GetValueOrDefault("variant_key"));
         previousEnglish = IsEnglishRewriteVariant(variantKey) ||
-                          string.Equals(info.GetValueOrDefault(PublishTextLanguageField), "en", StringComparison.OrdinalIgnoreCase);
+                          string.Equals(info.GetValueOrDefault(LegacyPublishTextLanguageField), "en", StringComparison.OrdinalIgnoreCase);
         if (!TryReadBoolean(state.GetValueOrDefault("rewrite_synopsis"), out var recordedRewriteSynopsis))
             return false;
 

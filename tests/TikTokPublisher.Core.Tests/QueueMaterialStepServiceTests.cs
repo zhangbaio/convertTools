@@ -974,12 +974,8 @@ public sealed class QueueMaterialStepServiceTests
             {
                 var generated = await rewrite();
                 generated.OutputFilePath.Should().Be(infoPath);
-                var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
-                info.Should().Contain("目标观众", "女").And.Contain("简介", rewrittenSynopsis);
-                if (useEnglish)
-                    info.Should().Contain("发布文案语言", "en");
-                else
-                    info.Should().NotContainKey("发布文案语言");
+                ProjectInfoTextHelper.ParseInfoFile(infoPath).Should().Contain("目标观众", "女")
+                    .And.Contain("简介", rewrittenSynopsis).And.NotContainKey("发布文案语言");
                 var context = ProjectWorkspaceService.LoadContext(source);
                 QueueMaterialStepService.PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis: true);
                 var item = new QueueProjectItem { ProjectDir = source };
