@@ -40,9 +40,15 @@ internal sealed class VideoDedupHardwareTranscoder
 
     public bool HasDevices => _devices.Count != 0;
 
+    internal static void NotifyConcurrencyChanged()
+    {
+        foreach (var gate in Gates.Values)
+            gate.NotifyLimitChanged();
+    }
+
     public async Task<bool> TryRenderAsync(
         VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPlanner.HardwareFrame frame,
-        string outputPath, bool automatic, int machineLimit,
+        string outputPath, Func<VideoProcessingConcurrency.EffectiveLimit> currentLimit,
         Func<IReadOnlyList<string>, TimeSpan?, CancellationToken, Task<double>> execute,
         Func<CancellationToken, Task<bool>> validate, Action<string> log, CancellationToken ct)
     {
@@ -55,11 +61,17 @@ internal sealed class VideoDedupHardwareTranscoder
 
         var sampleKey = VideoDedupCalibrationSample.Covers(clip.Probe, frame, _preset)
             ? BuildCalibrationKey(selection.Device, clip.Probe) : null;
-        var limit = automatic ? Math.Min(machineLimit, CalibratedLimit(selection.Key, sampleKey)) : machineLimit;
-        if (automatic && (!VideoDedupMachineLoad.HasMemoryHeadroom() || VideoDedupMachineLoad.IsOnBattery()))
-            limit = 1;
+        var automaticLimit = !VideoDedupMachineLoad.HasMemoryHeadroom() || VideoDedupMachineLoad.IsOnBattery()
+            ? 1
+            : CalibratedLimit(selection.Key, sampleKey);
+        int DeviceLimit()
+        {
+            var current = currentLimit();
+            return current.Automatic ? Math.Min(current.Limit, automaticLimit) : current.Limit;
+        }
+
         var gate = GateFor(selection.Device);
-        using var lease = await gate.EnterAsync(limit, ct).ConfigureAwait(false);
+        using var lease = await gate.EnterAsync(DeviceLimit, ct).ConfigureAwait(false);
         if (TryGetProbe(selection.ProbeKey, out var latest) && !latest.Success)
             return false;
         var encoder = selection.Device.Encoder(_hevc);
@@ -87,7 +99,7 @@ internal sealed class VideoDedupHardwareTranscoder
             gate.ReduceTemporarily();
             lease.Dispose();
             log($"{selection.Device.Name} 会话繁忙，等待已有转码结束后按单路重试。");
-            using var retryLease = await gate.EnterAsync(1, ct).ConfigureAwait(false);
+            using var retryLease = await gate.EnterAsync(static () => 1, ct).ConfigureAwait(false);
             try
             {
                 await RunAndCheckAsync(args).ConfigureAwait(false);
@@ -220,7 +232,7 @@ internal sealed class VideoDedupHardwareTranscoder
             var probeKey = key + device.Id;
             if (!TryGetProbe(probeKey, out var probe))
             {
-                using var lease = exclusive ? null : await GateFor(device).EnterAsync(1, ct).ConfigureAwait(false);
+                using var lease = exclusive ? null : await GateFor(device).EnterAsync(static () => 1, ct).ConfigureAwait(false);
                 if (!TryGetProbe(probeKey, out probe))
                 {
                     var args = VideoDedupPlanner.BuildHardwareArguments(_preset, clip, slice, frame, device, encoder, null);
@@ -360,7 +372,7 @@ internal sealed class VideoDedupHardwareTranscoder
         private TaskCompletionSource _changed = Signal();
         private DateTimeOffset _reducedUntil;
 
-        public async Task<Lease> EnterAsync(int limit, CancellationToken ct)
+        public async Task<Lease> EnterAsync(Func<int> limit, CancellationToken ct)
         {
             while (true)
             {
@@ -368,10 +380,10 @@ internal sealed class VideoDedupHardwareTranscoder
                 lock (_sync)
                 {
                     ct.ThrowIfCancellationRequested();
-                    var effective = _reducedUntil > DateTimeOffset.UtcNow ? 1 : Math.Max(1, limit);
-                    if (_active.Count < effective && _active.All(lease => _active.Count < lease.Limit))
+                    var effective = _reducedUntil > DateTimeOffset.UtcNow ? 1 : Math.Max(1, limit());
+                    if (_active.Count < effective && _active.All(lease => _active.Count < lease.CurrentLimit()))
                     {
-                        var lease = new Lease(this, effective);
+                        var lease = new Lease(this, effective, limit);
                         _active.Add(lease);
                         return lease;
                     }
@@ -387,23 +399,35 @@ internal sealed class VideoDedupHardwareTranscoder
                 _reducedUntil = DateTimeOffset.UtcNow.AddMinutes(1);
         }
 
+        public void NotifyLimitChanged()
+        {
+            lock (_sync)
+                WakeWaiters();
+        }
+
         private void Release(Lease lease)
         {
             lock (_sync)
             {
                 if (!_active.Remove(lease))
                     return;
-                var previous = _changed;
-                _changed = Signal();
-                previous.TrySetResult();
+                WakeWaiters();
             }
+        }
+
+        private void WakeWaiters()
+        {
+            var previous = _changed;
+            _changed = Signal();
+            previous.TrySetResult();
         }
 
         private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public sealed class Lease(DeviceGate owner, int limit) : IDisposable
+        public sealed class Lease(DeviceGate owner, int limit, Func<int> currentLimit) : IDisposable
         {
             public int Limit { get; } = limit;
+            public Func<int> CurrentLimit { get; } = currentLimit;
             public void Dispose() => owner.Release(this);
         }
     }

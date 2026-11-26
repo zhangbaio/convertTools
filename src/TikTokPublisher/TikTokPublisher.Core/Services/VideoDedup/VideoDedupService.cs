@@ -312,7 +312,8 @@ public static class VideoDedupService
         var logicalProcessors = Environment.ProcessorCount;
         var cpuPercent = VideoDedupCpuBudget.CurrentCpuPercent;
         var processorBudget = VideoDedupCpuBudget.ProcessorBudget(logicalProcessors, cpuPercent);
-        Write($"本机 {logicalProcessors} 个逻辑处理器，去重 CPU 线程预算 {cpuPercent}%（{processorBudget} 个），TikTok 和快手共享视频处理上限 {encodeParallel} 路。");
+        var limitMode = VideoProcessingConcurrency.Current.Automatic ? "硬件自动" : "手动设置";
+        Write($"本机 {logicalProcessors} 个逻辑处理器，去重 CPU 线程预算 {cpuPercent}%（{processorBudget} 个），TikTok 和快手共享视频处理上限 {encodeParallel} 路（{limitMode}）。");
         if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
@@ -386,7 +387,7 @@ public static class VideoDedupService
                                 VideoDedupPlanner.GetHardwareFrame(preset, clips, slices) is { } frame &&
                                 await hardwareTranscoder.TryRenderAsync(
                                     clips[slices[0].ClipIndex], slices[0], frame, temp,
-                                    automatic: true, encodeParallel,
+                                    static () => VideoProcessingConcurrency.Current,
                                     (args, timeout, cancellation) => VideoDedupHardwareTranscoder.RunTimedAsync(
                                         FfmpegLocator.ResolveFfmpeg(), args, timeout, cancellation),
                                     cancellation => CheckHardwareOutputAsync(temp, clips[slices[0].ClipIndex].Probe,
@@ -1087,11 +1088,7 @@ public static class VideoDedupService
             return VideoDedupCpuBudget.CurrentConcurrency;
         }
 
-        var limit = await VideoProcessingConcurrency.GetLimitAsync(ct).ConfigureAwait(false);
-        VideoDedupCpuBudget.Configure(limit, logical);
-        VideoDedupCpuBudget.ConfigurePercent(VideoDedupCpuBudget.DefaultCpuPercent);
-        VideoDedupEncodeGate.Configure(limit);
-        return limit;
+        return (await VideoProcessingConcurrency.EnsureAppliedAsync(ct).ConfigureAwait(false)).Limit;
     }
 
     private static string FirstLine(string message)

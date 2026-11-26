@@ -114,7 +114,7 @@ public sealed class VideoDedupHardwareTests
         var validations = 0;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
-        var done = await transcoder.TryRenderAsync(clip, slice, frame, "out.mp4", false, 2,
+        var done = await transcoder.TryRenderAsync(clip, slice, frame, "out.mp4", static () => new(2, false),
             (args, _, _) =>
             {
                 invocations.Add(args);
@@ -130,6 +130,54 @@ public sealed class VideoDedupHardwareTests
         invocations[0].Should().Contain("-frames:v");
         invocations[1].Should().Contain("-hwaccel");
         invocations[2].Should().NotContain("-hwaccel").And.Contain("d3d11va=dedup_dx:1").And.Contain("h264_amf");
+    }
+
+    [Fact]
+    public async Task A_raised_manual_limit_admits_a_waiting_hardware_job_before_the_active_one_finishes()
+    {
+        var preset = new VideoDedupPreset();
+        var clip = Clip(SourceFormat);
+        var slice = new VideoDedupSlice(0, 0, 20);
+        var device = new VideoDedupHardwareDevice("Radeon", Guid.NewGuid().ToString("N"), "model", "amf", 1);
+        var transcoder = new VideoDedupHardwareTranscoder(preset, [device], "ffmpeg.exe");
+        var frame = VideoDedupPlanner.GetHardwareFrame(preset, [clip], [slice])!.Value;
+        var firstStarted = new TaskCompletionSource();
+        var secondStarted = new TaskCompletionSource();
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var limit = 1;
+        async Task<double> Encode(IReadOnlyList<string> arguments, TimeSpan? timeout, CancellationToken ct)
+        {
+            if (arguments.Contains("-frames:v"))
+                return 0.5;
+
+            (arguments[^1] == "first.mp4" ? firstStarted : secondStarted).TrySetResult();
+            await finish.Task.WaitAsync(ct);
+            return 0.5;
+        }
+
+        Task<bool> Start(string path) => transcoder.TryRenderAsync(clip, slice, frame, path,
+            () => new(Volatile.Read(ref limit), false), Encode, _ => Task.FromResult(true), _ => { }, deadline.Token);
+
+        var first = Start("first.mp4");
+        Task<bool>? second = null;
+        try
+        {
+            await firstStarted.Task.WaitAsync(deadline.Token);
+            second = Start("second.mp4");
+            secondStarted.Task.IsCompleted.Should().BeFalse();
+            Volatile.Write(ref limit, 2);
+            VideoDedupHardwareTranscoder.NotifyConcurrencyChanged();
+            await secondStarted.Task.WaitAsync(deadline.Token);
+            first.IsCompleted.Should().BeFalse();
+        }
+        finally
+        {
+            finish.TrySetResult();
+            (await first).Should().BeTrue();
+            if (second is not null)
+                (await second).Should().BeTrue();
+        }
     }
 
     private static VideoDedupClip Clip(VideoDedupSourceFormat format) =>

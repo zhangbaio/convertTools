@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -13,10 +14,17 @@ public partial class SystemSettingsView : UserControl
 {
     private SystemSettingsViewModel? _vm;
     private bool _syncingProjectImageTemplateCombo;
+    private readonly DispatcherTimer _concurrencyUsageTimer = new() { Interval = TimeSpan.FromSeconds(1) };
 
     public SystemSettingsView()
     {
         InitializeComponent();
+        _concurrencyUsageTimer.Tick += (_, _) =>
+        {
+            if (IsEffectivelyVisible)
+                _vm?.ProjectConcurrencySettings.RefreshVideoProcessingUsage();
+        };
+        DetachedFromVisualTree += (_, _) => _concurrencyUsageTimer.Stop();
         SharedTextPresetEditor.Configure(SharedAiPresetKind.Text);
         SharedImagePresetEditor.Configure(SharedAiPresetKind.Image);
     }
@@ -45,7 +53,15 @@ public partial class SystemSettingsView : UserControl
             footer.IsVisible = !showsProjectConcurrency && (!showsSharedAi || _vm?.ShowsKuaishouPublishPrompt == true) &&
                 selected != SoftwareLicenseTab && selected != XingeSettingsTab;
             if (showsProjectConcurrency && _vm is { } vm)
+            {
+                vm.ProjectConcurrencySettings.RefreshVideoProcessingUsage();
+                _concurrencyUsageTimer.Start();
                 await vm.ProjectConcurrencySettings.RefreshVideoProcessingLimitAsync();
+            }
+            else
+            {
+                _concurrencyUsageTimer.Stop();
+            }
             if (selected == SharedTextPresetTab)
                 SharedTextPresetEditor.Refresh();
             if (selected == SharedImagePresetTab)

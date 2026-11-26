@@ -711,8 +711,20 @@
                                            Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
                                            FormatString="0" Width="120" />
                         </Grid>
+                        <TextBlock Text="共享视频处理上限" FontWeight="SemiBold" />
+                        <CheckBox Content="根据硬件自动设置上限"
+                                  IsChecked="{Binding ProjectConcurrencySettings.VideoAutomatic}" />
+                        <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
+                            <TextBlock Text="手动上限（路）" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                           Value="{Binding ProjectConcurrencySettings.VideoManualLimit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                           IsEnabled="{Binding !ProjectConcurrencySettings.VideoAutomatic}"
+                                           Minimum="1" Maximum="{Binding ProjectConcurrencySettings.VideoManualMaximum}"
+                                           ParsingNumberStyle="Integer" FormatString="0" Width="120"
+                                           AutomationProperties.Name="共享视频处理手动上限" />
+                        </Grid>
                         <TextBlock Text="{Binding ProjectConcurrencySettings.VideoProcessingStatus}"
-                                   Classes="pageSummary" />
+                                   Classes="pageSummary" TextWrapping="Wrap" />
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="保存设置" Command="{Binding ProjectConcurrencySettings.SaveCommand}"
                                     Classes="primaryAction" MinWidth="140" />

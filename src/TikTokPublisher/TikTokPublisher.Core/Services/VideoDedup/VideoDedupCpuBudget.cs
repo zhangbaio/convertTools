@@ -110,6 +110,12 @@ internal static class VideoDedupEncodeGate
 
     public static Series BeginSeries() => new();
 
+    public static (int Active, int Limit) ReadUsage()
+    {
+        lock (Sync)
+            return (Slots.Count, _limit);
+    }
+
     public static bool TryBeginCalibration()
     {
         lock (Sync)
