@@ -21,6 +21,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const string HongguoAppBookPrefix = "hongguoapp:";
     private const string HongguoAppEpisodePrefix = "hongguoapp_ep:";
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
+    private const string PlaybackCheckFailedKey = "playback_check_failed";
+    private const string MissingVideosMessage = "没有视频文件，下载未完成。";
+    private const string UnplayableVideosMessage = "无法播放，当前 FFmpeg 不支持该编码。下载未完成，请更换剧集或更换下载链路。";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
     private const int DefaultDownloadFileSegments = 4;
@@ -552,6 +555,34 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return SortByPublishTimeDescending(merged);
     }
 
+    public async Task EnsureDownloadReadyAsync(
+        string stateDirectory,
+        IReadOnlyList<string> paths,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var statePath = Path.Combine(stateDirectory, DownloadStateFileName);
+        var state = ReadDownloadState(statePath);
+        var retryPlayback = IsFailedPlaybackCheck(state);
+        if (IsFailedDownloadState(state) && !retryPlayback)
+            throw new InvalidOperationException(GetDownloadFailureMessage(state!) ?? "下载未完成。");
+
+        if (retryPlayback)
+            progress?.Report("上次视频播放校验失败，重新检查已有视频。");
+        await EnsureVideosPlayableAsync(stateDirectory, paths, progress, cancellationToken).ConfigureAwait(false);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (retryPlayback && ReadDownloadState(statePath) is { } current && IsFailedPlaybackCheck(current))
+        {
+            current["ok"] = true;
+            current["stopped"] = false;
+            current["message"] = "已有视频通过播放校验，下载已完成。";
+            current.Remove(PlaybackCheckFailedKey);
+            WritePlaybackDownloadState(statePath, current);
+        }
+    }
+
     public async Task EnsureVideosPlayableAsync(
         string stateDirectory,
         IReadOnlyList<string> paths,
@@ -559,7 +590,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken)
     {
         if (paths.Count == 0)
-            throw PlaybackCheckFailed(stateDirectory, "没有视频文件，下载未完成。");
+            throw PlaybackCheckFailed(stateDirectory, MissingVideosMessage);
 
         progress?.Report($"正在检查 {paths.Count} 个视频能否播放。");
         var failedEpisodes = new List<int>();
@@ -570,8 +601,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var path = paths[index];
             if ((index + 1) % 10 == 0 || index + 1 == paths.Count)
                 progress?.Report($"播放检查 {index + 1}/{paths.Count}");
-            if (await HasFfmpegSupportedVideoAsync(path, cancellationToken).ConfigureAwait(false))
+            try
+            {
+                await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
                 continue;
+            }
+            catch (InvalidDataException ex)
+            {
+                progress?.Report($"{Path.GetFileName(path)} 播放校验失败：{ex.Message}");
+            }
             if (TryReadEpisodeNumber(path, out var episode))
                 failedEpisodes.Add(episode);
             else
@@ -592,7 +630,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .ToArray();
         throw PlaybackCheckFailed(
             stateDirectory,
-            $"{string.Join("、", labels)}无法播放，当前 FFmpeg 不支持该编码。下载未完成，请更换剧集或更换下载链路。");
+            $"{string.Join("、", labels)}{UnplayableVideosMessage}");
     }
 
     public async Task<bool> HasFfmpegSupportedVideoAsync(string path, CancellationToken cancellationToken)
@@ -3749,16 +3787,60 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, DownloadStateFileName);
-            var root = File.Exists(path)
-                ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject()
-                : new JsonObject();
+            var root = ReadDownloadState(path) ?? new JsonObject();
             root["ok"] = false;
             root["stopped"] = false;
             root["message"] = message;
-            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            root[PlaybackCheckFailedKey] = true;
+            WritePlaybackDownloadState(path, root);
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
+        }
+    }
+
+    private static JsonObject? ReadDownloadState(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsFailedDownloadState(JsonObject? state) =>
+        string.Equals(state?["ok"]?.ToString(), "false", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsFailedPlaybackCheck(JsonObject? state)
+    {
+        if (state is null || !IsFailedDownloadState(state))
+            return false;
+        if (state[PlaybackCheckFailedKey] is JsonValue flag && flag.TryGetValue<bool>(out var failed))
+            return failed;
+
+        var message = GetDownloadFailureMessage(state);
+        return message == MissingVideosMessage || message?.EndsWith(UnplayableVideosMessage, StringComparison.Ordinal) == true;
+    }
+
+    private static string? GetDownloadFailureMessage(JsonObject state) =>
+        state["message"] is JsonValue value && value.TryGetValue<string>(out var message) &&
+        !string.IsNullOrWhiteSpace(message) ? message.Trim() : null;
+
+    private static void WritePlaybackDownloadState(string path, JsonObject state)
+    {
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, state.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temporary); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
     }
 

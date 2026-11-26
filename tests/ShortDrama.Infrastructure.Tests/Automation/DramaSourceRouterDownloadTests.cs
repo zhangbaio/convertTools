@@ -989,12 +989,103 @@ public sealed class DramaSourceRouterDownloadTests
             progress.Messages.Should().Contain(message => message.Contains("正在检查 2 个视频", StringComparison.Ordinal));
             var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(outputDir, ".weixin-channel-download-state.json")));
             state.RootElement.GetProperty("ok").GetBoolean().Should().BeFalse();
+            state.RootElement.GetProperty("playback_check_failed").GetBoolean().Should().BeTrue();
+            progress.Messages.Should().Contain(message => message.Contains("第2集.mp4 播放校验失败：", StringComparison.Ordinal));
         }
         finally
         {
             DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousResolver;
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousRunner;
             Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(null, "hevc", true)]
+    [InlineData(true, "hevc", true)]
+    [InlineData(null, "unknown", false)]
+    public async Task EnsureDownloadReadyAsync_rechecks_saved_playback_failures(
+        bool? explicitMarker, string codec, bool expectedSuccess)
+    {
+        var directory = Directory.CreateTempSubdirectory("drama-playback-retry-");
+        var previousResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        using var httpClient = new HttpClient();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "第16集.mp4");
+            await File.WriteAllBytesAsync(path, [0, 1, 2]);
+            var statePath = Path.Combine(directory.FullName, ".weixin-channel-download-state.json");
+            var state = new Dictionary<string, object?>
+            {
+                ["ok"] = false,
+                ["message"] = explicitMarker is true
+                    ? "上次视频检查失败"
+                    : "第16集无法播放，当前 FFmpeg 不支持该编码。下载未完成，请更换剧集或更换下载链路。",
+                ["video_count"] = 1,
+                ["episode_mappings"] = new[] { new { source_episode_number = 16 } },
+            };
+            if (explicitMarker.HasValue)
+                state["playback_check_failed"] = explicitMarker.Value;
+            await File.WriteAllTextAsync(statePath, JsonSerializer.Serialize(state));
+
+            var probes = 0;
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) =>
+            {
+                probes++;
+                return Task.FromResult(ProbeResult(codec));
+            };
+            var router = CreateRouter(httpClient, new DramaSourceSettings());
+            var run = () => router.EnsureDownloadReadyAsync(directory.FullName, [path], null, CancellationToken.None);
+
+            if (expectedSuccess)
+                await run();
+            else
+                await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("*第16集无法播放*");
+
+            probes.Should().Be(1);
+            using var persisted = JsonDocument.Parse(await File.ReadAllTextAsync(statePath));
+            var root = persisted.RootElement;
+            root.GetProperty("ok").GetBoolean().Should().Be(expectedSuccess);
+            root.GetProperty("video_count").GetInt32().Should().Be(1);
+            root.GetProperty("episode_mappings")[0].GetProperty("source_episode_number").GetInt32().Should().Be(16);
+            root.TryGetProperty("playback_check_failed", out _).Should().Be(!expectedSuccess);
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousRunner;
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EnsureDownloadReadyAsync_preserves_transfer_failures()
+    {
+        var directory = Directory.CreateTempSubdirectory("drama-transfer-failure-");
+        var previousResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        using var httpClient = new HttpClient();
+        try
+        {
+            const string failure = """
+                {"ok":"false","message":"第16集下载请求失败"}
+                """;
+            var statePath = Path.Combine(directory.FullName, ".weixin-channel-download-state.json");
+            await File.WriteAllTextAsync(statePath, failure);
+            var path = Path.Combine(directory.FullName, "第16集.mp4");
+            await File.WriteAllBytesAsync(path, [0, 1, 2]);
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => throw new Exception("Should not run playback checks");
+            var router = CreateRouter(httpClient, new DramaSourceSettings());
+
+            var run = () => router.EnsureDownloadReadyAsync(directory.FullName, [path], null, CancellationToken.None);
+            await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("第16集下载请求失败");
+            (await File.ReadAllTextAsync(statePath)).Should().Be(failure);
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousResolver;
+            directory.Delete(recursive: true);
         }
     }
 

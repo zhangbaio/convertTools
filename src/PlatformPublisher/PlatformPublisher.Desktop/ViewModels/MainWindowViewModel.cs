@@ -2813,16 +2813,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
                     }
 
-                    if (TryReadDownloadFailure(directories.SourceDirectory, out var downloadFailure))
-                    {
-                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Failed, downloadFailure);
-                        throw new InvalidOperationException(downloadFailure);
-                    }
-
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在检查视频能否播放");
                     try
                     {
-                        await _dramaDownloader.EnsureVideosPlayableAsync(
+                        await _dramaDownloader.EnsureDownloadReadyAsync(
                             directories.SourceDirectory,
                             ListDownloadedVideos(projectDirectory),
                             new Progress<string>(message => AppendActivityLog(message, projectName)),
@@ -5628,36 +5622,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AssignCheckedToCurrentAccountCommand.NotifyCanExecuteChanged();
         PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
-    }
-
-    private static bool TryReadDownloadFailure(string directory, out string message)
-    {
-        message = "";
-        var path = Path.Combine(directory, ".weixin-channel-download-state.json");
-        if (!File.Exists(path))
-            return false;
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllText(path));
-            var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("ok", out var ok))
-                return false;
-            var failed = ok.ValueKind == JsonValueKind.False
-                || (ok.ValueKind == JsonValueKind.String &&
-                    string.Equals(ok.GetString(), "false", StringComparison.OrdinalIgnoreCase));
-            if (!failed)
-                return false;
-            message = root.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String
-                ? text.GetString()?.Trim() ?? ""
-                : "";
-            if (string.IsNullOrWhiteSpace(message))
-                message = "下载未完成。";
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
     }
 
     private static IReadOnlyList<string> ListDownloadedVideos(string projectDirectory)
