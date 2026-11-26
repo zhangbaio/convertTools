@@ -35,9 +35,13 @@ public sealed class AccountAiEditor : UserControl
     private ClientSettings _defaults = new();
     private TikTokAccountAiSettings.Library _library = new();
     private TikTokAccountAiSettings.Keys _savedKeys = new();
+    private TikTokAccountAiSettings.Keys _draftKeys = new();
+    private IReadOnlyList<SharedAiPreset> _sharedPresets = [];
     private TikTokAccountAiOptions? _draft;
     private string _shownTextKey = "";
     private string _shownImageKey = "";
+    private string? _shownTextEndpoint;
+    private string? _shownImageEndpoint;
     private bool _refreshingPresets;
 
     public AccountAiEditor()
@@ -63,6 +67,8 @@ public sealed class AccountAiEditor : UserControl
         Content = form;
         _textPresets.SelectionChanged += (_, _) => UpdateDisplayedKeys();
         _imagePresets.SelectionChanged += (_, _) => UpdateDisplayedKeys();
+        _textPresets.DropDownOpened += (_, _) => RefreshSharedPresets();
+        _imagePresets.DropDownOpened += (_, _) => RefreshSharedPresets();
     }
 
     public void Load(TikTokAccountProfile account, ClientSettings settings)
@@ -70,6 +76,9 @@ public sealed class AccountAiEditor : UserControl
         _defaults = settings;
         _library = TikTokAccountAiSettings.Load();
         _savedKeys = _library.AccountKeys.GetValueOrDefault(account.Id) ?? new();
+        _draftKeys = _savedKeys;
+        _sharedPresets = ReadSharedPresets();
+        _shownTextEndpoint = _shownImageEndpoint = null;
         var options = account.AiOptions ?? TikTokAccountAiOptions.FromSettings(settings);
         _draft = options with { PosterMode = TikTokAccountAiSettings.ResolvePosterMode(options.PosterMode) };
         _textEdits.Clear();
@@ -77,11 +86,10 @@ public sealed class AccountAiEditor : UserControl
         var imageId = _draft.ImagePresetId ?? "";
         if (_library.Image.TryGetValue(imageId, out var image) && !TikTokAccountAiSettings.IsVolcanoPreset(image))
             imageId = "";
-        RefreshPresets(_draft.TextPresetId, imageId);
         _textKey.RevealPassword = _imageKey.RevealPassword = false;
         _textKey.Text = _shownTextKey = "";
         _imageKey.Text = _shownImageKey = "";
-        UpdateDisplayedKeys();
+        RefreshPresets(_draft.TextPresetId, imageId);
         _publish.Text = TikTokAccountAiSettings.ResolvePublishPrompt(_draft.PublishPrompt);
         LoadPosterModeSelection();
         UpdateImagePrompt();
@@ -92,6 +100,8 @@ public sealed class AccountAiEditor : UserControl
     {
         _draft = null;
         _savedKeys = new();
+        _draftKeys = new();
+        _shownTextEndpoint = _shownImageEndpoint = null;
         _shownTextKey = _shownImageKey = "";
         _textKey.Text = _imageKey.Text = _publish.Text = "";
         _imagePromptLabel.Text = "图片提示词";
@@ -122,10 +132,10 @@ public sealed class AccountAiEditor : UserControl
     }
 
     private TikTokAccountAiSettings.Keys ReadKeys() => new(
-        Read(_textKey) == _shownTextKey || SelectedText() is not { } text
-            ? _savedKeys.Text : new(text.Endpoint, Read(_textKey)),
-        Read(_imageKey) == _shownImageKey || SelectedImage() is not { } image
-            ? _savedKeys.Image : new(image.Endpoint, Read(_imageKey)));
+        Read(_textKey) == _shownTextKey || _shownTextEndpoint is not { } textEndpoint
+            ? _draftKeys.Text : new(textEndpoint, Read(_textKey)),
+        Read(_imageKey) == _shownImageKey || _shownImageEndpoint is not { } imageEndpoint
+            ? _draftKeys.Image : new(imageEndpoint, Read(_imageKey)));
 
     internal object CaptureDraftState() => new
     {
@@ -256,6 +266,8 @@ public sealed class AccountAiEditor : UserControl
     private TikTokAiTextPreset? SelectedText()
     {
         var id = SelectedId(_textPresets);
+        if (FindSharedPreset(id, SharedAiPresetKind.Text) is { } shared)
+            return new(shared.Id, shared.Name, shared.Endpoint, shared.Model, shared.Timeout);
         return id.Length == 0 ? TikTokAccountAiSettings.DefaultText(_defaults)
             : _textEdits.GetValueOrDefault(id) ?? _library.Text.GetValueOrDefault(id);
     }
@@ -263,6 +275,8 @@ public sealed class AccountAiEditor : UserControl
     private TikTokAiImagePreset? SelectedImage()
     {
         var id = SelectedId(_imagePresets);
+        if (FindSharedPreset(id, SharedAiPresetKind.Image) is { } shared)
+            return new(shared.Id, shared.Name, shared.Endpoint, shared.Model, "2K", shared.Ratio);
         return id.Length == 0 ? TikTokAccountAiSettings.DefaultImage(_defaults)
             : _imageEdits.GetValueOrDefault(id) ?? _library.Image.GetValueOrDefault(id);
     }
@@ -272,16 +286,48 @@ public sealed class AccountAiEditor : UserControl
         if (_refreshingPresets || _draft is null)
             return;
 
-        var text = SelectedText();
-        var image = SelectedImage();
-        if (Read(_textKey) == _shownTextKey)
-            _textKey.Text = _shownTextKey = text is null ? "" : TikTokAccountAiSettings.ResolveKey(
-                _savedKeys.Text, text.Endpoint, _defaults.AiTextEndpoint, _defaults.AiTextApiKey);
-        if (Read(_imageKey) == _shownImageKey)
-            _imageKey.Text = _shownImageKey = image is null ? "" : TikTokAccountAiSettings.ResolveKey(
-                _savedKeys.Image, image.Endpoint, TikTokAccountAiSettings.DefaultImage(_defaults).Endpoint,
-                _defaults.ImageModelApiKey);
+        _draftKeys = ReadKeys();
+        var sharedText = SharedAiPresetStore.IsShared(SelectedId(_textPresets));
+        var sharedImage = SharedAiPresetStore.IsShared(SelectedId(_imagePresets));
+        _shownTextEndpoint = sharedText ? null : SelectedText()?.Endpoint;
+        _shownImageEndpoint = sharedImage ? null : SelectedImage()?.Endpoint;
+        ShowKey(_textKey, sharedText, _shownTextEndpoint, _draftKeys.Text,
+            _defaults.AiTextEndpoint, _defaults.AiTextApiKey, out _shownTextKey);
+        ShowKey(_imageKey, sharedImage, _shownImageEndpoint, _draftKeys.Image,
+            TikTokAccountAiSettings.DefaultImage(_defaults).Endpoint, _defaults.ImageModelApiKey, out _shownImageKey);
     }
+
+    private static void ShowKey(TextBox box, bool shared, string? endpoint, TikTokAccountAiSettings.BoundKey? key,
+        string defaultEndpoint, string defaultKey, out string displayed)
+    {
+        box.IsEnabled = !shared;
+        box.Watermark = shared ? "使用系统设置中的 API Key" : "";
+        displayed = endpoint is null ? "" : TikTokAccountAiSettings.ResolveKey(key, endpoint, defaultEndpoint, defaultKey);
+        box.Text = displayed;
+    }
+
+    private SharedAiPreset? FindSharedPreset(string id, SharedAiPresetKind kind) =>
+        _sharedPresets.FirstOrDefault(preset => preset.Id == id && preset.Kind == kind);
+
+    private static IReadOnlyList<SharedAiPreset> ReadSharedPresets()
+    {
+        try { return SharedAiPresetStore.List(); }
+        catch (InvalidOperationException) { return []; }
+    }
+
+    private void RefreshSharedPresets()
+    {
+        if (_draft is null)
+            return;
+        var latest = ReadSharedPresets();
+        if (_sharedPresets.SequenceEqual(latest))
+            return;
+        _sharedPresets = latest;
+        RefreshPresets(SelectedId(_textPresets), SelectedId(_imagePresets));
+    }
+
+    private IEnumerable<(string Id, string Name)> SharedChoices(SharedAiPresetKind kind) =>
+        _sharedPresets.Where(preset => preset.Kind == kind).Select(preset => (preset.Id, $"共享 · {preset.Name}"));
 
     private void RefreshPresets(string textId, string imageId)
     {
@@ -289,10 +335,12 @@ public sealed class AccountAiEditor : UserControl
         try
         {
             Fill(_textPresets, textId, _library.Text.Values.Concat(_textEdits.Values)
-                .GroupBy(preset => preset.Id).Select(group => (group.Key, group.Last().Name)));
+                .GroupBy(preset => preset.Id).Select(group => (group.Key, group.Last().Name))
+                .Concat(SharedChoices(SharedAiPresetKind.Text)));
             Fill(_imagePresets, imageId, _library.Image.Values.Concat(_imageEdits.Values)
                 .Where(TikTokAccountAiSettings.IsVolcanoPreset)
-                .GroupBy(preset => preset.Id).Select(group => (group.Key, group.Last().Name)));
+                .GroupBy(preset => preset.Id).Select(group => (group.Key, group.Last().Name))
+                .Concat(SharedChoices(SharedAiPresetKind.Image)));
         }
         finally
         {
@@ -310,7 +358,7 @@ public sealed class AccountAiEditor : UserControl
         var selected = box.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, id ?? ""));
         if (selected is null)
         {
-            selected = new ComboBoxItem { Content = "预设缺失（请选择本机预设）", Tag = id };
+            selected = new ComboBoxItem { Content = "预设缺失（请选择其他预设）", Tag = id };
             box.Items.Add(selected);
         }
         box.SelectedItem = selected;
@@ -325,21 +373,22 @@ public sealed class AccountAiEditor : UserControl
         var id = SelectedId(_textPresets);
         var current = SelectedText();
         var preset = current ?? TikTokAccountAiSettings.DefaultText(_defaults);
+        var readOnly = !create && SharedAiPresetStore.IsShared(id);
         var name = Input(create ? "" : preset.Name);
         var endpoint = Input(preset.Endpoint);
         var model = Input(preset.Model);
         var timeout = Number(preset.Timeout, 5, 600);
-        var role = Choice(draft.RoleSelectionMode, ("local", "本地链路"), ("ai_full_review", "AI 全量优选"));
-        var fallback = new CheckBox { Content = "全量优选失败时回退本地链路", IsChecked = draft.RoleFallback };
+        name.IsReadOnly = endpoint.IsReadOnly = model.IsReadOnly = readOnly;
+        timeout.IsEnabled = !readOnly;
         var dialog = new DetailWindow(owner, "AI 文本详细配置", create);
         dialog.Add("预设名称", name);
         dialog.Add("接口地址", endpoint);
         dialog.Add("模型名称", model);
         dialog.Add("请求超时（秒）", timeout);
-        dialog.Add("角色参考图筛选", role);
-        dialog.Fields.Children.Add(fallback);
-        var probe = new Button { Content = "测试 AI 文本" };
+        var probe = new Button { Content = "测试 AI 文本", IsVisible = !readOnly };
         dialog.Fields.Children.Add(probe);
+        if (readOnly)
+            dialog.Fields.Children.Add(new TextBlock { Text = "在系统设置 → AI 文本中编辑共享预设。" });
         probe.Click += async (_, _) =>
         {
             probe.IsEnabled = false;
@@ -363,8 +412,8 @@ public sealed class AccountAiEditor : UserControl
                 probe.IsEnabled = true;
             }
         };
-        dialog.Validate = () => ValidateConnection(name, endpoint, model);
-        if (!await dialog.ShowDialog<bool>(owner) || !ReferenceEquals(_draft, draft))
+        dialog.Validate = () => readOnly ? null : ValidateConnection(name, endpoint, model);
+        if (!await dialog.ShowDialog<bool>(owner) || !ReferenceEquals(_draft, draft) || readOnly)
             return;
 
         var connectionChanged = !TikTokAccountAiSettings.SameEndpoint(Read(endpoint), preset.Endpoint)
@@ -375,7 +424,6 @@ public sealed class AccountAiEditor : UserControl
             var savedName = !create && preset.Id.Length == 0 && Read(name) == preset.Name ? Read(model) : Read(name);
             _textEdits[id] = new(id, savedName, Read(endpoint), Read(model), (int)(timeout.Value ?? preset.Timeout));
         }
-        _draft = draft with { RoleSelectionMode = SelectedId(role), RoleFallback = fallback.IsChecked == true };
         RefreshPresets(id, SelectedId(_imagePresets));
     }
 
@@ -388,11 +436,13 @@ public sealed class AccountAiEditor : UserControl
         var id = SelectedId(_imagePresets);
         var current = SelectedImage();
         var preset = current ?? TikTokAccountAiSettings.DefaultImage(_defaults);
+        var readOnly = !create && SharedAiPresetStore.IsShared(id);
         var name = Input(create ? "" : preset.Name);
         var endpoint = Input(preset.Endpoint);
         var model = Input(preset.Model);
         var resolution = Input(preset.Resolution);
         var ratio = Input(preset.Ratio);
+        name.IsReadOnly = endpoint.IsReadOnly = model.IsReadOnly = resolution.IsReadOnly = ratio.IsReadOnly = readOnly;
         var usesVisiblePrompt = PosterGenerationTemplates.IsSupportedMode(DraftPosterMode());
         var verify = new CheckBox
         {
@@ -407,16 +457,18 @@ public sealed class AccountAiEditor : UserControl
         dialog.Add("模型 ID", model);
         dialog.Add("分辨率", resolution);
         dialog.Add("比例", ratio);
+        if (readOnly)
+            dialog.Fields.Children.Add(new TextBlock { Text = "在系统设置 → AI 图片中编辑共享预设。" });
         dialog.Fields.Children.Add(verify);
         if (verifyMode is not null)
             dialog.Add("校验失败处理", verifyMode);
-        dialog.Validate = () => ValidateConnection(name, endpoint, model);
+        dialog.Validate = () => readOnly ? null : ValidateConnection(name, endpoint, model);
         if (!await dialog.ShowDialog<bool>(owner) || !ReferenceEquals(_draft, draft))
             return;
 
         var connectionChanged = !TikTokAccountAiSettings.SameEndpoint(Read(endpoint), preset.Endpoint)
             || Read(model) != preset.Model || Read(resolution) != preset.Resolution || Read(ratio) != preset.Ratio;
-        if (create || current is null || connectionChanged || Read(name) != preset.Name)
+        if (!readOnly && (create || current is null || connectionChanged || Read(name) != preset.Name))
         {
             id = create || preset.Id.Length == 0 ? Guid.NewGuid().ToString("N") : preset.Id;
             var savedName = !create && preset.Id.Length == 0 && Read(name) == preset.Name ? Read(model) : Read(name);

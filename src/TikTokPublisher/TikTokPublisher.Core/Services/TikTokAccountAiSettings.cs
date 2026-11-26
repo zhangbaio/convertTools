@@ -101,31 +101,36 @@ public static class TikTokAccountAiSettings
         var library = Load();
         var keys = library.AccountKeys.GetValueOrDefault(account.Id) ?? new Keys();
         var textId = options.TextPresetId ?? "";
-        var text = textId.Length == 0 ? DefaultText(defaults) : library.Text.GetValueOrDefault(textId);
-        if (text is not null)
+        if (!SharedAiPresetStore.ApplyText(settings, textId))
         {
-            settings.AiTextEndpoint = text.Endpoint;
-            settings.AiTextModel = text.Model;
-            settings.AiTextTimeoutSeconds = text.Timeout;
+            var text = textId.Length == 0 ? DefaultText(defaults) : library.Text.GetValueOrDefault(textId);
+            if (text is not null)
+            {
+                settings.AiTextEndpoint = text.Endpoint;
+                settings.AiTextModel = text.Model;
+                settings.AiTextTimeoutSeconds = text.Timeout;
+            }
+            settings.AiTextApiKey = text is null ? "" :
+                ResolveKey(keys.Text, text.Endpoint, defaults.AiTextEndpoint, defaults.AiTextApiKey);
         }
-        settings.AiTextApiKey = text is null ? "" :
-            ResolveKey(keys.Text, text.Endpoint, defaults.AiTextEndpoint, defaults.AiTextApiKey);
 
         var imageId = options.ImagePresetId ?? "";
-        var imageDefault = DefaultImage(defaults);
-        var image = imageId.Length == 0 ? imageDefault : library.Image.GetValueOrDefault(imageId);
-        if (image is not null && !IsVolcanoPreset(image))
-            image = imageDefault;
-
-        if (image is not null)
+        if (!SharedAiPresetStore.ApplyImage(settings, imageId))
         {
-            settings.ImageModelEndpoint = image.Endpoint;
-            settings.ImageModelId = image.Model;
-            settings.DoubaoImageResolution = image.Resolution;
-            settings.DoubaoImageRatio = image.Ratio;
+            var imageDefault = DefaultImage(defaults);
+            var image = imageId.Length == 0 ? imageDefault : library.Image.GetValueOrDefault(imageId);
+            if (image is not null && !IsVolcanoPreset(image))
+                image = imageDefault;
+            if (image is not null)
+            {
+                settings.ImageModelEndpoint = image.Endpoint;
+                settings.ImageModelId = image.Model;
+                settings.DoubaoImageResolution = image.Resolution;
+                settings.DoubaoImageRatio = image.Ratio;
+            }
+            settings.ImageModelApiKey = image is null ? "" :
+                ResolveKey(keys.Image, image.Endpoint, imageDefault.Endpoint, defaults.ImageModelApiKey);
         }
-        settings.ImageModelApiKey = image is null ? "" :
-            ResolveKey(keys.Image, image.Endpoint, imageDefault.Endpoint, defaults.ImageModelApiKey);
 
         settings.AiPublishInfoPrompt = ResolvePublishPrompt(options.PublishPrompt);
         settings.TiktokRoleReferenceSelectionMode = options.RoleSelectionMode;

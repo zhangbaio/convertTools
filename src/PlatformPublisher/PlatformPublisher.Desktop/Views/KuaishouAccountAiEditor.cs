@@ -1,4 +1,3 @@
-using PlatformPublisher.Common.Services;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Avalonia;
@@ -7,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using PlatformPublisher.Common.Services;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Core.Models;
@@ -28,6 +28,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
     private readonly TextBlock _feedback = new() { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Firebrick };
     private KuaishouAccountAiOptions _draft = new();
     private ClientSettings _defaults = new();
+    private IReadOnlyList<SharedAiPreset> _sharedPresets = [];
     private string _clean = "";
     private string _shownTextAddress = "";
     private string _shownImageAddress = "";
@@ -60,6 +61,8 @@ public sealed class KuaishouAccountAiEditor : UserControl
         Content = panel;
         _textPresets.SelectionChanged += (_, _) => { if (!_loading) ChangeTextPreset(); };
         _imagePresets.SelectionChanged += (_, _) => { if (!_loading) ChangeImagePreset(); };
+        _textPresets.DropDownOpened += (_, _) => RefreshSharedPresets();
+        _imagePresets.DropDownOpened += (_, _) => RefreshSharedPresets();
         _direct.IsCheckedChanged += (_, _) =>
         {
             if (!_loading && _direct.IsChecked == true) ChangePosterMode(ClientSettingsDefaults.PosterModeDirect);
@@ -75,6 +78,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
         IsEnabled = Store is not null && !string.IsNullOrWhiteSpace(accountId);
         _feedback.Text = "";
         _draft = new();
+        _sharedPresets = IsEnabled ? ReadSharedPresets() : [];
         _needsExplicitPosterMode = false;
         _defaults = IsEnabled ? ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath) : new();
         if (IsEnabled)
@@ -90,10 +94,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
         _loading = true;
         try
         {
-            SelectPreset(_textPresets, KuaishouAccountAiSettings.DefaultText(_defaults),
-                _draft.TextPresets, preset => preset.Id, _draft.TextPresetId);
-            SelectPreset(_imagePresets, KuaishouAccountAiSettings.DefaultImage(_defaults),
-                _draft.ImagePresets, preset => preset.Id, _draft.ImagePresetId);
+            RefillPresets(_draft.TextPresetId, _draft.ImagePresetId);
             var mode = string.IsNullOrWhiteSpace(_draft.PosterMode) ? _defaults.PosterMode : _draft.PosterMode;
             var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode);
             _direct.IsChecked = !erase;
@@ -164,6 +165,12 @@ public sealed class KuaishouAccountAiEditor : UserControl
     private void ShowTextKey()
     {
         var preset = _textPresets.SelectedItem as KuaishouTextPreset ?? KuaishouAccountAiSettings.DefaultText(_defaults);
+        if (SharedAiPresetStore.IsShared(preset.Id))
+        {
+            _shownTextAddress = "";
+            ShowSharedKey(_textKey);
+            return;
+        }
         _shownTextAddress = KuaishouAccountAiOptions.EndpointKey(preset.Endpoint);
         ShowKey(_textKey, _draft.TextKeys, _shownTextAddress,
             KuaishouAccountAiOptions.EndpointKey(_defaults.AiTextEndpoint), _defaults.AiTextApiKey);
@@ -173,6 +180,12 @@ public sealed class KuaishouAccountAiEditor : UserControl
     {
         var defaults = KuaishouAccountAiSettings.DefaultImage(_defaults);
         var preset = _imagePresets.SelectedItem as KuaishouImagePreset ?? defaults;
+        if (SharedAiPresetStore.IsShared(preset.Id))
+        {
+            _shownImageAddress = "";
+            ShowSharedKey(_imageKey);
+            return;
+        }
         _shownImageAddress = KuaishouAccountAiOptions.EndpointKey(preset.Endpoint);
         ShowKey(_imageKey, _draft.ImageKeys, _shownImageAddress,
             preset.Provider == defaults.Provider ? KuaishouAccountAiOptions.EndpointKey(defaults.Endpoint) : "",
@@ -187,6 +200,14 @@ public sealed class KuaishouAccountAiEditor : UserControl
             : address == defaultAddress && !string.IsNullOrWhiteSpace(defaultKey) ? "留空使用本机 API Key"
             : "为当前接口地址填写 API Key";
         box.IsEnabled = address.Length > 0;
+    }
+
+    private static void ShowSharedKey(TextBox box)
+    {
+        box.RevealPassword = false;
+        box.Text = "";
+        box.Watermark = "使用系统设置中的 API Key";
+        box.IsEnabled = false;
     }
 
     private static void StoreKey(Dictionary<string, string> keys, string address, string? value)
@@ -238,12 +259,15 @@ public sealed class KuaishouAccountAiEditor : UserControl
     {
         if (TopLevel.GetTopLevel(this) is not Window owner || _textPresets.SelectedItem is not KuaishouTextPreset selected)
             return;
+        if (!create && SharedAiPresetStore.IsShared(selected.Id))
+        {
+            _feedback.Text = "在系统设置 → AI 文本中编辑共享预设。";
+            return;
+        }
         var edit = await KuaishouAiPresetDialog.EditTextAsync(owner, selected, create);
         if (edit is null) return;
         _draft = _draft with { TextPresets = ReplacePreset(_draft.TextPresets, edit, item => item.Id) };
-        _loading = true;
-        try { SelectPreset(_textPresets, KuaishouAccountAiSettings.DefaultText(_defaults), _draft.TextPresets, item => item.Id, edit.Id); }
-        finally { _loading = false; }
+        RefillPresets(edit.Id, (_imagePresets.SelectedItem as KuaishouImagePreset)?.Id ?? "");
         ChangeTextPreset();
     }
 
@@ -251,22 +275,69 @@ public sealed class KuaishouAccountAiEditor : UserControl
     {
         if (TopLevel.GetTopLevel(this) is not Window owner || _imagePresets.SelectedItem is not KuaishouImagePreset selected)
             return;
+        if (!create && SharedAiPresetStore.IsShared(selected.Id))
+        {
+            _feedback.Text = "在系统设置 → AI 图片中编辑共享预设。";
+            return;
+        }
         var edit = await KuaishouAiPresetDialog.EditImageAsync(owner, selected, create);
         if (edit is null) return;
         _draft = _draft with { ImagePresets = ReplacePreset(_draft.ImagePresets, edit, item => item.Id) };
-        _loading = true;
-        try { SelectPreset(_imagePresets, KuaishouAccountAiSettings.DefaultImage(_defaults), _draft.ImagePresets, item => item.Id, edit.Id); }
-        finally { _loading = false; }
+        RefillPresets((_textPresets.SelectedItem as KuaishouTextPreset)?.Id ?? "", edit.Id);
         ChangeImagePreset();
     }
 
     private static T[] ReplacePreset<T>(IEnumerable<T> presets, T edited, Func<T, string> id) =>
         presets.Where(item => id(item) != id(edited)).Append(edited).ToArray();
 
-    private static void SelectPreset<T>(ComboBox box, T defaults, IEnumerable<T> presets, Func<T, string> id, string selected)
+    private static IReadOnlyList<SharedAiPreset> ReadSharedPresets()
+    {
+        try { return SharedAiPresetStore.List(); }
+        catch (InvalidOperationException) { return []; }
+    }
+
+    private void RefreshSharedPresets()
+    {
+        if (!IsEnabled || _loading)
+            return;
+        var latest = ReadSharedPresets();
+        if (_sharedPresets.SequenceEqual(latest))
+            return;
+        _sharedPresets = latest;
+        StoreKey(_draft.TextKeys, _shownTextAddress, _textKey.Text);
+        StoreKey(_draft.ImageKeys, _shownImageAddress, _imageKey.Text);
+        RefillPresets((_textPresets.SelectedItem as KuaishouTextPreset)?.Id ?? "",
+            (_imagePresets.SelectedItem as KuaishouImagePreset)?.Id ?? "");
+        ShowKeys();
+    }
+
+    private void RefillPresets(string textId, string imageId)
+    {
+        var wasLoading = _loading;
+        _loading = true;
+        try
+        {
+            var text = KuaishouAccountAiSettings.DefaultText(_defaults);
+            var image = KuaishouAccountAiSettings.DefaultImage(_defaults);
+            SelectPreset(_textPresets, text, _draft.TextPresets.Concat(_sharedPresets
+                .Where(preset => preset.Kind == SharedAiPresetKind.Text)
+                .Select(preset => new KuaishouTextPreset(preset.Id, $"共享 · {preset.Name}", preset.Endpoint, preset.Model, preset.Timeout))),
+                preset => preset.Id, textId, text with { Id = textId, Name = "共享预设缺失（请选择其他预设）" });
+            SelectPreset(_imagePresets, image, _draft.ImagePresets.Concat(_sharedPresets
+                .Where(preset => preset.Kind == SharedAiPresetKind.Image)
+                .Select(preset => new KuaishouImagePreset(preset.Id, $"共享 · {preset.Name}", preset.Endpoint, preset.Model, "doubao", preset.Ratio, "2K"))),
+                preset => preset.Id, imageId, image with { Id = imageId, Name = "共享预设缺失（请选择其他预设）" });
+        }
+        finally { _loading = wasLoading; }
+    }
+
+    private static void SelectPreset<T>(ComboBox box, T defaults, IEnumerable<T> presets, Func<T, string> id, string selected,
+        T missing)
         where T : class
     {
-        var items = presets.Prepend(defaults).ToArray();
+        var items = presets.Prepend(defaults).ToList();
+        if (SharedAiPresetStore.IsShared(selected) && items.All(item => id(item) != selected))
+            items.Add(missing);
         box.ItemsSource = items;
         box.SelectedItem = items.FirstOrDefault(item => id(item) == selected) ?? defaults;
     }

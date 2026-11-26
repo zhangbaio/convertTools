@@ -38,13 +38,30 @@ internal static class KuaishouAccountAiSettings
     internal static ClientSettings Apply(ClientSettings defaults, KuaishouAccountAiOptions options)
     {
         var settings = defaults.Clone();
-        var defaultText = DefaultText(defaults);
-        var text = options.TextPresets.FirstOrDefault(preset => preset.Id == options.TextPresetId) ?? defaultText;
-        settings.AiTextEndpoint = text.Endpoint;
-        settings.AiTextModel = text.Model;
-        settings.AiTextTimeoutSeconds = text.Timeout;
-        settings.AiTextApiKey = ResolveKey(options.TextKeys, text.Endpoint, defaultText.Endpoint, defaults.AiTextApiKey);
+        if (!SharedAiPresetStore.ApplyText(settings, options.TextPresetId))
+        {
+            var defaultText = DefaultText(defaults);
+            var text = options.TextPresets.FirstOrDefault(preset => preset.Id == options.TextPresetId) ?? defaultText;
+            settings.AiTextEndpoint = text.Endpoint;
+            settings.AiTextModel = text.Model;
+            settings.AiTextTimeoutSeconds = text.Timeout;
+            settings.AiTextApiKey = ResolveKey(options.TextKeys, text.Endpoint, defaultText.Endpoint, defaults.AiTextApiKey);
+        }
 
+        if (!SharedAiPresetStore.ApplyImage(settings, options.ImagePresetId))
+            ApplyLocalImage(settings, defaults, options);
+
+        if (options.PublishPrompt.Length > 0) settings.KuaishouPublishInfoPrompt = options.PublishPrompt;
+        if (options.PosterMode.Length > 0) settings.PosterMode = options.PosterMode;
+        if (options.VerticalDirectPrompt.Length > 0) settings.KuaishouPosterVerticalDirectPrompt = options.VerticalDirectPrompt;
+        if (options.HorizontalDirectPrompt.Length > 0) settings.KuaishouPosterHorizontalDirectPrompt = options.HorizontalDirectPrompt;
+        if (options.VerticalErasePrompt.Length > 0) settings.KuaishouPosterVerticalErasePrompt = options.VerticalErasePrompt;
+        if (options.HorizontalErasePrompt.Length > 0) settings.KuaishouPosterHorizontalErasePrompt = options.HorizontalErasePrompt;
+        return settings;
+    }
+
+    private static void ApplyLocalImage(ClientSettings settings, ClientSettings defaults, KuaishouAccountAiOptions options)
+    {
         var defaultImage = DefaultImage(defaults);
         var image = options.ImagePresets.FirstOrDefault(preset => preset.Id == options.ImagePresetId) ?? defaultImage;
         settings.ImageProvider = image.Provider;
@@ -68,12 +85,5 @@ internal static class KuaishouAccountAiSettings
             settings.ImageModelApiKey = imageKey;
         }
 
-        if (options.PublishPrompt.Length > 0) settings.KuaishouPublishInfoPrompt = options.PublishPrompt;
-        if (options.PosterMode.Length > 0) settings.PosterMode = options.PosterMode;
-        if (options.VerticalDirectPrompt.Length > 0) settings.KuaishouPosterVerticalDirectPrompt = options.VerticalDirectPrompt;
-        if (options.HorizontalDirectPrompt.Length > 0) settings.KuaishouPosterHorizontalDirectPrompt = options.HorizontalDirectPrompt;
-        if (options.VerticalErasePrompt.Length > 0) settings.KuaishouPosterVerticalErasePrompt = options.VerticalErasePrompt;
-        if (options.HorizontalErasePrompt.Length > 0) settings.KuaishouPosterHorizontalErasePrompt = options.HorizontalErasePrompt;
-        return settings;
     }
 }

@@ -132,7 +132,7 @@ public sealed class TikTokAccountAiSettingsTests
             };
             var editor = new AccountAiEditor();
             var promptRow = ((StackPanel)editor.Content!).Children.OfType<StackPanel>()
-                .Single(panel => panel.Children.OfType<TextBlock>().Any(label => label.Text == "发布信息提示词"));
+                .Single(panel => panel.Children.OfType<TextBlock>().Any(label => label.Text == "文本提示词"));
             var controls = promptRow.Children.OfType<Grid>().Single().Children;
             var promptBox = controls.OfType<TextBox>().Single();
             var reset = controls.OfType<Button>().Single(button => Equals(button.Content, "恢复默认"));

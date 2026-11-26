@@ -17,6 +17,8 @@ public partial class SystemSettingsView : UserControl
     public SystemSettingsView()
     {
         InitializeComponent();
+        SharedTextPresetEditor.Configure(SharedAiPresetKind.Text);
+        SharedImagePresetEditor.Configure(SharedAiPresetKind.Image);
     }
     public void BindServices(SystemServicesViewModel vm)
     {
@@ -35,13 +37,19 @@ public partial class SystemSettingsView : UserControl
 
     private async void OnSettingsTabChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (sender is TabControl tabs && ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
+        if (sender is TabControl { SelectedItem: TabItem selected } tabs &&
+            ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
         {
-            var showsProjectConcurrency = tabs.SelectedItem == ProjectConcurrencyTab;
-            footer.IsVisible = !showsProjectConcurrency &&
-                tabs.SelectedItem != SoftwareLicenseTab && tabs.SelectedItem != XingeSettingsTab;
+            var showsProjectConcurrency = selected == ProjectConcurrencyTab;
+            var showsSharedAi = selected == SharedTextPresetTab || selected == SharedImagePresetTab;
+            footer.IsVisible = !showsProjectConcurrency && (!showsSharedAi || _vm?.ShowsKuaishouPublishPrompt == true) &&
+                selected != SoftwareLicenseTab && selected != XingeSettingsTab;
             if (showsProjectConcurrency && _vm is { } vm)
                 await vm.ProjectConcurrencySettings.RefreshVideoProcessingLimitAsync();
+            if (selected == SharedTextPresetTab)
+                SharedTextPresetEditor.Refresh();
+            if (selected == SharedImagePresetTab)
+                SharedImagePresetEditor.Refresh();
         }
     }
 
