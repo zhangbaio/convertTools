@@ -19,7 +19,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private static readonly HttpClient ProbeHttp = CreateProbeHttpClient();
     private readonly string? _settingsDatabasePath;
 
-    public SystemSettingsViewModel(string? settingsDatabasePath = null, bool kuaishouPublishPrompts = false)
+    public SystemSettingsViewModel(string? settingsDatabasePath = null, bool kuaishouPublishPrompts = false,
+        string? kuaishouConcurrencyDatabasePath = null)
     {
         _settingsDatabasePath = string.IsNullOrWhiteSpace(settingsDatabasePath)
             ? null
@@ -27,10 +28,15 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
         ShowsKuaishouPublishPrompt = kuaishouPublishPrompts;
         ShowsTikTokPublishPrompt = !kuaishouPublishPrompts;
+        ProjectConcurrencySettings = new ProjectConcurrencySettingsViewModel(
+            _settingsDatabasePath,
+            kuaishouPublishPrompts ? _settingsDatabasePath : kuaishouConcurrencyDatabasePath,
+            showsTikTok: !kuaishouPublishPrompts);
     }
 
     public bool ShowsKuaishouPublishPrompt { get; }
     public bool ShowsTikTokPublishPrompt { get; }
+    public ProjectConcurrencySettingsViewModel ProjectConcurrencySettings { get; }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -199,21 +205,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _tiktokAsrLocalVadPath = "";
     [ObservableProperty] private string _tiktokAsrAppId = "";
     [ObservableProperty] private string _tiktokAsrAccessToken = "";
-    [ObservableProperty] private int _tiktokMaterialValidateConcurrency = 4;
-    [ObservableProperty] private int _tiktokGenerationPerProjectConcurrency = 2;
-    [ObservableProperty] private int _tiktokAiTextConcurrency = 3;
     [ObservableProperty] private int _tiktokAsrConcurrency = 2;
-    [ObservableProperty] private int _tiktokImageGenerationConcurrency = 2;
-    [ObservableProperty] private int _tiktokVisualConcurrency = 2;
-    [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
-    [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
-    [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
-    [ObservableProperty] private bool _tiktokVideoDedupAutomaticConcurrency = true;
-    [ObservableProperty] private int _tiktokVideoDedupCpuPercent = 90;
-
-    public decimal VideoDedupConcurrencyMaximum => Math.Max(1, Environment.ProcessorCount);
-    [ObservableProperty] private int _tiktokUploadConcurrency = 2;
-    [ObservableProperty] private int _kuaishouProjectImageConcurrency = 3;
     [ObservableProperty] private string _tiktokAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
@@ -292,6 +284,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public void Load(string? workspacePath = null)
     {
         ApplyFromSettings(ClientSettingsStore.Load(_settingsDatabasePath));
+        ProjectConcurrencySettings.Load();
         MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
         WorkspaceDatabasePath = ClientSettingsStore.WorkspaceDatabasePath(workspacePath);
         RefreshDatabaseStats();
@@ -414,19 +407,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim();
         settings.TiktokAsrAppId = TiktokAsrAppId.Trim();
         settings.TiktokAsrAccessToken = TiktokAsrAccessToken;
-        settings.TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency;
-        settings.TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency;
-        settings.TiktokAiTextConcurrency = TiktokAiTextConcurrency;
         settings.TiktokAsrConcurrency = TiktokAsrConcurrency;
-        settings.TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency;
-        settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
-        settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
-        settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
-        settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
-        settings.TiktokVideoDedupAutomaticConcurrency = TiktokVideoDedupAutomaticConcurrency;
-        settings.TiktokVideoDedupCpuPercent = TiktokVideoDedupCpuPercent;
-        settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
-        settings.KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency;
         settings.TiktokAsrLanguage = TiktokAsrLanguage.Trim();
         settings.TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure;
         settings.AiTextEndpoint = AiTextEndpoint.Trim();
@@ -1328,19 +1309,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokAsrLocalVadPath = settings.TiktokAsrLocalVadPath;
         TiktokAsrAppId = settings.TiktokAsrAppId;
         TiktokAsrAccessToken = settings.TiktokAsrAccessToken;
-        TiktokMaterialValidateConcurrency = settings.TiktokMaterialValidateConcurrency;
-        TiktokGenerationPerProjectConcurrency = settings.TiktokGenerationPerProjectConcurrency;
-        TiktokAiTextConcurrency = settings.TiktokAiTextConcurrency;
         TiktokAsrConcurrency = settings.TiktokAsrConcurrency;
-        TiktokImageGenerationConcurrency = settings.TiktokImageGenerationConcurrency;
-        TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
-        TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
-        TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
-        TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
-        TiktokVideoDedupAutomaticConcurrency = settings.TiktokVideoDedupAutomaticConcurrency;
-        TiktokVideoDedupCpuPercent = settings.TiktokVideoDedupCpuPercent;
-        TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
-        KuaishouProjectImageConcurrency = settings.KuaishouProjectImageConcurrency;
         TiktokAsrLanguage = settings.TiktokAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;

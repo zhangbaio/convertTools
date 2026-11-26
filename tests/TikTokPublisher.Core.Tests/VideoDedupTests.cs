@@ -1391,6 +1391,52 @@ public sealed class VideoDedupTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(16, 24, true, 2)]
+    [InlineData(16, 24, false, 8)]
+    [InlineData(16, 12, false, 4)]
+    [InlineData(16, 2, false, 1)]
+    [InlineData(8, 0, true, 1)]
+    [InlineData(4, 24, false, 2)]
+    [InlineData(128, 256, false, 32)]
+    public void Shared_video_limit_uses_hardware_capacity(int cores, int memoryGiB, bool hardware, int expected)
+    {
+        var memory = (ulong)memoryGiB * 1024 * 1024 * 1024;
+        VideoProcessingConcurrency.CalculateLimit(cores, memory, hardware).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task Shared_encode_gate_rotates_between_platform_projects_when_both_wait()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        VideoDedupEncodeGate.Configure(1);
+        var active = await VideoDedupEncodeGate.WaitAsync(deadline.Token, "tiktok-project");
+        try
+        {
+            var tikTokNext = VideoDedupEncodeGate.WaitAsync(deadline.Token, "tiktok-project");
+            var tikTokAfter = VideoDedupEncodeGate.WaitAsync(deadline.Token, "tiktok-project");
+            var kuaishou = VideoDedupEncodeGate.WaitAsync(deadline.Token, "kuaishou-project");
+            kuaishou.IsCompleted.Should().BeFalse();
+
+            VideoDedupEncodeGate.Release(active);
+            active = await kuaishou;
+            tikTokNext.IsCompleted.Should().BeFalse();
+
+            VideoDedupEncodeGate.Release(active);
+            active = await tikTokNext;
+            tikTokAfter.IsCompleted.Should().BeFalse();
+
+            VideoDedupEncodeGate.Release(active);
+            active = await tikTokAfter;
+        }
+        finally
+        {
+            deadline.Cancel();
+            VideoDedupEncodeGate.Release(active);
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
+        }
+    }
+
     [Fact]
     public async Task Cancelled_encode_wait_does_not_keep_a_slot()
     {

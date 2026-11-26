@@ -216,7 +216,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public LogService Logs { get; } = new();
     public DramaDownloadViewModel DramaDownload { get; } = new();
-    public SystemSettingsViewModel SystemSettings { get; } = new();
+    public SystemSettingsViewModel SystemSettings { get; }
     public SystemServicesViewModel SystemServices { get; } = new();
     public ArchivedProjectsViewModel ArchivedProjects { get; } = new();
 
@@ -269,8 +269,10 @@ public sealed partial class MainViewModel : ViewModelBase
     // 与界面「执行勾选队列」相同：只跑当前勾选，步骤用界面上的勾选。
     public event Func<Task<bool>>? CheckedQueueRunRequested;
 
-    public MainViewModel(AccountStore store, AccountContextService context)
+    public MainViewModel(AccountStore store, AccountContextService context,
+        string? kuaishouConcurrencyDatabasePath = null)
     {
+        SystemSettings = new SystemSettingsViewModel(kuaishouConcurrencyDatabasePath: kuaishouConcurrencyDatabasePath);
         _queueExecution = new QueueExecutionUseCase(_queueOrchestrator);
         _queueRetry = new QueueRetryUseCase(_queueExecution, _queueOrchestrator);
         _store = store;
@@ -311,6 +313,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 DramaDownload.DownloadWorkspace = settings.LastDownloadWorkspace;
         };
         SystemSettings.StatusRequested += message => StatusMessage = message;
+        SystemSettings.ProjectConcurrencySettings.TikTokLimitSaved += _queueOrchestrator.ApplyProjectLimit;
         SystemSettings.Load(WorkspacePath);
         SystemSettings.BeginHongguoAppPlaybackIdentity();
         DramaDownload.ChainPersisted += (chain, overseas) =>
@@ -325,6 +328,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public MainViewModel()
     {
+        SystemSettings = new SystemSettingsViewModel();
         _queueExecution = new QueueExecutionUseCase(_queueOrchestrator);
         _queueRetry = new QueueRetryUseCase(_queueExecution, _queueOrchestrator);
         var store = new AccountStore();

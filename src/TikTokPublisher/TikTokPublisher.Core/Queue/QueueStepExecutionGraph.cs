@@ -1,5 +1,4 @@
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Queue;
 
@@ -78,8 +77,6 @@ internal static class QueueStepResourceScheduler
             QueueWorkloadResource.Document,
         QueueStepRegistry.GeneratePoster =>
             QueueWorkloadResource.ImageGeneration,
-        QueueStepRegistry.VideoDedup =>
-            QueueWorkloadResource.VideoDedup,
         QueueStepRegistry.SmallVideoRepair =>
             QueueWorkloadResource.Ffmpeg,
         _ => null,
@@ -94,7 +91,6 @@ internal enum QueueWorkloadResource
     ImageGeneration,
     Visual,
     Document,
-    VideoDedup,
 }
 
 internal static class QueueWorkloadResourceScheduler
@@ -102,30 +98,27 @@ internal static class QueueWorkloadResourceScheduler
     private static readonly object ConfigurationLock = new();
     private static readonly object ThrottleLock = new();
     private static IReadOnlyDictionary<QueueWorkloadResource, SemaphoreSlim> _gates = CreateGates(
-        aiText: 3, asr: 2, ffmpeg: 2, image: 2, visual: 2, document: 2, videoDedup: 2);
-    private static string _configurationSignature = "3|2|2|2|2|2|2";
+        aiText: 3, asr: 2, ffmpeg: 2, image: 2, visual: 2, document: 2);
+    private static string _configurationSignature = "3|2|2|2|2|2";
     private static readonly Dictionary<QueueWorkloadResource, (int Failures, DateTimeOffset BlockedUntil)>
         ThrottleStates = new();
 
     public static void Configure(ClientSettings settings)
     {
-        var videoDedupLimit = VideoDedupCpuBudget.Normalize(
-            settings.TiktokVideoDedupConcurrency, Environment.ProcessorCount);
         var limits = new[]
         {
             Math.Clamp(settings.TiktokAiTextConcurrency, 1, 12),
             Math.Clamp(settings.TiktokAsrConcurrency, 1, 8),
-            videoDedupLimit,
+            2,
             Math.Clamp(settings.TiktokImageGenerationConcurrency, 1, 8),
             Math.Clamp(settings.TiktokVisualConcurrency, 1, 8),
             Math.Clamp(settings.TiktokDocumentConcurrency, 1, 8),
-            videoDedupLimit,
         };
         var signature = string.Join('|', limits);
         lock (ConfigurationLock)
         {
             if (string.Equals(signature, _configurationSignature, StringComparison.Ordinal)) return;
-            _gates = CreateGates(limits[0], limits[1], limits[2], limits[3], limits[4], limits[5], limits[6]);
+            _gates = CreateGates(limits[0], limits[1], limits[2], limits[3], limits[4], limits[5]);
             _configurationSignature = signature;
         }
     }
@@ -193,7 +186,6 @@ internal static class QueueWorkloadResourceScheduler
         QueueWorkloadResource.ImageGeneration => "AI 图片",
         QueueWorkloadResource.Visual => "视觉处理",
         QueueWorkloadResource.Document => "文档处理",
-        QueueWorkloadResource.VideoDedup => "视频去重",
         _ => resource.ToString(),
     };
 
@@ -203,10 +195,8 @@ internal static class QueueWorkloadResourceScheduler
         int ffmpeg,
         int image,
         int visual,
-        int document,
-        int videoDedup) => new Dictionary<QueueWorkloadResource, SemaphoreSlim>
+        int document) => new Dictionary<QueueWorkloadResource, SemaphoreSlim>
     {
-        [QueueWorkloadResource.VideoDedup] = new(videoDedup, videoDedup),
         [QueueWorkloadResource.AiText] = new(aiText, aiText),
         [QueueWorkloadResource.Asr] = new(asr, asr),
         [QueueWorkloadResource.Ffmpeg] = new(ffmpeg, ffmpeg),

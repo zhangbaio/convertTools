@@ -49,11 +49,14 @@ public sealed class QueueProjectSlotCoordinator
     public static bool ServerUsesRoundRobin(string? serverDispatchMode) =>
         SlotModeForServer(serverDispatchMode) == RoundRobinMode;
 
+    public static int NormalizeCapacity(int capacity) =>
+        Math.Clamp(capacity <= 0 ? DefaultCapacity : capacity, 1, MaxCapacity);
+
     public void Configure(int capacity, string? mode)
     {
         lock (_lock)
         {
-            _capacity = Math.Clamp(capacity <= 0 ? DefaultCapacity : capacity, 1, MaxCapacity);
+            _capacity = NormalizeCapacity(capacity);
             _mode = NormalizeMode(mode);
         }
     }

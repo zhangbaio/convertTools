@@ -6,7 +6,7 @@ namespace PlatformPublisher.Desktop.Services;
 
 /// <summary>
 /// 本机所有快手账号共享的剧集名额、工程图名额和上传名额。一部剧从开始执行到上传结束、失败或停止占 1 个剧集名额。
-/// 配置来自系统设置里的全局账号配置，修改后只影响之后新开始的剧。
+/// 项目并发来自系统设置的并发管理，修改后只影响之后新开始的剧。
 /// </summary>
 public sealed class KuaishouMachineGate
 {

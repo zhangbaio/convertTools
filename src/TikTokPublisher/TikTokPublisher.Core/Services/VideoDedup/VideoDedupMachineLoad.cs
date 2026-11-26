@@ -6,11 +6,17 @@ internal static class VideoDedupMachineLoad
 {
     public static bool HasMemoryHeadroom()
     {
-        if (!OperatingSystem.IsWindows())
-            return true;
-        var memory = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
-        return !GlobalMemoryStatusEx(ref memory) ||
+        return !TryReadPhysicalMemory(out var memory) ||
             (memory.Load < 90 && memory.AvailablePhysical >= 512L * 1024 * 1024);
+    }
+
+    public static ulong TotalPhysicalMemoryBytes() =>
+        TryReadPhysicalMemory(out var memory) ? memory.TotalPhysical : 0;
+
+    private static bool TryReadPhysicalMemory(out MemoryStatus memory)
+    {
+        memory = new MemoryStatus { Length = (uint)Marshal.SizeOf<MemoryStatus>() };
+        return OperatingSystem.IsWindows() && GlobalMemoryStatusEx(ref memory);
     }
 
     public static bool IsOnBattery() =>

@@ -12,8 +12,6 @@ using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Persistence;
-using TikTokPublisher.Core.Queue;
-using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.ViewModels;
 using TikTokPublisher.Ui.Views;
 using Account = ChannelsPublisher.Core.Models.PublishAccount;
@@ -235,6 +233,8 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
 
     private async Task ShowPageAsync(string page)
     {
+        if (page == "global")
+            page = "queue";
         if (_page == page || _changingPage || _viewModel is null)
             return;
         _changingPage = true;
@@ -244,40 +244,12 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
                 return;
             if (page == "dedup")
                 LoadDedupAccount();
-            if (page == "global" && _page != page)
-            {
-                GlobalConcurrency.Value = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).KuaishouGlobalProjectConcurrency
-                    ?? QueueProjectSlotCoordinator.DefaultCapacity;
-                GlobalConfigurationMessage.Text = "";
-            }
             _page = page;
             ApplyPage();
         }
         finally
         {
             _changingPage = false;
-        }
-    }
-
-    private void SaveGlobalConfiguration_Click(object? sender, RoutedEventArgs e)
-    {
-        if (GlobalConcurrency.Value is not decimal value || value != decimal.Truncate(value) ||
-            value < 1 || value > QueueProjectSlotCoordinator.MaxCapacity)
-        {
-            GlobalConfigurationMessage.Text = $"请输入 1 到 {QueueProjectSlotCoordinator.MaxCapacity} 的整数。";
-            return;
-        }
-
-        try
-        {
-            var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-            settings.KuaishouGlobalProjectConcurrency = (int)value;
-            ClientSettingsStore.Save(settings, PlatformPublisherPaths.SettingsDatabasePath);
-            GlobalConfigurationMessage.Text = $"已保存，快手全局并发 {value:0} 部。";
-        }
-        catch (Exception ex)
-        {
-            GlobalConfigurationMessage.Text = $"保存失败：{ex.Message}";
         }
     }
 
@@ -292,7 +264,6 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         Workflow.IsVisible = ready && _page == "queue";
         Configuration.IsVisible = ready && IsConfigurationPage(_page);
         DedupConfiguration.IsVisible = ready && _page == "dedup";
-        GlobalConfiguration.IsVisible = ready && _page == "global";
         LogView.IsVisible = ready && _page == "logs";
         ArchiveView.IsVisible = ready && _page == "archived";
         AllHistoryAccounts.IsVisible = LogView.IsVisible || ArchiveView.IsVisible;

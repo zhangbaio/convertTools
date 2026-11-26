@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Layout;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using PlatformPublisher.Common.Services;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Services;
@@ -53,7 +54,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         var context = new AccountContextService(_accountStore);
-        _viewModel = new MainViewModel(_accountStore, context);
+        _viewModel = new MainViewModel(_accountStore, context, PlatformPublisherPaths.SettingsDatabasePath);
         _accountInventorySync = new TikTokAccountInventorySyncCoordinator(_accountStore);
         InitializeComponent();
         DataContext = _viewModel;

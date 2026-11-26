@@ -207,6 +207,7 @@ public static class VideoDedupService
             Write(VideoDedupPlanner.DescribeDurationCheckPassed(clips.Count, plan, preset, clipPaths));
         }
 
+        var encodeParallel = await ApplyGlobalConcurrencyAsync(ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         foreach (var input in archiveCopies)
             CopyToArchive(input.ReadPath, input.ArchivePath);
@@ -309,10 +310,9 @@ public static class VideoDedupService
             }
         }
         var logicalProcessors = Environment.ProcessorCount;
-        var encodeParallel = ApplyGlobalConcurrency(out var automaticConcurrency);
         var cpuPercent = VideoDedupCpuBudget.CurrentCpuPercent;
         var processorBudget = VideoDedupCpuBudget.ProcessorBudget(logicalProcessors, cpuPercent);
-        Write($"本机 {logicalProcessors} 个逻辑处理器，去重 CPU 线程预算 {cpuPercent}%（{processorBudget} 个），全机最多 {encodeParallel} 路，硬件并发{(automaticConcurrency ? "自动调优" : "由上限控制")}。");
+        Write($"本机 {logicalProcessors} 个逻辑处理器，去重 CPU 线程预算 {cpuPercent}%（{processorBudget} 个），TikTok 和快手共享视频处理上限 {encodeParallel} 路。");
         if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
@@ -374,14 +374,14 @@ public static class VideoDedupService
                         var useHardware = hardwareTranscoder is { HasDevices: true } &&
                             VideoDedupPlanner.GetHardwareFrame(preset, clips, slices) is { } frame &&
                             await hardwareTranscoder.TryRenderAsync(
-                                clips[slices[0].ClipIndex], slices[0], frame, temp, automaticConcurrency, encodeParallel,
-                                (args, timeout, cancellation) => RunHardwareInSlotAsync(args, timeout, cancellation),
+                                clips[slices[0].ClipIndex], slices[0], frame, temp, automatic: true, encodeParallel,
+                                (args, timeout, cancellation) => RunHardwareInSlotAsync(project, args, timeout, cancellation),
                                 cancellation => CheckHardwareOutputAsync(temp, clips[slices[0].ClipIndex].Probe,
                                     frame, preset, cancellation),
                                 message => Write($"第 {episode}/{totalEpisodes} 集 {message}"), token).ConfigureAwait(false);
                         if (!useHardware)
                         {
-                            await WithEncodeSlotAsync(async () =>
+                            await WithEncodeSlotAsync(project, async () =>
                             {
                                 var jobEncoder = await GetCompatibleEncoderAsync().ConfigureAwait(false);
                                 Write($"第 {episode}/{totalEpisodes} 集兼容转码 · CPU 解码和滤镜 · {jobEncoder}");
@@ -994,6 +994,22 @@ public static class VideoDedupService
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> EncoderProbeCache = new(StringComparer.Ordinal);
 
+    internal static async Task<bool> HasUsableHardwareEncoderAsync(CancellationToken ct)
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        foreach (var hevc in new[] { false, true })
+        {
+            preset.VideoCodec = hevc ? VideoDedupPreset.CodecHevc : VideoDedupPreset.CodecH264;
+            foreach (var encoder in HardwareCandidates(preset, hevc))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (await EncoderWorksAsync(encoder, preset, ct).ConfigureAwait(false))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     private static async Task<bool> EncoderWorksAsync(string encoder, VideoDedupPreset preset, CancellationToken ct)
     {
         if (EncoderWorksForTests is not null)
@@ -1024,15 +1040,14 @@ public static class VideoDedupService
             .ConfigureAwait(false);
     }
 
-    private static async Task WithEncodeSlotAsync(Func<Task> action, CancellationToken ct)
+    private static async Task WithEncodeSlotAsync(string project, Func<Task> action, CancellationToken ct)
     {
         if (RunProcessForTests is not null)
         {
             await action().ConfigureAwait(false);
             return;
         }
-        ApplyGlobalConcurrency(out _);
-        var lane = await VideoDedupEncodeGate.WaitAsync(ct).ConfigureAwait(false);
+        var lane = await VideoDedupEncodeGate.WaitAsync(ct, project).ConfigureAwait(false);
         VideoDedupCpuBudget.UseLane(lane);
         try { await action().ConfigureAwait(false); }
         finally
@@ -1043,10 +1058,10 @@ public static class VideoDedupService
     }
 
     private static async Task<double> RunHardwareInSlotAsync(
-        IReadOnlyList<string> args, TimeSpan? timeout, CancellationToken ct)
+        string project, IReadOnlyList<string> args, TimeSpan? timeout, CancellationToken ct)
     {
         double seconds = 0;
-        await WithEncodeSlotAsync(async () =>
+        await WithEncodeSlotAsync(project, async () =>
         {
             seconds = await VideoDedupHardwareTranscoder.RunTimedAsync(FfmpegLocator.ResolveFfmpeg(), args, timeout, ct)
                 .ConfigureAwait(false);
@@ -1054,37 +1069,21 @@ public static class VideoDedupService
         return seconds;
     }
 
-    private static int ApplyGlobalConcurrency(out bool automatic)
+    private static async Task<int> ApplyGlobalConcurrencyAsync(CancellationToken ct)
     {
         var logical = Math.Max(1, Environment.ProcessorCount);
-        var (configured, cpuPercent, auto) = LoadDedupRuntimeSettings();
-        automatic = auto;
-        VideoDedupCpuBudget.Configure(configured, logical);
-        VideoDedupCpuBudget.ConfigurePercent(cpuPercent);
-        if (RunProcessForTests is null)
-            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.CurrentConcurrency);
-        return VideoDedupCpuBudget.CurrentConcurrency;
-    }
-
-    private static (int Concurrency, int CpuPercent, bool Automatic) LoadDedupRuntimeSettings()
-    {
         if (RunProcessForTests is not null)
         {
-            return (
-                VideoDedupCpuBudget.ConcurrencyForTests ?? VideoDedupCpuBudget.DefaultConcurrency,
-                VideoDedupCpuBudget.CpuPercentForTests ?? VideoDedupCpuBudget.DefaultCpuPercent, true);
+            VideoDedupCpuBudget.Configure(VideoDedupCpuBudget.ConcurrencyForTests
+                ?? VideoDedupCpuBudget.DefaultConcurrency, logical);
+            return VideoDedupCpuBudget.CurrentConcurrency;
         }
 
-        try
-        {
-            var settings = ClientSettingsStore.Load();
-            return (settings.TiktokVideoDedupConcurrency, settings.TiktokVideoDedupCpuPercent,
-                settings.TiktokVideoDedupAutomaticConcurrency);
-        }
-        catch
-        {
-            return (VideoDedupCpuBudget.DefaultConcurrency, VideoDedupCpuBudget.DefaultCpuPercent, true);
-        }
+        var limit = await VideoProcessingConcurrency.GetLimitAsync(ct).ConfigureAwait(false);
+        VideoDedupCpuBudget.Configure(limit, logical);
+        VideoDedupCpuBudget.ConfigurePercent(VideoDedupCpuBudget.DefaultCpuPercent);
+        VideoDedupEncodeGate.Configure(limit);
+        return limit;
     }
 
     private static string FirstLine(string message)

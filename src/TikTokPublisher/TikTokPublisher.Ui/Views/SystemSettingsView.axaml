@@ -680,31 +680,36 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="全局账号配置">
+            <TabItem x:Name="ProjectConcurrencyTab" Header="并发管理">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
-                        <TextBlock Text="剧集名额" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="160,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="同时并发项目数量" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGlobalProjectConcurrency}" Minimum="1" Maximum="12" Width="120" HorizontalAlignment="Left" />
+                    <StackPanel Spacing="14" Margin="12,8" MaxWidth="1080" HorizontalAlignment="Left">
+                        <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
+                              IsVisible="{Binding ProjectConcurrencySettings.ShowsKuaishou}">
+                            <TextBlock Text="快手项目并发数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                           Value="{Binding ProjectConcurrencySettings.KuaishouProjectConcurrency}"
+                                           Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
+                                           FormatString="0" Width="120" />
                         </Grid>
-
-                        <TextBlock Text="全局步骤配置" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU 占用 %" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupCpuPercent}" Minimum="50" Maximum="100" Increment="5" FormatString="0" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="去重并发上限" VerticalAlignment="Top" Margin="0,8,0,0" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsTikTokPublishPrompt}">
-                                <WrapPanel Orientation="Horizontal">
-                                    <NumericUpDown Classes="configurationInput" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" />
-                                    <CheckBox Content="按本机校准自动调优" Margin="12,0" IsChecked="{Binding TiktokVideoDedupAutomaticConcurrency}" VerticalAlignment="Center" />
-                                    <Button x:Name="VideoDedupCalibrationButton" Content="校准视频转码" Click="OnVideoDedupCalibrationClicked" />
-                                </WrapPanel>
-                                <TextBlock x:Name="VideoDedupCalibrationStatus" TextWrapping="Wrap" IsVisible="False" />
-                            </StackPanel>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                        <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
+                              IsVisible="{Binding ProjectConcurrencySettings.ShowsTikTok}">
+                            <TextBlock Text="TikTok 项目并发数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                           Value="{Binding ProjectConcurrencySettings.TikTokProjectConcurrency}"
+                                           Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
+                                           FormatString="0" Width="120" />
+                        </Grid>
+                        <TextBlock Text="{Binding ProjectConcurrencySettings.VideoProcessingStatus}"
+                                   Classes="pageSummary" />
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="保存设置" Command="{Binding ProjectConcurrencySettings.SaveCommand}"
+                                    Classes="primaryAction" MinWidth="140" />
+                            <TextBlock Text="{Binding ProjectConcurrencySettings.SaveMessage}" Classes="pageSummary"
+                                       Margin="10,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </WrapPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
                 <TabItem x:Name="SoftwareLicenseTab" Header="软件授权" IsVisible="False">
                     <views:SystemServicesView x:Name="SoftwareLicenseHost" />
                 </TabItem>
@@ -713,41 +718,6 @@
                         <views:XingeConnectionView x:Name="XingeConnectionHost" />
                     </ScrollViewer>
                 </TabItem>
-                            <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="3" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
-                        </Grid>
-
-                        <TextBlock Text="上传异常处理" FontWeight="Bold" />
-                        <TextBlock Text="项目上传异常时自动标记失败并跳过，继续执行后续队列；单日创建上限等明确限制仍会停止队列。"
-                                   TextWrapping="Wrap" />
-
-                        <TextBlock Text="素材校验" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="素材校验并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
-                        </Grid>
-
-                        <TextBlock Text="生成任务并发" FontWeight="Bold" />
-                        <TextBlock Text="多个项目共享全局资源上限；检测到接口限流时会自动退避。" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,120,140,120" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="单项目生成并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGenerationPerProjectConcurrency}" Minimum="1" Maximum="4" />
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="AI文本并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="3" Value="{Binding TiktokAiTextConcurrency}" Minimum="1" Maximum="12" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="文档渲染并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokDocumentConcurrency}" Minimum="1" Maximum="8" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="AI图片并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="1" Value="{Binding TiktokImageGenerationConcurrency}" Minimum="1" Maximum="8" />
-                            <TextBlock Grid.Row="2" Grid.Column="2" Text="视觉处理并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="3" Value="{Binding TiktokVisualConcurrency}" Minimum="1" Maximum="8" />
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
             </TabControl>
         </Border>
     </DockPanel>

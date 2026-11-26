@@ -29,6 +29,10 @@ public sealed class WorkspaceQueueOrchestrator
 
     public event Action<QueueProjectItem, string, string>? ManualInterventionPending;
 
+    public void ApplyProjectLimit(ClientSettings settings) =>
+        _sharedProjectSlots.Configure(settings.TiktokGlobalProjectConcurrency,
+            QueueProjectSlotCoordinator.SlotModeForServer(settings.ServerDispatchMode));
+
     public bool AnyRunning
     {
         get

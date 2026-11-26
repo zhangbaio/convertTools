@@ -1,7 +1,7 @@
 namespace TikTokPublisher.Core.Services.VideoDedup;
 
 /// <summary>
-/// 全机去重并发由系统设置决定。每路线程数是逻辑处理器数除以这个并发，不再额外空出处理器。
+/// 按共享的视频处理名额和 CPU 预算，为各路转码分配线程。
 /// </summary>
 internal static class VideoDedupCpuBudget
 {
@@ -96,14 +96,16 @@ internal static class VideoDedupCpuBudget
     }
 }
 
-/// <summary>全机同时编码的名额。保存新的并发后，正在等待的下一集按新名额进入。</summary>
+/// <summary>同一进程内共享的编码名额。多个项目等待时，按项目轮转发放。</summary>
 internal static class VideoDedupEncodeGate
 {
     private static readonly object Sync = new();
-    private static readonly Queue<TaskCompletionSource<int>> Waiters = new();
+    private static readonly Queue<string> ReadyProjects = new();
+    private static readonly Dictionary<string, Queue<TaskCompletionSource<int>>> Waiters = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<int> Slots = [];
     private static int _limit = VideoDedupCpuBudget.DefaultConcurrency;
     private static bool _calibrating;
+    private static string? _lastGrantedProject;
 
     public static bool TryBeginCalibration()
     {
@@ -134,17 +136,27 @@ internal static class VideoDedupEncodeGate
         }
     }
 
-    public static async Task<int> WaitAsync(CancellationToken cancellationToken)
+    public static async Task<int> WaitAsync(CancellationToken cancellationToken, string project = "")
     {
-        TaskCompletionSource<int>? pending = null;
+        TaskCompletionSource<int> pending;
         lock (Sync)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (TryTakeSlot() is int slot)
+            if (ReadyProjects.Count == 0 && TryTakeSlot() is int slot)
+            {
+                _lastGrantedProject = project;
                 return slot;
+            }
 
             pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Waiters.Enqueue(pending);
+            if (!Waiters.TryGetValue(project, out var projectWaiters))
+            {
+                projectWaiters = new Queue<TaskCompletionSource<int>>();
+                Waiters.Add(project, projectWaiters);
+                ReadyProjects.Enqueue(project);
+            }
+            projectWaiters.Enqueue(pending);
+            Pump();
         }
 
         using var registration = cancellationToken.Register(() => pending.TrySetCanceled(cancellationToken));
@@ -202,11 +214,27 @@ internal static class VideoDedupEncodeGate
 
     private static void Pump()
     {
-        while (Waiters.Count > 0 && TryTakeSlot() is int slot)
+        while (ReadyProjects.Count > 0 && TryTakeSlot() is int slot)
         {
-            var next = Waiters.Dequeue();
+            if (ReadyProjects.Count > 1 &&
+                string.Equals(ReadyProjects.Peek(), _lastGrantedProject, StringComparison.OrdinalIgnoreCase))
+            {
+                ReadyProjects.Enqueue(ReadyProjects.Dequeue());
+            }
+
+            var project = ReadyProjects.Dequeue();
+            var projectWaiters = Waiters[project];
+            var next = projectWaiters.Dequeue();
+            if (projectWaiters.Count == 0)
+                Waiters.Remove(project);
+            else
+                ReadyProjects.Enqueue(project);
+
             if (next.TrySetResult(slot))
+            {
+                _lastGrantedProject = project;
                 continue;
+            }
             Slots.Remove(slot);
         }
     }

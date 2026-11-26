@@ -5,7 +5,6 @@ using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
-using TikTokPublisher.Core.Services.VideoDedup;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -13,7 +12,6 @@ namespace TikTokPublisher.Ui.Views;
 public partial class SystemSettingsView : UserControl
 {
     private SystemSettingsViewModel? _vm;
-    private CancellationTokenSource? _videoDedupCalibration;
     private bool _syncingProjectImageTemplateCombo;
 
     public SystemSettingsView()
@@ -35,14 +33,17 @@ public partial class SystemSettingsView : UserControl
         XingeSettingsTab.IsVisible = true;
     }
 
-    private void OnSettingsTabChanged(object? sender, SelectionChangedEventArgs e)
+    private async void OnSettingsTabChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (sender is TabControl tabs && ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
         {
-            footer.IsVisible = tabs.SelectedItem != SoftwareLicenseTab && tabs.SelectedItem != XingeSettingsTab;
+            var showsProjectConcurrency = tabs.SelectedItem == ProjectConcurrencyTab;
+            footer.IsVisible = !showsProjectConcurrency &&
+                tabs.SelectedItem != SoftwareLicenseTab && tabs.SelectedItem != XingeSettingsTab;
+            if (showsProjectConcurrency && _vm is { } vm)
+                await vm.ProjectConcurrencySettings.RefreshVideoProcessingLimitAsync();
         }
     }
-
 
     public void Bind(SystemSettingsViewModel vm)
     {
@@ -451,59 +452,6 @@ public partial class SystemSettingsView : UserControl
         var path = await PickFileAsync("选择 HG 短剧下载器客户端", "*.exe");
         if (_vm is not null && !string.IsNullOrWhiteSpace(path))
             _vm.HghighActiveClientExe = path;
-    }
-
-    private async void OnVideoDedupCalibrationClicked(object? sender, RoutedEventArgs e)
-    {
-        if (_videoDedupCalibration is { } current)
-        {
-            current.Cancel();
-            return;
-        }
-        if (_vm is not { } vm)
-            return;
-
-        using var cancellation = new CancellationTokenSource();
-        _videoDedupCalibration = cancellation;
-        try
-        {
-            VideoDedupCalibrationButton.Content = "取消校准";
-            VideoDedupCalibrationStatus.IsVisible = true;
-            VideoDedupCalibrationStatus.Text = "正在准备测试片段并校准本机转码…";
-            var result = await VideoDedupService.BenchmarkHardwareAsync(
-                vm.TiktokVideoDedupConcurrency, cancellation.Token);
-            cancellation.Token.ThrowIfCancellationRequested();
-            var timings = string.Join("，", result.Samples.Select(sample =>
-                $"{sample.Lanes} 路 {sample.Seconds:F1} 秒" + (sample.CpuPercent is int cpu ? $" / CPU {cpu}%" : "")));
-            VideoDedupCalibrationStatus.Text = $"{result.Device} · {result.Encoder} · {timings}。建议 {result.RecommendedLanes} 路。"
-                + (result.Saved ? "已保存到本机，用于匹配的硬件转码任务。" : "本次启动有效，本机校准结果写入失败。");
-
-            var currentLimit = vm.TiktokVideoDedupConcurrency;
-            if (currentLimit != result.RecommendedLanes && ReferenceEquals(_vm, vm) &&
-                TopLevel.GetTopLevel(this) is Window owner &&
-                await ConfirmDialog.ShowAsync(owner, "应用转码校准建议",
-                    $"是否将去重并发上限从 {currentLimit} 路改为推荐的 {result.RecommendedLanes} 路？\n点击「保存设置」后生效。",
-                    confirmText: "改为推荐值", cancelText: "保留当前值") &&
-                ReferenceEquals(_vm, vm))
-            {
-                vm.TiktokVideoDedupConcurrency = result.RecommendedLanes;
-                VideoDedupCalibrationStatus.Text += $" 去重并发上限已填为 {result.RecommendedLanes} 路，请点击「保存设置」。";
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            VideoDedupCalibrationStatus.Text = "已取消校准。";
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
-        {
-            VideoDedupCalibrationStatus.IsVisible = true;
-            VideoDedupCalibrationStatus.Text = ex.Message;
-        }
-        finally
-        {
-            _videoDedupCalibration = null;
-            VideoDedupCalibrationButton.Content = "校准视频转码";
-        }
     }
 
     private async Task<string?> PickFileAsync(string title, params string[] patterns)

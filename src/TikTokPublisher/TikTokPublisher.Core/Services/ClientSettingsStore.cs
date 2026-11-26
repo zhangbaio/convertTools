@@ -132,6 +132,19 @@ public static class ClientSettingsStore
         return Normalize(settings);
     }
 
+    public static void SaveProjectConcurrency(int limit, bool kuaishou, string? databasePath = null)
+    {
+        var path = ResolvePath(databasePath);
+        AppDatabaseInitializer.EnsureInitialized(path);
+        using var connection = AppDatabaseInitializer.OpenConnection(path);
+        using var transaction = connection.BeginTransaction();
+        var settings = LoadRawObject(connection, transaction) ?? new JsonObject();
+        var key = kuaishou ? "kuaishou_global_project_concurrency" : "tiktok_global_project_concurrency";
+        settings[key] = QueueProjectSlotCoordinator.NormalizeCapacity(limit);
+        SaveRawObject(connection, settings, transaction);
+        transaction.Commit();
+    }
+
     public static void Save(ClientSettings settings, string? databasePath = null)
     {
         var normalized = Normalize(settings);
