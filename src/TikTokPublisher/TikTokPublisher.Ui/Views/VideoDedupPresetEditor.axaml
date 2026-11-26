@@ -176,16 +176,8 @@
                     <RadioButton x:Name="AudioAacBox" GroupName="DedupAudio" Content="AAC" IsChecked="True" />
                 </StackPanel>
                 <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
-                    <TextBlock Classes="dedupLabel" Text="音频码率" />
-                    <Panel Grid.Column="1">
-                        <NumericUpDown Classes="configurationInput" x:Name="AudioBitrateBox" Minimum="64" Maximum="320" Increment="16" FormatString="0" Watermark="留空表示原码率" />
-                        <TextBlock Text="Kbps"
-                                   HorizontalAlignment="Right"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,32,0"
-                                   Foreground="#6B7280"
-                                   IsHitTestVisible="False" />
-                    </Panel>
+                    <TextBlock Classes="dedupLabel" Text="音频码率 Kbps" />
+                    <NumericUpDown Grid.Column="1" Classes="configurationInput" x:Name="AudioBitrateBox" Minimum="64" Maximum="320" Increment="16" FormatString="0" Watermark="留空表示原码率" />
                 </Grid>
                 <TextBlock Classes="dedupHint" Text="音频码率留空表示使用源码率，单位 Kbps。填写后按该码率重新编码。变速、抽帧、裁剪或均衡开启时会重新编码音频。" />
 
