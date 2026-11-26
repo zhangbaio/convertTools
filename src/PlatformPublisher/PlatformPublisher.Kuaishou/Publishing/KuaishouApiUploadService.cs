@@ -72,7 +72,7 @@ public sealed class KuaishouApiUploadService
         try
         {
             using var session = KuaishouApiSession.Open(config.AuthStatePath);
-            var size = await KuaishouPersonalFirstPageService.ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault());
+            var size = await KuaishouPersonalFirstPageService.ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault(), cancellationToken);
             var resolved = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
             var form = KuaishouPersonalFormResolver.ClampToEpisodeCount(resolved, data.VideoPaths.Count);
             if (form.FreeEpisodeCount != resolved.FreeEpisodeCount || form.UnlockCount != resolved.UnlockCount)

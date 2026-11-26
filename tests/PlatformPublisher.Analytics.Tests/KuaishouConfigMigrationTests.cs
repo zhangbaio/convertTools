@@ -67,6 +67,49 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         Assert.False(form.SmallAmountUnlock);
     }
 
+    [Theory]
+    [InlineData(PublishPlatform.KuaishouPersonalRevenue, 1920, 1080, "横屏")]
+    [InlineData(PublishPlatform.KuaishouEnterpriseRevenue, 1080, 1920, "竖屏")]
+    [InlineData(PublishPlatform.KuaishouEnterpriseRevenue, 0, 0, "竖屏")]
+    public void SeriesMetadataDefaultsIgnoreLegacyAccountValues(
+        PublishPlatform platform, int width, int height, string productionForm)
+    {
+        var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>("""
+            {"ContentType":"短剧","ProductionMethod":"2","ProductionForm":"横屏",
+             "CopyrightProofType":"授权版权","BroadcastPlatform":"其他平台","BroadcastChannel":"PC端"}
+            """)!;
+        using var legacy = JsonDocument.Parse("""
+            {"kuaishou_content_type":"短剧","kuaishou_comic_production_method":4,"kuaishou_production_form":"竖屏",
+             "kuaishou_copyright_proof_type":2,"kuaishou_broadcast_platform":"其他平台","kuaishou_broadcast_channel":"PC端"}
+            """);
+
+        var import = KuaishouLegacyConfigImporter.ImportElement(legacy.RootElement, config, platform);
+        Assert.Equal(0, import.ImportedFields);
+        using var saved = JsonDocument.Parse(JsonSerializer.Serialize(config));
+        foreach (var name in new[]
+                 {
+                     nameof(config.ContentType), nameof(config.ProductionMethod), nameof(config.ProductionForm),
+                     nameof(config.CopyrightProofType), nameof(config.BroadcastPlatform), nameof(config.BroadcastChannel),
+                 })
+            Assert.False(saved.RootElement.TryGetProperty(name, out _), name);
+
+        var form = KuaishouPersonalFormResolver.Resolve(config, width, height);
+        Assert.Equal("漫剧", form.ContentTypeLabel);
+        Assert.Equal("AIGC剧", form.ComicMethodLabel);
+        Assert.Equal(productionForm, form.ProductionForm);
+        Assert.Equal("自有版权", form.CopyrightProofTypeLabel);
+        Assert.Equal("快手", form.BroadcastPlatform);
+        Assert.Equal("小屏APP", form.BroadcastChannel);
+
+        var overlay = KuaishouPersonalFormResolver.SettingsOverlay(config, platform == PublishPlatform.KuaishouEnterpriseRevenue);
+        Assert.Equal("漫剧", overlay["kuaishou_content_type"]);
+        Assert.Equal(3, overlay["kuaishou_comic_production_method"]);
+        Assert.Equal("auto", overlay["kuaishou_production_form"]);
+        Assert.Equal(1, overlay["kuaishou_copyright_proof_type"]);
+        Assert.Equal("快手", overlay["kuaishou_broadcast_platform"]);
+        Assert.Equal("小屏APP", overlay["kuaishou_broadcast_channel"]);
+    }
+
     [Fact]
     public void ManagementEntryAndLoginTimeoutUseSystemDefaults()
     {

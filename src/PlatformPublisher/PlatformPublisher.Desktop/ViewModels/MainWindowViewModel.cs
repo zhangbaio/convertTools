@@ -2882,7 +2882,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         request.AutoFill && !preserved.Contains("auto-fill-info"),
                         request.Platform == PublishPlatform.KuaishouEnterpriseRevenue,
                         new Progress<string>(message => AppendActivityLog(message, projectName)),
-                        cancellationToken);
+                        cancellationToken,
+                        preparedVideoPath: preparedVideos?.Paths.FirstOrDefault());
                     if (request.Rewrite && !preserved.Contains("rewrite"))
                     {
                         await UpdateStepStateAsync(trackedJob, trackedRow, "rewrite", "改写信息", PublishJobStepStatus.Succeeded, "执行完成");

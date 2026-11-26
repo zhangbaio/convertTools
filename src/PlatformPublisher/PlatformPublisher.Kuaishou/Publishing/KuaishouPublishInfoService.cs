@@ -57,7 +57,8 @@ public sealed class KuaishouPublishInfoService
         bool autoFill,
         bool enterprise,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? preparedVideoPath = null)
     {
         if (!rewrite && !autoFill)
             return;
@@ -114,6 +115,16 @@ public sealed class KuaishouPublishInfoService
         if (policyHits.Count > 0)
             progress?.Report("快手发布信息仍" + string.Join("；", policyHits) + "，已照常写入，请人工确认");
 
+        KuaishouPersonalFormResolver.Resolved? autoFillForm = null;
+        if (autoFill)
+        {
+            var videoPath = preparedVideoPath ?? KuaishouSettlementEpisodeVideoService.ReadFirstSource(
+                directories.SourceDirectory, directories.WorkflowDirectory);
+            var size = await KuaishouPersonalFirstPageService.ProbeVideoSizeAsync(videoPath, cancellationToken);
+            autoFillForm = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         var draft = ReadDraft(accepted.Value);
         if (rewrite)
         {
@@ -134,12 +145,12 @@ public sealed class KuaishouPublishInfoService
             }, sourceSynopsis), []);
         }
 
-        if (autoFill)
+        if (autoFillForm is not null)
         {
             var autoFillPath = Path.Combine(
                 directories.WorkflowDirectory,
                 enterprise ? "kuaishou-enterprise-auto-fill.json" : "kuaishou-auto-fill.json");
-            WriteAutoFill(autoFillPath, draft, config);
+            WriteAutoFill(autoFillPath, draft, config, autoFillForm);
             progress?.Report($"快手字段已补齐：{Path.GetFileName(autoFillPath)}");
         }
     }
@@ -234,9 +245,9 @@ public sealed class KuaishouPublishInfoService
         File.WriteAllText(path, UpsertInfo(existing, updates, remove).TrimEnd() + Environment.NewLine, new UTF8Encoding(false));
     }
 
-    private static void WriteAutoFill(string path, Draft draft, KuaishouPersonalConfig config)
+    private static void WriteAutoFill(
+        string path, Draft draft, KuaishouPersonalConfig config, KuaishouPersonalFormResolver.Resolved form)
     {
-        var form = KuaishouPersonalFormResolver.Resolve(config);
         var payload = new JsonObject
         {
             ["generated_at"] = DateTimeOffset.Now.ToString("s"),

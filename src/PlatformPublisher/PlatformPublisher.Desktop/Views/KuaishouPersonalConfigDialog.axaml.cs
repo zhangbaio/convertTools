@@ -112,10 +112,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         CommitmentRecipientBox.Text = _config.CommitmentRecipientCompanyName;
 
-        FillChoice(ContentTypeBox, KuaishouFormChoices.ContentTypes, _config.ContentType, "漫剧");
-        FillChoice(ComicMethodBox, KuaishouFormChoices.ComicMethods, _config.ProductionMethod, "3");
         FillChoice(AuthorDeclarationBox, KuaishouFormChoices.AuthorDeclarations, _config.AuthorDeclaration, "1");
-        FillChoice(ProductionFormBox, KuaishouFormChoices.ProductionForms, _config.ProductionForm, "auto");
         ProductionYearBox.Text = _config.ProductionYear;
         AverageDurationBox.Text = _config.AverageEpisodeMinutes;
         ProductionCostBox.Text = _config.ProductionCost;
@@ -124,11 +121,8 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         UnlockEpisodeCountBox.Text = _config.UnlockEpisodeCount.ToString();
         EpisodePriceBox.Text = _config.EpisodePrice;
         SeriesPriceBox.Text = _config.SeriesPrice;
-        FillChoice(CopyrightProofTypeBox, KuaishouFormChoices.CopyrightProofTypes, _config.CopyrightProofType, "1");
         UpdateSaleTypeRows();
 
-        BroadcastPlatformBox.Text = _config.BroadcastPlatform;
-        FillChoice(BroadcastChannelBox, KuaishouFormChoices.BroadcastChannels, _config.BroadcastChannel, "小屏APP");
         var broadcastMode = string.IsNullOrWhiteSpace(_config.BroadcastTimeMode) ? "today" : _config.BroadcastTimeMode.Trim();
         var fixedDate = !string.Equals(broadcastMode, "today", StringComparison.OrdinalIgnoreCase);
         FillChoice(BroadcastTimeModeBox, KuaishouFormChoices.BroadcastTimeModes, fixedDate ? "fixed" : "today", "today");
@@ -315,10 +309,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         _config.CommitmentRecipientCompanyName = CommitmentRecipientBox.Text?.Trim() ?? string.Empty;
 
-        _config.ContentType = ChoiceValue(ContentTypeBox, "漫剧");
-        _config.ProductionMethod = ChoiceValue(ComicMethodBox, "3");
         _config.AuthorDeclaration = ChoiceValue(AuthorDeclarationBox, "1");
-        _config.ProductionForm = ChoiceValue(ProductionFormBox, "auto");
         _config.ProductionYear = ProductionYearBox.Text?.Trim() ?? string.Empty;
         _config.AverageEpisodeMinutes = AverageDurationBox.Text?.Trim() ?? string.Empty;
         _config.ProductionCost = ProductionCostBox.Text?.Trim() ?? string.Empty;
@@ -327,10 +318,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.UnlockEpisodeCount = unlock;
         _config.EpisodePrice = EpisodePriceBox.Text?.Trim() ?? string.Empty;
         _config.SeriesPrice = SeriesPriceBox.Text?.Trim() ?? string.Empty;
-        _config.CopyrightProofType = ChoiceValue(CopyrightProofTypeBox, "1");
 
-        _config.BroadcastPlatform = BroadcastPlatformBox.Text?.Trim() ?? string.Empty;
-        _config.BroadcastChannel = ChoiceValue(BroadcastChannelBox, "小屏APP");
         var timeMode = ChoiceValue(BroadcastTimeModeBox, "today");
         _config.BroadcastTimeMode = timeMode == "fixed"
             ? (BroadcastDateBox.Text?.Trim() ?? string.Empty)

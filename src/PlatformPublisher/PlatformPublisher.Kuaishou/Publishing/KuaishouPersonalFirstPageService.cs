@@ -13,7 +13,7 @@ public sealed class KuaishouPersonalFirstPageService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        var size = await ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault());
+        var size = await ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault(), cancellationToken);
         var resolved = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
         var form = KuaishouPersonalFormResolver.ClampToEpisodeCount(resolved, data.VideoPaths.Count);
         if (form.FreeEpisodeCount != resolved.FreeEpisodeCount || form.UnlockCount != resolved.UnlockCount)
@@ -495,8 +495,9 @@ public sealed class KuaishouPersonalFirstPageService
         }
     }
 
-    internal static async Task<(int Width, int Height)> ProbeVideoSizeAsync(string? path)
+    internal static async Task<(int Width, int Height)> ProbeVideoSizeAsync(string? path, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return (0, 0);
         try
         {
@@ -506,22 +507,36 @@ public sealed class KuaishouPersonalFirstPageService
                 {
                     FileName = "ffprobe",
                     RedirectStandardOutput = true,
-                    RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                 },
             };
-            foreach (var argument in new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path })
+            foreach (var argument in new[] { "-v", "quiet", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path })
                 process.StartInfo.ArgumentList.Add(argument);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
             process.Start();
-            var output = await process.StandardOutput.ReadToEndAsync();
-            if (!process.WaitForExit(8000)) return (0, 0);
+            string output;
+            try
+            {
+                output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
+                await process.WaitForExitAsync(timeout.Token);
+            }
+            finally
+            {
+                if (!process.HasExited)
+                {
+                    try { process.Kill(); }
+                    catch (InvalidOperationException) { }
+                }
+            }
+            if (process.ExitCode != 0) return (0, 0);
             var parts = output.Trim().Split('x');
             return parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height)
                 ? (width, height)
                 : (0, 0);
         }
-        catch
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
             return (0, 0);
         }

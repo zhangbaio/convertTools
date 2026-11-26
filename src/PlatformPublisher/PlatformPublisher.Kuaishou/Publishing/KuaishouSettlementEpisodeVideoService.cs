@@ -90,6 +90,16 @@ public static class KuaishouSettlementEpisodeVideoService
 
     public static IReadOnlyList<string> ReadSource(string sourceDirectory, string workflowDirectory)
     {
+        var videos = CollectSourceVideos(sourceDirectory, workflowDirectory);
+        return videos.Count == 0 ? [] : ResolveEpisodeNumbers(videos)
+            .OrderBy(item => item.Episode).Select(item => item.Path).ToArray();
+    }
+
+    internal static string? ReadFirstSource(string sourceDirectory, string workflowDirectory) =>
+        CollectSourceVideos(sourceDirectory, workflowDirectory).FirstOrDefault();
+
+    private static List<string> CollectSourceVideos(string sourceDirectory, string workflowDirectory)
+    {
         var prepared = Path.GetFullPath(Path.Combine(workflowDirectory, VideosDirectoryName));
         var originals = Path.GetFullPath(Path.Combine(workflowDirectory, DedupOriginalsDirectoryName));
         var videos = Directory.Exists(sourceDirectory) ? Collect(sourceDirectory, prepared, originals) : [];
@@ -100,8 +110,7 @@ public static class KuaishouSettlementEpisodeVideoService
             if (Directory.Exists(prepared))
                 videos.AddRange(Collect(prepared));
         }
-        return videos.Count == 0 ? [] : ResolveEpisodeNumbers(videos)
-            .OrderBy(item => item.Episode).Select(item => item.Path).ToArray();
+        return videos;
     }
 
     public static void EnsureDedupEpisodeOrder(IReadOnlyList<string> videos)

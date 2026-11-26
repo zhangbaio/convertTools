@@ -273,8 +273,6 @@ public sealed class KuaishouFormChoicesTests
     {
         var config = new KuaishouPersonalConfig
         {
-            ProductionMethod = "3",
-            ProductionForm = "auto",
             AuthorDeclaration = "1",
             SaleType = "3",
             BroadcastTimeMode = "today",

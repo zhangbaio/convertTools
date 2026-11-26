@@ -81,20 +81,8 @@
                             <TextBlock Classes="configurationHeading" Text="剧集与售卖" />
                             <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
                                 <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="内容类型" />
-                                    <ComboBox x:Name="ContentTypeBox" Classes="configurationInput" AutomationProperties.Name="内容类型" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="漫剧制作方式" />
-                                    <ComboBox x:Name="ComicMethodBox" Classes="configurationInput" AutomationProperties.Name="漫剧制作方式" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="作者声明" />
                                     <ComboBox x:Name="AuthorDeclarationBox" Classes="configurationInput" AutomationProperties.Name="作者声明" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="制作形式" />
-                                    <ComboBox x:Name="ProductionFormBox" Classes="configurationInput" AutomationProperties.Name="制作形式" />
                                 </StackPanel>
                                 <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="出品年份" />
@@ -107,10 +95,6 @@
                                 <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="单集平均时长" />
                                     <TextBox x:Name="AverageDurationBox" Classes="configurationInput" AutomationProperties.Name="单集平均时长" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="版权证明类型" />
-                                    <ComboBox x:Name="CopyrightProofTypeBox" Classes="configurationInput" AutomationProperties.Name="版权证明类型" />
                                 </StackPanel>
                             </UniformGrid>
                             <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
@@ -138,16 +122,6 @@
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
                             <TextBlock Classes="configurationHeading" Text="播出与人员" />
-                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="播出平台" />
-                                    <TextBox x:Name="BroadcastPlatformBox" Classes="configurationInput" AutomationProperties.Name="播出平台" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="播出途径" />
-                                    <ComboBox x:Name="BroadcastChannelBox" Classes="configurationInput" AutomationProperties.Name="播出途径" />
-                                </StackPanel>
-                            </UniformGrid>
                             <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
                                 <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="播出时间模式" />
