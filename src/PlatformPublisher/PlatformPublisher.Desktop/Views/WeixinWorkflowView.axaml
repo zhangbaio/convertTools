@@ -355,16 +355,22 @@
                 </Grid>
                 <Border Grid.Row="5" Classes="kuaishouStepFrame">
                     <WrapPanel Orientation="Horizontal">
-                        <TextBlock Text="启用步骤" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
+                        <TextBlock Text="执行步骤" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
                         <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="视频去重" IsChecked="{Binding PipelineKuaishouDedupEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="上传剧集" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,2" />
-                        <CheckBox Content="上传后自动归档" IsChecked="{Binding PipelineAutoArchiveAfterUpload}" Margin="0,0,12,2"
+                        <CheckBox Content="改写" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2"
+                                  ToolTip.Tip="改写剧名和简介。" />
+                        <CheckBox Content="海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,2"
+                                  ToolTip.Tip="生成海报。" />
+                        <CheckBox Content="工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,2"
+                                  ToolTip.Tip="生成工程图。" />
+                        <CheckBox Content="补字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,12,2"
+                                  ToolTip.Tip="补齐发布字段。" />
+                        <CheckBox Content="上传" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,2"
+                                  ToolTip.Tip="上传剧集。" />
+                        <CheckBox Content="强制重跑" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,2"
+                                  ToolTip.Tip="已完成的步骤会重新执行。" />
+                        <CheckBox Content="传后归档" IsChecked="{Binding PipelineAutoArchiveAfterUpload}" Margin="0,0,12,2"
                                   ToolTip.Tip="上传剧集成功后按快手分账规则归档：移动 source/workflow，并删除原视频、转码视频和素材视频。需要先配置归档目录。" />
                     </WrapPanel>
                 </Border>
