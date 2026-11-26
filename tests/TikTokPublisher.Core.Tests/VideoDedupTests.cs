@@ -1374,17 +1374,24 @@ public sealed class VideoDedupTests : IDisposable
     [Fact]
     public async Task Encode_gate_admits_the_next_episode_when_concurrency_rises()
     {
+        if (Environment.ProcessorCount < 2)
+            return;
+
+        using var first = VideoDedupEncodeGate.BeginSeries();
+        using var next = VideoDedupEncodeGate.BeginSeries();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         VideoDedupEncodeGate.Configure(1);
         try
         {
-            await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
-            var waiting = VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            await VideoDedupEncodeGate.WaitAsync(first, deadline.Token);
+            var waiting = VideoDedupEncodeGate.WaitAsync(next, deadline.Token);
             waiting.IsCompleted.Should().BeFalse();
             VideoDedupEncodeGate.Configure(2);
-            await waiting.WaitAsync(TimeSpan.FromSeconds(2));
+            await waiting;
         }
         finally
         {
+            deadline.Cancel();
             VideoDedupEncodeGate.Release();
             VideoDedupEncodeGate.Release();
             VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
@@ -1406,33 +1413,115 @@ public sealed class VideoDedupTests : IDisposable
     }
 
     [Fact]
-    public async Task Shared_encode_gate_rotates_between_platform_projects_when_both_wait()
+    public async Task Single_lane_keeps_the_current_series_across_episodes_and_releases_it_when_finished()
     {
+        using var tikTok = VideoDedupEncodeGate.BeginSeries();
+        using var kuaishou = VideoDedupEncodeGate.BeginSeries();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         VideoDedupEncodeGate.Configure(1);
-        var active = await VideoDedupEncodeGate.WaitAsync(deadline.Token, "tiktok-project");
         try
         {
-            var tikTokNext = VideoDedupEncodeGate.WaitAsync(deadline.Token, "tiktok-project");
-            var tikTokAfter = VideoDedupEncodeGate.WaitAsync(deadline.Token, "tiktok-project");
-            var kuaishou = VideoDedupEncodeGate.WaitAsync(deadline.Token, "kuaishou-project");
-            kuaishou.IsCompleted.Should().BeFalse();
+            var first = await VideoDedupEncodeGate.WaitAsync(tikTok, deadline.Token);
+            var waiting = VideoDedupEncodeGate.WaitAsync(kuaishou, deadline.Token);
+            waiting.IsCompleted.Should().BeFalse();
+            VideoDedupEncodeGate.Release(first);
+            waiting.IsCompleted.Should().BeFalse("the current series may have a gap between two episodes");
 
-            VideoDedupEncodeGate.Release(active);
-            active = await kuaishou;
-            tikTokNext.IsCompleted.Should().BeFalse();
-
-            VideoDedupEncodeGate.Release(active);
-            active = await tikTokNext;
-            tikTokAfter.IsCompleted.Should().BeFalse();
-
-            VideoDedupEncodeGate.Release(active);
-            active = await tikTokAfter;
+            var second = await VideoDedupEncodeGate.WaitAsync(tikTok, deadline.Token);
+            waiting.IsCompleted.Should().BeFalse();
+            VideoDedupEncodeGate.Release(second);
+            tikTok.Dispose();
+            VideoDedupEncodeGate.Release(await waiting);
         }
         finally
         {
             deadline.Cancel();
-            VideoDedupEncodeGate.Release(active);
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
+        }
+    }
+
+    [Fact]
+    public async Task Multi_lane_rotates_between_series_when_both_wait()
+    {
+        if (Environment.ProcessorCount < 2)
+            return;
+
+        using var tikTok = VideoDedupEncodeGate.BeginSeries();
+        using var kuaishou = VideoDedupEncodeGate.BeginSeries();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        VideoDedupEncodeGate.Configure(2);
+        try
+        {
+            var first = await VideoDedupEncodeGate.WaitAsync(tikTok, deadline.Token);
+            var second = await VideoDedupEncodeGate.WaitAsync(tikTok, deadline.Token);
+            var tikTokNext = VideoDedupEncodeGate.WaitAsync(tikTok, deadline.Token);
+            var kuaishouNext = VideoDedupEncodeGate.WaitAsync(kuaishou, deadline.Token);
+
+            VideoDedupEncodeGate.Release(first);
+            var kuaishouSlot = await kuaishouNext;
+            tikTokNext.IsCompleted.Should().BeFalse();
+
+            VideoDedupEncodeGate.Release(second);
+            VideoDedupEncodeGate.Release(await tikTokNext);
+            VideoDedupEncodeGate.Release(kuaishouSlot);
+        }
+        finally
+        {
+            deadline.Cancel();
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Single_lane_hands_off_when_the_current_series_is_cancelled_or_fails(bool cancel)
+    {
+        using var nextSeries = VideoDedupEncodeGate.BeginSeries();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        VideoDedupEncodeGate.Configure(1);
+
+        async Task RunCurrentSeries()
+        {
+            using var current = VideoDedupEncodeGate.BeginSeries();
+            var slot = await VideoDedupEncodeGate.WaitAsync(current, stop.Token);
+            try
+            {
+                started.SetResult();
+                await finish.Task.WaitAsync(stop.Token);
+            }
+            finally { VideoDedupEncodeGate.Release(slot); }
+        }
+
+        var running = RunCurrentSeries();
+        try
+        {
+            await started.Task.WaitAsync(deadline.Token);
+            var waiting = VideoDedupEncodeGate.WaitAsync(nextSeries, deadline.Token);
+            waiting.IsCompleted.Should().BeFalse();
+            if (cancel)
+            {
+                stop.Cancel();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => running);
+            }
+            else
+            {
+                finish.TrySetException(new InvalidOperationException("test encoder failure"));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => running);
+            }
+            VideoDedupEncodeGate.Release(await waiting);
+        }
+        finally
+        {
+            stop.Cancel();
+            deadline.Cancel();
+            VideoDedupEncodeGate.Release();
             VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
         }
     }
@@ -1440,18 +1529,19 @@ public sealed class VideoDedupTests : IDisposable
     [Fact]
     public async Task Cancelled_encode_wait_does_not_keep_a_slot()
     {
+        using var series = VideoDedupEncodeGate.BeginSeries();
         VideoDedupEncodeGate.Configure(1);
         try
         {
-            await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            await VideoDedupEncodeGate.WaitAsync(series, CancellationToken.None);
             using var cts = new CancellationTokenSource();
-            var waiting = VideoDedupEncodeGate.WaitAsync(cts.Token);
+            var waiting = VideoDedupEncodeGate.WaitAsync(series, cts.Token);
             cts.Cancel();
             var act = async () => await waiting;
             await act.Should().ThrowAsync<OperationCanceledException>();
             VideoDedupEncodeGate.Release();
 
-            var entered = VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            var entered = VideoDedupEncodeGate.WaitAsync(series, CancellationToken.None);
             await entered.WaitAsync(TimeSpan.FromSeconds(2));
             VideoDedupEncodeGate.Release();
         }
@@ -1489,25 +1579,31 @@ public sealed class VideoDedupTests : IDisposable
         if (Environment.ProcessorCount < 2)
             return;
 
+        using var preferred = VideoDedupEncodeGate.BeginSeries();
+        using var other = VideoDedupEncodeGate.BeginSeries();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         VideoDedupEncodeGate.Configure(2);
-        var first = await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
-        var second = await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
-        using var cancellation = new CancellationTokenSource();
         try
         {
+            var first = await VideoDedupEncodeGate.WaitAsync(preferred, cancellation.Token);
+            var second = await VideoDedupEncodeGate.WaitAsync(other, cancellation.Token);
             VideoDedupEncodeGate.Configure(1);
             VideoDedupEncodeGate.Release(first);
-            var waiting = VideoDedupEncodeGate.WaitAsync(cancellation.Token);
+            var waiting = VideoDedupEncodeGate.WaitAsync(other, cancellation.Token);
+            var preferredNext = VideoDedupEncodeGate.WaitAsync(preferred, cancellation.Token);
             waiting.IsCompleted.Should().BeFalse();
+            preferredNext.IsCompleted.Should().BeFalse();
             VideoDedupEncodeGate.Release(second);
-            var next = await waiting.WaitAsync(TimeSpan.FromSeconds(2));
-            VideoDedupEncodeGate.Release(next);
+            VideoDedupEncodeGate.Release(await preferredNext);
+            waiting.IsCompleted.Should().BeFalse();
+            preferred.Dispose();
+            VideoDedupEncodeGate.Release(await waiting);
         }
         finally
         {
             cancellation.Cancel();
-            VideoDedupEncodeGate.Release(first);
-            VideoDedupEncodeGate.Release(second);
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Release();
             VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
         }
     }

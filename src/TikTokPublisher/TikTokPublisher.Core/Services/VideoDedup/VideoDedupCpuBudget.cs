@@ -96,22 +96,25 @@ internal static class VideoDedupCpuBudget
     }
 }
 
-/// <summary>同一进程内共享的编码名额。多个项目等待时，按项目轮转发放。</summary>
+/// <summary>同一进程内共享的编码名额。单路时优先完成当前剧，多路时按剧轮转。</summary>
 internal static class VideoDedupEncodeGate
 {
     private static readonly object Sync = new();
-    private static readonly Queue<string> ReadyProjects = new();
-    private static readonly Dictionary<string, Queue<TaskCompletionSource<int>>> Waiters = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly HashSet<int> Slots = [];
+    private static readonly LinkedList<Series> ReadySeries = new();
+    private static readonly Dictionary<Series, Queue<TaskCompletionSource<int>>> Waiters = new();
+    private static readonly Dictionary<int, Series> Slots = [];
     private static int _limit = VideoDedupCpuBudget.DefaultConcurrency;
     private static bool _calibrating;
-    private static string? _lastGrantedProject;
+    private static Series? _lastGrantedSeries;
+    private static Series? _preferredSeries;
+
+    public static Series BeginSeries() => new();
 
     public static bool TryBeginCalibration()
     {
         lock (Sync)
         {
-            if (_calibrating || Slots.Count != 0 || Waiters.Count != 0)
+            if (_calibrating || Slots.Count != 0 || Waiters.Count != 0 || _preferredSeries is not null)
                 return false;
             _calibrating = true;
             return true;
@@ -131,31 +134,38 @@ internal static class VideoDedupEncodeGate
     {
         lock (Sync)
         {
-            _limit = VideoDedupCpuBudget.Normalize(concurrency, Environment.ProcessorCount);
+            var nextLimit = VideoDedupCpuBudget.Normalize(concurrency, Environment.ProcessorCount);
+            if (nextLimit == 1 && _limit > 1)
+            {
+                // Earlier admissions may finish after a decrease. Keep one of those
+                // series ahead of the queue once the active slots have drained.
+                _preferredSeries = Slots.OrderBy(slot => slot.Key).Select(slot => slot.Value)
+                    .FirstOrDefault(series => !series.Completed) ?? _lastGrantedSeries;
+            }
+            else if (nextLimit > 1)
+            {
+                _preferredSeries = null;
+            }
+            _limit = nextLimit;
             Pump();
         }
     }
 
-    public static async Task<int> WaitAsync(CancellationToken cancellationToken, string project = "")
+    public static async Task<int> WaitAsync(Series series, CancellationToken cancellationToken)
     {
         TaskCompletionSource<int> pending;
         lock (Sync)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (ReadyProjects.Count == 0 && TryTakeSlot() is int slot)
-            {
-                _lastGrantedProject = project;
-                return slot;
-            }
-
+            ObjectDisposedException.ThrowIf(series.Completed, series);
             pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (!Waiters.TryGetValue(project, out var projectWaiters))
+            if (!Waiters.TryGetValue(series, out var seriesWaiters))
             {
-                projectWaiters = new Queue<TaskCompletionSource<int>>();
-                Waiters.Add(project, projectWaiters);
-                ReadyProjects.Enqueue(project);
+                seriesWaiters = new Queue<TaskCompletionSource<int>>();
+                Waiters.Add(series, seriesWaiters);
+                ReadySeries.AddLast(series);
             }
-            projectWaiters.Enqueue(pending);
+            seriesWaiters.Enqueue(pending);
             Pump();
         }
 
@@ -186,7 +196,7 @@ internal static class VideoDedupEncodeGate
         lock (Sync)
         {
             int? held = null;
-            foreach (var busy in Slots)
+            foreach (var busy in Slots.Keys)
             {
                 held = busy;
                 break;
@@ -198,44 +208,79 @@ internal static class VideoDedupEncodeGate
         }
     }
 
-    private static int? TryTakeSlot()
+    private static int TakeSlot(Series series)
     {
-        if (_calibrating || Slots.Count >= _limit)
-            return null;
-
+        // Pump calls this only when there is capacity below the current limit.
         for (var i = 0; i < _limit; i++)
         {
-            if (Slots.Add(i))
+            if (Slots.TryAdd(i, series))
                 return i;
         }
-
-        return null;
+        throw new InvalidOperationException("没有可用的共享转码名额。");
     }
 
     private static void Pump()
     {
-        while (ReadyProjects.Count > 0 && TryTakeSlot() is int slot)
+        while (!_calibrating && Slots.Count < _limit && ReadySeries.First is { } first)
         {
-            if (ReadyProjects.Count > 1 &&
-                string.Equals(ReadyProjects.Peek(), _lastGrantedProject, StringComparison.OrdinalIgnoreCase))
+            var selected = first;
+            if (_limit == 1 && _preferredSeries is { } preferred)
             {
-                ReadyProjects.Enqueue(ReadyProjects.Dequeue());
+                selected = ReadySeries.Find(preferred);
+                if (selected is null)
+                    return;
+            }
+            else if (_limit > 1 && first.Value == _lastGrantedSeries && first.Next is { } nextSeries)
+            {
+                ReadySeries.Remove(first);
+                ReadySeries.AddLast(first);
+                selected = nextSeries;
             }
 
-            var project = ReadyProjects.Dequeue();
-            var projectWaiters = Waiters[project];
-            var next = projectWaiters.Dequeue();
-            if (projectWaiters.Count == 0)
-                Waiters.Remove(project);
+            var series = selected.Value;
+            ReadySeries.Remove(selected);
+            var seriesWaiters = Waiters[series];
+            var next = seriesWaiters.Dequeue();
+            if (seriesWaiters.Count == 0)
+                Waiters.Remove(series);
             else
-                ReadyProjects.Enqueue(project);
+                ReadySeries.AddLast(selected);
 
+            var slot = TakeSlot(series);
             if (next.TrySetResult(slot))
             {
-                _lastGrantedProject = project;
+                _lastGrantedSeries = series;
+                if (_limit == 1)
+                    _preferredSeries = series;
                 continue;
             }
             Slots.Remove(slot);
+        }
+    }
+
+    public sealed class Series : IDisposable
+    {
+        internal bool Completed { get; private set; }
+
+        public void Dispose()
+        {
+            lock (Sync)
+            {
+                if (Completed)
+                    return;
+                Completed = true;
+                if (Waiters.Remove(this, out var pending))
+                {
+                    ReadySeries.Remove(this);
+                    foreach (var waiter in pending)
+                        waiter.TrySetCanceled();
+                }
+                if (_preferredSeries == this)
+                    _preferredSeries = null;
+                if (_lastGrantedSeries == this)
+                    _lastGrantedSeries = null;
+                Pump();
+            }
         }
     }
 }

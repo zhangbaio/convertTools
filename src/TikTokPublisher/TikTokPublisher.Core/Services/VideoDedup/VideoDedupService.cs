@@ -318,8 +318,15 @@ public static class VideoDedupService
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
 
         Exception? encodeFailure = null;
+        void RecordEncodeFailure(Exception error)
+        {
+            if (Interlocked.CompareExchange(ref encodeFailure, error, null) is null)
+                renderCancellation.Cancel();
+        }
+
         try
         {
+            using var series = VideoDedupEncodeGate.BeginSeries();
             await Parallel.ForEachAsync(
                 jobs.Select((job, index) => (job, index)),
                 new ParallelOptions
@@ -371,40 +378,44 @@ public static class VideoDedupService
                             var note = fallback ? $"；缺少视频流码率的片段使用手动值 {Num(preset.VideoBitrateMbps)} Mbps" : "";
                             Write($"第 {episode}/{totalEpisodes} 集原视频码率目标 {Num(target)} Mbps{note}。");
                         }
-                        var useHardware = hardwareTranscoder is { HasDevices: true } &&
-                            VideoDedupPlanner.GetHardwareFrame(preset, clips, slices) is { } frame &&
-                            await hardwareTranscoder.TryRenderAsync(
-                                clips[slices[0].ClipIndex], slices[0], frame, temp, automatic: true, encodeParallel,
-                                (args, timeout, cancellation) => RunHardwareInSlotAsync(project, args, timeout, cancellation),
-                                cancellation => CheckHardwareOutputAsync(temp, clips[slices[0].ClipIndex].Probe,
-                                    frame, preset, cancellation),
-                                message => Write($"第 {episode}/{totalEpisodes} 集 {message}"), token).ConfigureAwait(false);
-                        if (!useHardware)
+                        // Always take the shared slot before acquiring a GPU device lease.
+                        // A waiting series must not block the preferred series on that GPU.
+                        await WithEncodeSlotAsync(series, async () =>
                         {
-                            await WithEncodeSlotAsync(project, async () =>
-                            {
-                                var jobEncoder = await GetCompatibleEncoderAsync().ConfigureAwait(false);
-                                Write($"第 {episode}/{totalEpisodes} 集兼容转码 · CPU 解码和滤镜 · {jobEncoder}");
-                                while (true)
-                                {
-                                    var arguments = VideoDedupPlanner.BuildArguments(preset, clips, slices, temp, jobEncoder, seed);
-                                    try
-                                    {
-                                        await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
-                                        return;
-                                    }
-                                    catch (InvalidOperationException ex) when (
-                                        AllowsCpuFallback(preset) && IsHardwareEncoderFailure(jobEncoder, ex.Message))
-                                    {
-                                        jobEncoder = await SwitchEncoderAsync(jobEncoder, ex.Message, token).ConfigureAwait(false);
-                                        Write($"第 {episode}/{totalEpisodes} 集改用 {jobEncoder} 重新去重。");
-                                    }
-                                }
-                            }, token).ConfigureAwait(false);
-                        }
+                            if (hardwareTranscoder is { HasDevices: true } &&
+                                VideoDedupPlanner.GetHardwareFrame(preset, clips, slices) is { } frame &&
+                                await hardwareTranscoder.TryRenderAsync(
+                                    clips[slices[0].ClipIndex], slices[0], frame, temp,
+                                    automatic: true, encodeParallel,
+                                    (args, timeout, cancellation) => VideoDedupHardwareTranscoder.RunTimedAsync(
+                                        FfmpegLocator.ResolveFfmpeg(), args, timeout, cancellation),
+                                    cancellation => CheckHardwareOutputAsync(temp, clips[slices[0].ClipIndex].Probe,
+                                        frame, preset, cancellation),
+                                    message => Write($"第 {episode}/{totalEpisodes} 集 {message}"), token)
+                                    .ConfigureAwait(false))
+                                return;
 
-                        if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
-                            throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
+                            var jobEncoder = await GetCompatibleEncoderAsync().ConfigureAwait(false);
+                            Write($"第 {episode}/{totalEpisodes} 集兼容转码 · CPU 解码和滤镜 · {jobEncoder}");
+                            while (true)
+                            {
+                                var arguments = VideoDedupPlanner.BuildArguments(preset, clips, slices, temp, jobEncoder, seed);
+                                try
+                                {
+                                    await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
+                                    if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
+                                        throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
+                                    return;
+                                }
+                                catch (InvalidOperationException ex) when (
+                                    AllowsCpuFallback(preset) && IsHardwareEncoderFailure(jobEncoder, ex.Message))
+                                {
+                                    jobEncoder = await SwitchEncoderAsync(jobEncoder, ex.Message, token).ConfigureAwait(false);
+                                    Write($"第 {episode}/{totalEpisodes} 集改用 {jobEncoder} 重新去重。");
+                                }
+                            }
+                        }, token, RecordEncodeFailure).ConfigureAwait(false);
+
                         var length = new FileInfo(temp).Length;
                         if (directOutput is null)
                         {
@@ -422,8 +433,7 @@ public static class VideoDedupService
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         Write($"第 {episode}/{totalEpisodes} 集去重失败：{ex.Message}");
-                        Interlocked.CompareExchange(ref encodeFailure, ex, null);
-                        renderCancellation.Cancel();
+                        RecordEncodeFailure(ex);
                     }
                 }).ConfigureAwait(false);
         }
@@ -1040,33 +1050,31 @@ public static class VideoDedupService
             .ConfigureAwait(false);
     }
 
-    private static async Task WithEncodeSlotAsync(string project, Func<Task> action, CancellationToken ct)
+    private static async Task WithEncodeSlotAsync(VideoDedupEncodeGate.Series series, Func<Task> action,
+        CancellationToken ct, Action<Exception> stopSeries)
     {
         if (RunProcessForTests is not null)
         {
             await action().ConfigureAwait(false);
             return;
         }
-        var lane = await VideoDedupEncodeGate.WaitAsync(ct, project).ConfigureAwait(false);
+        var lane = await VideoDedupEncodeGate.WaitAsync(series, ct).ConfigureAwait(false);
         VideoDedupCpuBudget.UseLane(lane);
-        try { await action().ConfigureAwait(false); }
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            await action().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            stopSeries(ex);
+            throw;
+        }
         finally
         {
             VideoDedupCpuBudget.UseLane(0);
             VideoDedupEncodeGate.Release(lane);
         }
-    }
-
-    private static async Task<double> RunHardwareInSlotAsync(
-        string project, IReadOnlyList<string> args, TimeSpan? timeout, CancellationToken ct)
-    {
-        double seconds = 0;
-        await WithEncodeSlotAsync(project, async () =>
-        {
-            seconds = await VideoDedupHardwareTranscoder.RunTimedAsync(FfmpegLocator.ResolveFfmpeg(), args, timeout, ct)
-                .ConfigureAwait(false);
-        }, ct).ConfigureAwait(false);
-        return seconds;
     }
 
     private static async Task<int> ApplyGlobalConcurrencyAsync(CancellationToken ct)
