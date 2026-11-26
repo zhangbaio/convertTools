@@ -20,7 +20,7 @@
 
         <Border Classes="configurationPanel">
             <TabControl Classes="secondaryTabs" SelectionChanged="OnSettingsTabChanged">
-            <TabItem Header="登录设置">
+            <TabItem Header="下载设置">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="{Binding LoginSettingsHint}"
@@ -376,7 +376,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem x:Name="SharedTextPresetTab" Header="AI 文本">
+            <TabItem x:Name="SharedTextPresetTab" Header="AI 文本" IsVisible="{Binding ShowsKuaishouPublishPrompt, FallbackValue=False}">
                 <ScrollViewer>
                     <DockPanel Margin="12,8">
                         <views:SharedAiPresetEditor x:Name="SharedTextPresetEditor" DockPanel.Dock="Top" />
@@ -440,7 +440,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem x:Name="SharedImagePresetTab" Header="AI 图片">
+            <TabItem x:Name="SharedImagePresetTab" Header="AI 图片" IsVisible="{Binding ShowsKuaishouPublishPrompt, FallbackValue=False}">
                 <ScrollViewer>
                     <DockPanel Margin="12,8">
                         <views:SharedAiPresetEditor x:Name="SharedImagePresetEditor" DockPanel.Dock="Top" />

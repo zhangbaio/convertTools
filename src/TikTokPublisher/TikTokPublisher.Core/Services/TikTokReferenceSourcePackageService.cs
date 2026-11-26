@@ -2950,7 +2950,7 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(
                 $"角色真人定妆图生成失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}；" +
-                $"请检查系统设置中的图片模型、Endpoint 和 API Key。响应：{Truncate(body, 1200)}");
+                $"请检查账号发布配置中的 AI 图片模型、接口地址和 API Key。响应：{Truncate(body, 1200)}");
 
         return await ReadGeneratedImageBytesAsync(body, ct).ConfigureAwait(false);
     }

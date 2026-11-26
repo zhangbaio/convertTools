@@ -1786,7 +1786,7 @@ public static partial class QueueMaterialStepService
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(settings.AiTextEndpoint) || string.IsNullOrWhiteSpace(settings.AiTextApiKey))
-            throw new InvalidOperationException("请先在系统设置中配置 AI 文本接口。");
+            throw new InvalidOperationException("请先在账号的发布配置中填写 AI 文本接口地址和 API Key。");
 
         var episodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir);
         var workflowDir = ProjectWorkspaceService.EnsureWorkflowInfo(item.ProjectDir, episodeCount, log);

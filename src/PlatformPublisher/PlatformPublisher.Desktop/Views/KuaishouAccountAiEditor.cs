@@ -206,7 +206,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
     {
         box.RevealPassword = false;
         box.Text = "";
-        box.Watermark = "使用系统设置中的 API Key";
+        box.Watermark = "使用共享预设的 API Key";
         box.IsEnabled = false;
     }
 
@@ -261,7 +261,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
             return;
         if (!create && SharedAiPresetStore.IsShared(selected.Id))
         {
-            _feedback.Text = "在系统设置 → AI 文本中编辑共享预设。";
+            _feedback.Text = "共享预设可在云帆独立版中维护。也可新建账号预设。";
             return;
         }
         var edit = await KuaishouAiPresetDialog.EditTextAsync(owner, selected, create);
@@ -277,7 +277,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
             return;
         if (!create && SharedAiPresetStore.IsShared(selected.Id))
         {
-            _feedback.Text = "在系统设置 → AI 图片中编辑共享预设。";
+            _feedback.Text = "共享预设可在云帆独立版中维护。也可新建账号预设。";
             return;
         }
         var edit = await KuaishouAiPresetDialog.EditImageAsync(owner, selected, create);

@@ -301,7 +301,7 @@ public sealed class AccountAiEditor : UserControl
         string defaultEndpoint, string defaultKey, out string displayed)
     {
         box.IsEnabled = !shared;
-        box.Watermark = shared ? "使用系统设置中的 API Key" : "";
+        box.Watermark = shared ? "使用共享预设的 API Key" : "";
         displayed = endpoint is null ? "" : TikTokAccountAiSettings.ResolveKey(key, endpoint, defaultEndpoint, defaultKey);
         box.Text = displayed;
     }
@@ -388,7 +388,7 @@ public sealed class AccountAiEditor : UserControl
         var probe = new Button { Content = "测试 AI 文本", IsVisible = !readOnly };
         dialog.Fields.Children.Add(probe);
         if (readOnly)
-            dialog.Fields.Children.Add(new TextBlock { Text = "在系统设置 → AI 文本中编辑共享预设。" });
+            dialog.Fields.Children.Add(new TextBlock { Text = "共享预设可在云帆独立版中维护。也可新建账号预设。" });
         probe.Click += async (_, _) =>
         {
             probe.IsEnabled = false;
@@ -458,7 +458,7 @@ public sealed class AccountAiEditor : UserControl
         dialog.Add("分辨率", resolution);
         dialog.Add("比例", ratio);
         if (readOnly)
-            dialog.Fields.Children.Add(new TextBlock { Text = "在系统设置 → AI 图片中编辑共享预设。" });
+            dialog.Fields.Children.Add(new TextBlock { Text = "共享预设可在云帆独立版中维护。也可新建账号预设。" });
         dialog.Fields.Children.Add(verify);
         if (verifyMode is not null)
             dialog.Add("校验失败处理", verifyMode);

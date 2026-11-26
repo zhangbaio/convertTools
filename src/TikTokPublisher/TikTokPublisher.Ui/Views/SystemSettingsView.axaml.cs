@@ -25,8 +25,6 @@ public partial class SystemSettingsView : UserControl
                 _vm?.ProjectConcurrencySettings.RefreshVideoProcessingUsage();
         };
         DetachedFromVisualTree += (_, _) => _concurrencyUsageTimer.Stop();
-        SharedTextPresetEditor.Configure(SharedAiPresetKind.Text);
-        SharedImagePresetEditor.Configure(SharedAiPresetKind.Image);
     }
     public void BindServices(SystemServicesViewModel vm)
     {
@@ -49,9 +47,7 @@ public partial class SystemSettingsView : UserControl
             ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
         {
             var showsProjectConcurrency = selected == ProjectConcurrencyTab;
-            var showsSharedAi = selected == SharedTextPresetTab || selected == SharedImagePresetTab;
-            footer.IsVisible = !showsProjectConcurrency && (!showsSharedAi || _vm?.ShowsKuaishouPublishPrompt == true) &&
-                selected != SoftwareLicenseTab && selected != XingeSettingsTab;
+            footer.IsVisible = !showsProjectConcurrency && selected != SoftwareLicenseTab && selected != XingeSettingsTab;
             if (showsProjectConcurrency && _vm is { } vm)
             {
                 vm.ProjectConcurrencySettings.RefreshVideoProcessingUsage();
@@ -79,6 +75,11 @@ public partial class SystemSettingsView : UserControl
         }
 
         _vm = vm;
+        if (vm.ShowsKuaishouPublishPrompt && SharedTextPresetEditor.Content is null)
+        {
+            SharedTextPresetEditor.Configure(SharedAiPresetKind.Text);
+            SharedImagePresetEditor.Configure(SharedAiPresetKind.Image);
+        }
         DataContext = vm;
         vm.SettingsSaved += OnSettingsSaved;
         vm.HgnewLoginProbeSucceeded += OnHgnewLoginProbeSucceeded;
