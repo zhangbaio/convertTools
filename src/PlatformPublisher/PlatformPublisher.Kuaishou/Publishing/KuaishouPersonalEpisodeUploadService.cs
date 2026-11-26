@@ -58,21 +58,14 @@ public sealed class KuaishouPersonalEpisodeUploadService
             progress?.Report("快手分账个人版：状态记录显示视频已上传，跳过重复上传。 ");
         }
 
-        if (string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase))
-        {
-            if (config.SubmitPreCheckWaitSeconds > 0)
-                await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(config.SubmitPreCheckWaitSeconds, 0, 120)), cancellationToken);
-            if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 120_000, cancellationToken))
-                throw new InvalidOperationException("剧集上传完成，但未找到可点击的“提交审核”按钮。");
-            progress?.Report("快手分账个人版：已点击提交审核，等待确认弹窗和平台结果。");
-            await WaitForReviewSubmissionAsync(page, data.Title, progress, cancellationToken);
-            if (stageChanged is not null) await stageChanged("review_submitted");
-            progress?.Report("快手分账个人版：已提交审核。 ");
-        }
-        else
-        {
-            progress?.Report("快手分账个人版：视频上传完成，按配置保持在提交审核前。 ");
-        }
+        if (config.SubmitPreCheckWaitSeconds > 0)
+            await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(config.SubmitPreCheckWaitSeconds, 0, 120)), cancellationToken);
+        if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 120_000, cancellationToken))
+            throw new InvalidOperationException("剧集上传完成，但未找到可点击的“提交审核”按钮。");
+        progress?.Report("快手分账个人版：已点击提交审核，等待确认弹窗和平台结果。");
+        await WaitForReviewSubmissionAsync(page, data.Title, progress, cancellationToken);
+        if (stageChanged is not null) await stageChanged("review_submitted");
+        progress?.Report("快手分账个人版：已提交审核。 ");
     }
 
     public async Task ConfigureEpisodeInfoAsync(

@@ -90,19 +90,6 @@ public static class KuaishouFormChoices
         new("无头浏览器", "true"),
     ];
 
-    public static IReadOnlyList<KuaishouFormChoice> FirstPageActions { get; } =
-    [
-        new("下一步", "next"),
-        new("保存草稿", "draft"),
-        new("保持", "keep"),
-    ];
-
-    public static IReadOnlyList<KuaishouFormChoice> FinalActions { get; } =
-    [
-        new("提交审核", "submit_review"),
-        new("保持", "keep"),
-    ];
-
     public static IReadOnlyList<KuaishouFormChoice> SubmitPreWaits { get; } =
     [
         new("自动（根据集数和视频大小计算）", "-1"),

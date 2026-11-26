@@ -63,8 +63,6 @@ public static class KuaishouLegacyConfigImporter
         [nameof(KuaishouPersonalConfig.EpisodePrice)] = "kuaishou_episode_price_yuan",
         [nameof(KuaishouPersonalConfig.FreeEpisodeCount)] = "kuaishou_free_episode_count",
         [nameof(KuaishouPersonalConfig.UnlockEpisodeCount)] = "kuaishou_unlock_count",
-        [nameof(KuaishouPersonalConfig.FirstPageAction)] = "kuaishou_first_page_submit_action",
-        [nameof(KuaishouPersonalConfig.FinalAction)] = "kuaishou_final_submit_action",
         [nameof(KuaishouPersonalConfig.QueueMaxParallelProjects)] = "kuaishou_queue_max_parallel_projects",
         [nameof(KuaishouPersonalConfig.SubmitPreCheckWaitSeconds)] = "kuaishou_submit_pre_check_wait_seconds",
         [nameof(KuaishouPersonalConfig.SubmitReadyCheckIntervalSeconds)] = "kuaishou_submit_ready_check_interval_seconds",
@@ -210,8 +208,6 @@ public static class KuaishouLegacyConfigImporter
             [nameof(KuaishouPersonalConfig.PrepareAutoFillInfo)] = prefix + "prepare_auto_fill_info",
             [nameof(KuaishouPersonalConfig.PrepareForceRerunCompletedSteps)] = prefix + "prepare_force_rerun_completed_steps",
             [nameof(KuaishouPersonalConfig.StepUploadVideos)] = prefix + "step_upload_series",
-            [nameof(KuaishouPersonalConfig.FirstPageAction)] = prefix + "first_page_submit_action",
-            [nameof(KuaishouPersonalConfig.FinalAction)] = prefix + "final_submit_action",
             [nameof(KuaishouPersonalConfig.AuditRecordHeadless)] = prefix + "audit_record_headless",
             [nameof(KuaishouPersonalConfig.AuditRecordPages)] = prefix + "audit_record_pages",
         };

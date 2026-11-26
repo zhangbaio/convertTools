@@ -111,8 +111,6 @@ public sealed class KuaishouPersonalConfig
     public string SettlementFullInfoSystemPrompt { get; set; } = string.Empty;
     public string SettlementFullInfoBatchPrompt { get; set; } = string.Empty;
     public string SettlementFullInfoRetryPrompt { get; set; } = string.Empty;
-    public string FirstPageAction { get; set; } = "next";
-    public string FinalAction { get; set; } = "submit_review";
     public int UploadTimeoutMinutes { get; set; } = 60;
     public bool ForceRerun { get; set; }
     public string RunMode { get; set; } = "auto";

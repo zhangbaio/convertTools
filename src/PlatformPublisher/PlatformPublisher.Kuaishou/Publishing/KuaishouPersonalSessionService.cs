@@ -79,25 +79,19 @@ public sealed class KuaishouPersonalSessionService
         PublishJob job,
         Func<IPage, KuaishouPersonalConfig, CancellationToken, Task> action,
         CancellationToken cancellationToken,
-        IProgress<string>? progress = null,
-        bool holdUntilClosed = false)
+        IProgress<string>? progress = null)
     {
         var config = KuaishouPersonalConfig.Load(job);
         var label = job.Platform.DisplayName();
         var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
         progress?.Report($"{label}：正在打开上传浏览器。");
-        await RunBrowserAsync(config, config.RevenueShareHeadless, async (page, context, ct) =>
+        await RunBrowserAsync(config, config.RevenueShareHeadless, async (page, _, ct) =>
         {
             await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.WaitForTimeoutAsync(1200);
             if (!await IsLoggedInAsync(page))
                 throw new InvalidOperationException($"{label}登录态无效，请先扫码登录。");
             await action(page, config, ct);
-            if (holdUntilClosed)
-            {
-                while (!ct.IsCancellationRequested && context.Pages.Count > 0)
-                    await Task.Delay(500, ct);
-            }
         }, cancellationToken);
     }
 

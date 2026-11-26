@@ -52,8 +52,7 @@ public sealed class KuaishouApiUploadService
         {
             progress?.Report($"{label}：这部已绑定短剧 {state.MiniSeriesId.Trim()}，继续替换，不新建。");
         }
-        if (state.Status == "completed" &&
-            (!string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase) || state.ReviewSubmitted))
+        if (state.Status == "completed" && state.ReviewSubmitted)
         {
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
@@ -130,18 +129,6 @@ public sealed class KuaishouApiUploadService
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
             }
 
-            var firstPageAction = (config.FirstPageAction ?? "next").Trim().ToLowerInvariant();
-            if (!replacing && firstPageAction is "draft" or "keep")
-            {
-                state.Status = firstPageAction == "keep" ? "manual_hold" : "draft_saved";
-                state.CurrentStage = state.Status;
-                await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
-                progress?.Report(firstPageAction == "keep"
-                    ? $"{label}：第一页已按配置保持。"
-                    : $"{label}：第一页草稿已通过接口保存。");
-                return;
-            }
-
             if (replacing && state.VideosUploaded)
             {
                 progress?.Report($"{label}：短剧 {seriesId} 的视频已经替换，继续后续步骤。");
@@ -160,18 +147,11 @@ public sealed class KuaishouApiUploadService
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
             }
 
-            if (string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase))
-            {
-                progress?.Report($"{label}：正在提交快手审核。");
-                await SubmitDespiteDailyCapAsync(session, seriesId, label, progress, cancellationToken);
-                state.ReviewSubmitted = true;
-                state.CurrentStage = "review_submitted";
-                progress?.Report($"{label}：已提交审核。 ");
-            }
-            else
-            {
-                progress?.Report($"{label}：视频上传完成，按配置保持在提交审核前。 ");
-            }
+            progress?.Report($"{label}：正在提交快手审核。");
+            await SubmitDespiteDailyCapAsync(session, seriesId, label, progress, cancellationToken);
+            state.ReviewSubmitted = true;
+            state.CurrentStage = "review_submitted";
+            progress?.Report($"{label}：已提交审核。 ");
 
             state.Status = "completed";
             await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);

@@ -169,7 +169,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             KuaishouUploadTransport.Api);
         FillChoice(RevenueShareBrowserModeBox, KuaishouFormChoices.BrowserModes, _config.RevenueShareHeadless ? "true" : "false", "false");
         KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
-        LoadSubmissionTargets(GetSubmissionTarget());
+        UpdateSubmissionOptions();
 
         LoadContentPolicy();
     }
@@ -369,7 +369,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.RevenueShareHeadless = ChoiceValue(RevenueShareBrowserModeBox, "false") == "true";
         _config.Headless = _config.RevenueShareHeadless;
         _config.KeepBrowserOpenOnFailure = KeepBrowserBox.IsChecked == true;
-        ApplySubmissionTarget();
 
         _config.DramaTitlePolicyJson = KuaishouContentPolicyText.BuildTitlePolicy(
             TitlePolicyBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.TitlePolicyJson);
@@ -394,74 +393,18 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             row.Columns = columns;
     }
 
-    private void UploadTransportBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (SubmissionTargetBox is not null)
-            LoadSubmissionTargets(ChoiceValue(SubmissionTargetBox, GetSubmissionTarget()));
-    }
-
-    private void SubmissionTargetBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+    private void UploadTransportBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
         UpdateSubmissionOptions();
-
-    private bool UsesPageUpload() =>
-        ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api) == KuaishouUploadTransport.Playwright;
-
-    private string GetSubmissionTarget()
-    {
-        var firstPage = _config.FirstPageAction?.Trim().ToLowerInvariant();
-        if (firstPage is "draft" or "keep")
-            return firstPage;
-
-        return string.Equals(_config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase)
-            ? "submit_review"
-            : "videos_uploaded";
-    }
-
-    private void LoadSubmissionTargets(string selected)
-    {
-        var pageUpload = UsesPageUpload();
-        var choices = new List<KuaishouFormChoice>
-        {
-            new("保存草稿", "draft"),
-            new("上传视频后停止", "videos_uploaded"),
-            new("提交审核", "submit_review"),
-        };
-        if (pageUpload || selected == "keep")
-            choices.Insert(1, new KuaishouFormChoice(
-                pageUpload ? "停在第一页并保留浏览器" : "保存草稿并标记待人工处理",
-                "keep"));
-
-        FillChoice(SubmissionTargetBox, choices, selected, "submit_review");
-        UpdateSubmissionOptions();
-    }
 
     private void UpdateSubmissionOptions()
     {
         if (PageUploadOptions is null || LegacyOnlineOptions is null || SubmitPreCheckOptions is null)
             return;
 
-        var pageUpload = UsesPageUpload();
+        var pageUpload = ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api) == KuaishouUploadTransport.Playwright;
         PageUploadOptions.IsVisible = pageUpload;
         LegacyOnlineOptions.IsVisible = pageUpload;
-        SubmitPreCheckOptions.IsVisible =
-            pageUpload && ChoiceValue(SubmissionTargetBox, "submit_review") == "submit_review";
-    }
-
-    private void ApplySubmissionTarget()
-    {
-        var current = GetSubmissionTarget();
-        var selected = ChoiceValue(SubmissionTargetBox, current);
-        if (selected == current)
-            return;
-
-        if (selected is "draft" or "keep")
-        {
-            _config.FirstPageAction = selected;
-            return;
-        }
-
-        _config.FirstPageAction = "next";
-        _config.FinalAction = selected == "submit_review" ? "submit_review" : "keep";
+        SubmitPreCheckOptions.IsVisible = pageUpload;
     }
 
     private void UpdateSaleTypeRows()

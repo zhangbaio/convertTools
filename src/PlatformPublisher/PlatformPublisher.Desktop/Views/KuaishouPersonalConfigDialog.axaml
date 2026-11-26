@@ -54,7 +54,7 @@
                                 </StackPanel>
                                 <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="任务执行到" />
-                                    <ComboBox x:Name="SubmissionTargetBox" Classes="configurationInput" AutomationProperties.Name="任务执行到" SelectionChanged="SubmissionTargetBox_SelectionChanged" />
+                                    <TextBlock Text="提交审核" AutomationProperties.Name="任务执行到：提交审核" Margin="0,6,0,0" />
                                 </StackPanel>
                             </UniformGrid>
                             <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">

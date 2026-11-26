@@ -2969,9 +2969,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (trackedJob is null || trackedRow is null)
             throw new InvalidOperationException("上传剧集需要先把项目加入队列。");
 
-        var uploadAlreadyDone = !request.Force
-            && trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
+        var uploadStepSucceeded = trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
             && existingUpload.Status == PublishJobStepStatus.Succeeded;
+        var rerunUploadStep = request.Force ||
+            uploadStepSucceeded && WasKuaishouUploadStoppedBeforeReview(projectDirectory, request.Platform);
+        var uploadAlreadyDone = uploadStepSucceeded && !rerunUploadStep;
 
         IDisposable? machineUploadLease = null;
         var announcedUploadWait = false;
@@ -3012,7 +3014,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", request.Force, async () =>
+            await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", rerunUploadStep, async () =>
             {
                 var adapter = _coordinator.GetAdapter(trackedJob.Platform);
                 if (!adapter.IsAvailable)
@@ -3102,6 +3104,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)
     {
+        if (WasKuaishouUploadStoppedBeforeReview(projectDirectory, request.Platform))
+            return false;
         var stepSucceeded = job.StepStates.TryGetValue("weixin-upload", out var state)
             && state.Status == PublishJobStepStatus.Succeeded;
         string? artifactStatus = null;
@@ -3119,6 +3123,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
             artifactStatus = null;
         }
         return KuaishouAutoArchivePolicy.UploadCompleted(stepSucceeded, artifactStatus);
+    }
+
+    private static bool WasKuaishouUploadStoppedBeforeReview(string projectDirectory, PublishPlatform platform)
+    {
+        if (!Directory.Exists(projectDirectory))
+            return false;
+        var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+        return new KuaishouPersonalUploadStateStore().Load(workflow, platform).WasStoppedBeforeReview();
     }
 
     private async Task TryAutoArchiveKuaishouProjectAsync(PublishJob job, CancellationToken cancellationToken)

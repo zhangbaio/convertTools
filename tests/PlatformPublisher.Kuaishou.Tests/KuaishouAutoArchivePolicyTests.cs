@@ -6,6 +6,32 @@ namespace PlatformPublisher.Kuaishou.Tests;
 public sealed class KuaishouAutoArchivePolicyTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Old_account_settings_cannot_stop_the_upload_before_review(bool enterprise)
+    {
+        var config = System.Text.Json.JsonSerializer.Deserialize<KuaishouPersonalConfig>(
+            """{"FirstPageAction":"draft","FinalAction":"keep"}""")!;
+        var overlay = KuaishouPersonalFormResolver.SettingsOverlay(config, enterprise);
+        Assert.Equal("next", overlay["kuaishou_first_page_submit_action"]);
+        Assert.Equal("submit_review", overlay["kuaishou_final_submit_action"]);
+        Assert.DoesNotContain("FinalAction", System.Text.Json.JsonSerializer.Serialize(config));
+    }
+
+    [Theory]
+    [InlineData("draft_saved", "draft_saved", false, true)]
+    [InlineData("manual_hold", "manual_hold", false, true)]
+    [InlineData("completed", "videos_uploaded", false, true)]
+    [InlineData("completed", "review_submitted", true, false)]
+    [InlineData("success", "completed", false, false)]
+    public void Distinguishes_old_stopping_points_from_completed_uploads(
+        string status, string stage, bool submitted, bool expected)
+    {
+        var state = new KuaishouPersonalUploadState { Status = status, CurrentStage = stage, ReviewSubmitted = submitted };
+        Assert.Equal(expected, state.WasStoppedBeforeReview());
+    }
+
+    [Theory]
     [InlineData(false, true, false)]
     [InlineData(true, false, false)]
     [InlineData(true, true, true)]

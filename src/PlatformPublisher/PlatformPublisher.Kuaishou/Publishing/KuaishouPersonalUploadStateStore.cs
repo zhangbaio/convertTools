@@ -15,6 +15,10 @@ public sealed class KuaishouPersonalUploadState
     public bool EpisodeInfoCompleted { get; set; }
     public bool VideosUploaded { get; set; }
     public bool ReviewSubmitted { get; set; }
+
+    public bool WasStoppedBeforeReview() => !ReviewSubmitted &&
+        (Status is "draft_saved" or "manual_hold" or "final_hold" ||
+         Status is "completed" or "success" && CurrentStage is "videos_uploaded" or "final_hold");
     public string VideoBatchIdentity { get; set; } = string.Empty;
     public int VideoBatchEpisodeCount { get; set; }
 

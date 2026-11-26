@@ -70,8 +70,7 @@ public sealed class KuaishouPersonalUploadService
             state = new KuaishouPersonalUploadState();
             progress?.Report($"{label}：已按配置忽略旧状态并从头执行。 ");
         }
-        if (state.Status == "completed" &&
-            (!string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase) || state.ReviewSubmitted))
+        if (state.Status == "completed" && state.ReviewSubmitted)
         {
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
@@ -119,25 +118,6 @@ public sealed class KuaishouPersonalUploadService
                     await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                 }
 
-                var firstPageAction = (effectiveConfig.FirstPageAction ?? "next").Trim().ToLowerInvariant();
-                if (firstPageAction is "draft" or "keep")
-                {
-                    if (!string.IsNullOrWhiteSpace(state.MiniSeriesId))
-                        await page.GotoAsync(BuildEditUrl(state.MiniSeriesId, 0), new PageGotoOptions
-                        {
-                            WaitUntil = WaitUntilState.DOMContentLoaded,
-                            Timeout = 60_000,
-                        });
-                    CaptureMiniSeriesId(page, state);
-                    state.Status = firstPageAction == "keep" ? "manual_hold" : "draft_saved";
-                    state.CurrentStage = state.Status;
-                    await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
-                    progress?.Report(firstPageAction == "keep"
-                        ? $"{label}：第一页已按配置保持，关闭浏览器后结束。"
-                        : $"{label}：第一页草稿已保存。");
-                    return;
-                }
-
                 state.CurrentStage = state.VideosUploaded && state.ReviewSubmitted ? "final_action" : "episode_upload";
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                 if (!resume && !string.IsNullOrWhiteSpace(state.MiniSeriesId))
@@ -170,7 +150,7 @@ public sealed class KuaishouPersonalUploadService
                     else if (effectiveConfig.AutoOnlineEnabled || effectiveConfig.StepOnlineSeries)
                         progress?.Report($"{label}：未取得短剧 ID，无法加入自动上架队列，请在视频管理中补录。 ");
                 }
-            }, cancellationToken, progress, holdUntilClosed: string.Equals(config.FirstPageAction, "keep", StringComparison.OrdinalIgnoreCase));
+            }, cancellationToken, progress);
         }
         catch (KuaishouExistingSeriesNotEditableException ex)
         {
