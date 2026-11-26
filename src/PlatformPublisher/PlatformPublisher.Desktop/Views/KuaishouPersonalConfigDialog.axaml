@@ -168,10 +168,6 @@
                                     <ComboBox x:Name="GenderBox" Classes="configurationInput" AutomationProperties.Name="性别" />
                                 </StackPanel>
                             </UniformGrid>
-                            <StackPanel Spacing="5">
-                                <TextBlock Classes="configurationLabel" Text="演员库" />
-                                <TextBox x:Name="ActorLibraryBox" Classes="configurationInput" AutomationProperties.Name="演员库" AcceptsReturn="True" MinHeight="108" TextWrapping="Wrap" Watermark="格式：姓名|性别|角色1,角色2&#10;例如：沈清秋|女|许初夏,林晚意" />
-                            </StackPanel>
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
                             <TextBlock Classes="configurationHeading" Text="承诺函与工程图" />

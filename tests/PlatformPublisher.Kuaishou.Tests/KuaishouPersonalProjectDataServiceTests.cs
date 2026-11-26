@@ -104,18 +104,24 @@ public sealed class KuaishouPersonalProjectDataServiceTests
         Assert.Equal("沈染", actors[1].Role);
     }
 
-    [Fact]
-    public void Upload_actors_match_library_to_story_characters_when_project_has_no_names()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Upload_uses_system_actor_library_even_when_legacy_account_config_contains_an_override(bool enterprise)
     {
-        var actors = KuaishouPersonalFormResolver.ResolveUploadActors(null, new KuaishouPersonalConfig
-        {
-            ActorLibraryText = "顾承宇|男|陆沉\n江念初|女|林晚乔",
-        });
+        const string legacy = """{"ActorLibraryText":"旧账号演员|男|旧角色"}""";
+        var config = System.Text.Json.JsonSerializer.Deserialize<KuaishouPersonalConfig>(legacy)!;
+        var actors = KuaishouPersonalFormResolver.ResolveUploadActors(null, config, enterprise);
 
         Assert.Equal("顾承宇", actors[0].Name);
         Assert.Equal("男", actors[0].Gender);
-        Assert.Equal("江念初", actors[1].Name);
+        Assert.Equal("苏晚晴", actors[1].Name);
         Assert.Equal("女", actors[1].Gender);
+        var library = Assert.IsType<string>(
+            KuaishouPersonalFormResolver.SettingsOverlay(config, enterprise)["kuaishou_actor_library_text"]);
+        Assert.Contains("顾承宇|男|陆沉", library);
+        Assert.DoesNotContain("旧账号演员", library);
+        Assert.DoesNotContain("ActorLibraryText", System.Text.Json.JsonSerializer.Serialize(config));
     }
 
     private static string Json(string value) => System.Text.Json.JsonSerializer.Serialize(value);

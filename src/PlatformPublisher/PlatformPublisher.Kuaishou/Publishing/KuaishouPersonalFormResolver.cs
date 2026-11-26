@@ -229,7 +229,7 @@ public static class KuaishouPersonalFormResolver
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var actor in ResolveActors(config.ActorInfoJson).Where(actor => !IsPlaceholderName(actor.Name)))
             AddActor(pool, seen, actor);
-        foreach (var actor in ParseActorLibrary(config.ActorLibraryText))
+        foreach (var actor in ParseActorLibrary(KuaishouPersonalConfig.DefaultActorLibraryText))
             AddActor(pool, seen, actor);
 
         var selected = new List<KuaishouPersonalActor>();
@@ -314,7 +314,7 @@ public static class KuaishouPersonalFormResolver
             ["kuaishou_broadcast_time_mode"] = string.IsNullOrWhiteSpace(config.BroadcastTimeMode) ? "today" : config.BroadcastTimeMode,
             ["kuaishou_plot_list"] = config.PlotLabels,
             ["kuaishou_actor_info_json"] = config.ActorInfoJson,
-            ["kuaishou_actor_library_text"] = config.ActorLibraryText,
+            ["kuaishou_actor_library_text"] = KuaishouPersonalConfig.DefaultActorLibraryText,
             ["kuaishou_director_info_json"] = config.DirectorInfoJson,
             ["kuaishou_screenwriter_info_json"] = config.ScreenwriterInfoJson,
             ["kuaishou_project_image_template_id"] = config.UploadProjectImageTemplateId,

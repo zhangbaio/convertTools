@@ -134,7 +134,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         FillChoice(BroadcastTimeModeBox, KuaishouFormChoices.BroadcastTimeModes, fixedDate ? "fixed" : "today", "today");
         BroadcastDateBox.Text = fixedDate ? broadcastMode : _config.BroadcastDate;
         BroadcastDateField.IsVisible = fixedDate;
-        ActorLibraryBox.Text = _config.ActorLibraryText;
 
         QueueParallelBox.Text = _config.QueueMaxParallelProjects.ToString();
         SeriesBaseInfoPathBox.Text = _config.SeriesBaseInfoPath;
@@ -338,7 +337,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             : "today";
         if (timeMode == "fixed" && !string.IsNullOrWhiteSpace(BroadcastDateBox.Text))
             _config.BroadcastDate = BroadcastDateBox.Text.Trim();
-        _config.ActorLibraryText = ActorLibraryBox.Text ?? string.Empty;
 
         _config.QueueMaxParallelProjects = Math.Clamp(Positive(QueueParallelBox.Text, 1), 1, 5);
         _config.SeriesBaseInfoPath = SeriesBaseInfoPathBox.Text?.Trim() ?? string.Empty;

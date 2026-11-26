@@ -71,7 +71,7 @@ public sealed class KuaishouPersonalConfig
     public string SeriesPrice { get; set; } = "1";
     public string Actors { get; set; } = "演员A:男:男主;演员B:女:女主";
     [JsonIgnore] public string ActorInfoJson => """[{"name":"","gender":"男","role":""},{"name":"","gender":"女","role":""}]""";
-    public string ActorLibraryText { get; set; } =
+    internal const string DefaultActorLibraryText =
         "顾承宇|男|陆沉,顾言,沈砚\n陆景深|男|周临川,霍景川,程砚\n沈墨川|男|林修远,裴知珩,韩屿\n周叙白|男|陆执,顾廷川,谢临舟\n林砚舟|男|傅景川,商砚,纪承安\n苏晚晴|女|苏念,温晚,顾安宁\n沈清禾|女|许初夏,林清禾,宋雨桐\n温知意|女|江念初,沈知微,陆星晚\n宋雨桐|女|苏清妍,顾星辞,许念安\n江念初|女|林晚乔,温予柔,沈听雪";
     public string Directors { get; set; } = string.Empty;
     public string DirectorInfoJson { get; set; } = "[{\"name\":\"\",\"gender\":\"男\"}]";

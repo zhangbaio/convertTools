@@ -46,7 +46,6 @@ public static class KuaishouLegacyConfigImporter
         [nameof(KuaishouPersonalConfig.AverageEpisodeMinutes)] = "kuaishou_episode_average_duration_minutes",
         [nameof(KuaishouPersonalConfig.BroadcastPlatform)] = "kuaishou_broadcast_platform",
         [nameof(KuaishouPersonalConfig.BroadcastChannel)] = "kuaishou_broadcast_channel",
-        [nameof(KuaishouPersonalConfig.ActorLibraryText)] = "kuaishou_actor_library_text",
         [nameof(KuaishouPersonalConfig.DirectorInfoJson)] = "kuaishou_director_info_json",
         [nameof(KuaishouPersonalConfig.ScreenwriterInfoJson)] = "kuaishou_screenwriter_info_json",
         [nameof(KuaishouPersonalConfig.ProductionOrganization)] = "kuaishou_production_org",
