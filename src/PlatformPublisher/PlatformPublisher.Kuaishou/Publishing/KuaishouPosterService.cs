@@ -7,12 +7,12 @@ using ShortDrama.Infrastructure.Parsing;
 using ShortDrama.Infrastructure.Process;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed record KuaishouPosterSettings(
-    string PosterMode,
     bool EraseMode,
     string VerticalPrompt,
     string VerticalSafeRetryPrompt,
@@ -23,7 +23,6 @@ public sealed record KuaishouPosterSettings(
     string ImageModelApiKey,
     string ImageModelEndpoint,
     string ImageEditPath,
-    string ImageSize,
     string ImageQuality,
     string HorizontalRequestSize,
     string ChatEndpoint,
@@ -37,8 +36,10 @@ public sealed record KuaishouPosterSettings(
 /// <summary>
 /// 用现有海报步骤生成快手竖屏海报，再把成品或无文字底图扩成 1600×1000 横屏封面。
 /// </summary>
-public sealed class KuaishouPosterService
+public sealed class KuaishouPosterService(HttpClient? imageClient = null)
 {
+    public const int VerticalWidth = 1200;
+    public const int VerticalHeight = 1600;
     public const int HorizontalWidth = 1600;
     public const int HorizontalHeight = 1000;
     public const string VerticalPosterFileName = "快手竖屏海报.jpg";
@@ -55,9 +56,10 @@ public sealed class KuaishouPosterService
             string.IsNullOrWhiteSpace(settings.ImageModelApiKey) ||
             string.IsNullOrWhiteSpace(settings.ImageModelId))
             throw new InvalidOperationException("请在快手发布配置的 AI 图片中填写模型和 API Key，或使用本机默认。");
-        if (string.IsNullOrWhiteSpace(settings.ChatEndpoint) ||
-            string.IsNullOrWhiteSpace(settings.ChatApiKey) ||
-            string.IsNullOrWhiteSpace(settings.ChatModel))
+        if (!settings.EraseMode && settings.TitleVerifyEnabled &&
+            (string.IsNullOrWhiteSpace(settings.ChatEndpoint) ||
+             string.IsNullOrWhiteSpace(settings.ChatApiKey) ||
+             string.IsNullOrWhiteSpace(settings.ChatModel)))
             throw new InvalidOperationException("生成海报需要快手发布配置中的 AI 文本模型和 API Key，用于定位标题。");
 
         var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
@@ -71,89 +73,145 @@ public sealed class KuaishouPosterService
                 File.Copy(sourceInfo, infoPath, overwrite: false);
         }
 
-        var portraitPng = Path.Combine(directories.WorkflowDirectory, "海报图片.png");
-        var verticalJpeg = Path.Combine(directories.WorkflowDirectory, VerticalPosterFileName);
-        var horizontalJpeg = Path.Combine(directories.WorkflowDirectory, HorizontalCoverFileName);
-        var erasedPng = Path.Combine(directories.WorkflowDirectory, ErasedPosterFileName);
-        var input = source;
-        string? sourceCopy = null;
+        var title = ReadTitle(directories.WorkflowDirectory);
+        var pending = Directory.CreateDirectory(Path.Combine(
+            directories.WorkflowDirectory, $".kuaishou-poster-{Guid.NewGuid():N}")).FullName;
         try
         {
-            if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(portraitPng), StringComparison.OrdinalIgnoreCase))
+            using var defaultClient = imageClient is null ? DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5)) : null;
+            var renamer = new PosterRenamer(new TxtProjectInfoParser(), new ExternalProcessRunner(),
+                imageClient ?? defaultClient!, NullLogger<PosterRenamer>.Instance, BuildConfig(settings));
+            void Log(string message) => progress?.Report(message);
+
+            Log("开始重新设计 3:4 竖屏海报。");
+            var portraitBytes = await renamer.EditFullPosterAsync(source,
+                ComposePrompt(settings.VerticalPrompt, title, horizontal: false, settings.EraseMode),
+                ComposePrompt(settings.VerticalSafeRetryPrompt, title, horizontal: false, settings.EraseMode),
+                VerticalRequestSize(settings.ImageProvider), Log, cancellationToken);
+            var artworkPath = Path.Combine(pending, settings.EraseMode ? ErasedPosterFileName : "海报图片.png");
+            using (var image = Image.Load<Rgba32>(portraitBytes))
             {
-                sourceCopy = Path.Combine(directories.WorkflowDirectory, $".poster-source-{Guid.NewGuid():N}{Path.GetExtension(source)}");
-                File.Copy(source, sourceCopy, overwrite: true);
-                input = sourceCopy;
+                if (image.Width >= image.Height)
+                    throw new InvalidOperationException("模型未返回竖屏海报，请重试生成海报。");
+                FitPortrait(image);
+                await image.SaveAsPngAsync(artworkPath, cancellationToken);
             }
 
-            progress?.Report(settings.EraseMode
-                ? "开始清除竖屏海报文字，并用固定字体写入新剧名。"
-                : "开始重新设计竖屏海报。");
-            using var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
-            var renamer = new PosterRenamer(
-                new TxtProjectInfoParser(),
-                new ExternalProcessRunner(),
-                http,
-                NullLogger<PosterRenamer>.Instance,
-                BuildConfig(settings));
-            await renamer.RenameAsync(
-                new PosterRenameRequest(
-                    directories.WorkflowDirectory,
-                    InputFilePath: input,
-                    OutputFilePath: portraitPng,
-                    Overwrite: true,
-                    Log: message => progress?.Report(message)),
-                cancellationToken);
-            await SaveJpegCopyAsync(portraitPng, verticalJpeg, cancellationToken);
-            progress?.Report($"已生成{VerticalPosterFileName}。");
-
-            var landscapeInput = settings.EraseMode ? erasedPng : portraitPng;
-            if (settings.EraseMode && !File.Exists(erasedPng))
-                throw new InvalidOperationException("去字模式没有生成无文字底图，不能据此扩展横屏封面。");
-            var title = ReadTitle(directories.WorkflowDirectory);
-
-            try
+            if (!settings.EraseMode && settings.TitleVerifyEnabled)
             {
-                progress?.Report(settings.EraseMode
-                    ? "开始把无文字底图扩展为 16:10 横屏封面。"
-                    : "开始把竖屏海报扩展为 16:10 横屏封面。");
-                await renamer.GenerateSizedCoverAsync(
-                    configFile: "",
-                    landscapeInput,
-                    horizontalJpeg,
-                    title,
-                    ApplyTitle(settings.HorizontalPrompt, title, requireTitle: !settings.EraseMode),
-                    ApplyTitle(settings.HorizontalSafeRetryPrompt, title, requireTitle: !settings.EraseMode),
-                    HorizontalWidth,
-                    HorizontalHeight,
-                    settings.HorizontalRequestSize,
-                    drawTitleWithProgram: settings.EraseMode,
-                    verifyTitle: !settings.EraseMode && settings.TitleVerifyEnabled,
-                    message => progress?.Report(message),
-                    cancellationToken);
+                await renamer.VerifyPosterTitleAsync(artworkPath, title, Log, cancellationToken);
+                await EnsurePortraitSizeAsync(artworkPath, cancellationToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                progress?.Report($"快手横屏封面 AI 生成失败，改为居中裁成 {HorizontalWidth}×{HorizontalHeight}：{ex.Message}");
-                await CropLandscapeAsync(landscapeInput, horizontalJpeg, cancellationToken);
-                if (settings.EraseMode)
-                {
-                    PosterRenamer.DrawLowerTitle(horizontalJpeg, horizontalJpeg, title);
-                    progress?.Report("已在裁剪后的横屏封面上写入固定标题。");
-                }
-            }
+
+            var portraitPng = Path.Combine(pending, "海报图片.png");
+            if (settings.EraseMode)
+                PosterRenamer.DrawLowerTitle(artworkPath, portraitPng, title);
+            await SaveJpegCopyAsync(portraitPng, Path.Combine(pending, VerticalPosterFileName), cancellationToken);
+
+            Log("开始扩展 16:10 横屏背景并回贴完整竖屏画面。");
+            var horizontalPath = Path.Combine(pending, HorizontalCoverFileName);
+            await GenerateLandscapeAsync(renamer, artworkPath, horizontalPath, pending, title, settings, Log, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var files = new List<string> { "海报图片.png", VerticalPosterFileName, HorizontalCoverFileName };
+            if (settings.EraseMode) files.Add(ErasedPosterFileName);
+            foreach (var name in files)
+                File.Move(Path.Combine(pending, name), Path.Combine(directories.WorkflowDirectory, name), overwrite: true);
+            Log("已生成快手 3:4 竖屏海报与 1600×1000 横屏封面。");
         }
         finally
         {
-            if (sourceCopy is not null)
-                TryDelete(sourceCopy);
+            try { Directory.Delete(pending, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         }
     }
 
-    public static string HorizontalRequestSize(string? provider)
+    private static async Task GenerateLandscapeAsync(
+        PosterRenamer renamer, string portraitPath, string outputPath, string pending, string title,
+        KuaishouPosterSettings settings, Action<string> log, CancellationToken cancellationToken)
     {
-        var normalized = (provider ?? "").Trim().ToLowerInvariant();
-        return normalized is "ofox_image2" or "openai_image2" ? "1536x1024" : "2816x1584";
+        // 竖屏图已经归一为 3:4，横屏画布内只做等比缩放。
+        var width = HorizontalHeight * VerticalWidth / VerticalHeight;
+        var offset = new Point((HorizontalWidth - width) / 2, 0);
+        using var portrait = await Image.LoadAsync<Rgba32>(portraitPath, cancellationToken);
+        portrait.Mutate(context => context.Resize(width, HorizontalHeight));
+        var seedPath = Path.Combine(pending, "扩图画布.png");
+        using (var seed = new Image<Rgba32>(HorizontalWidth, HorizontalHeight, new Rgba32(128, 128, 128)))
+        {
+            seed.Mutate(context => context.DrawImage(portrait, offset, 1f));
+            await seed.SaveAsPngAsync(seedPath, cancellationToken);
+        }
+
+        try
+        {
+            var bytes = await renamer.EditFullPosterAsync(seedPath,
+                ComposePrompt(settings.HorizontalPrompt, title, horizontal: true, settings.EraseMode),
+                ComposePrompt(settings.HorizontalSafeRetryPrompt, title, horizontal: true, settings.EraseMode),
+                settings.HorizontalRequestSize, log, cancellationToken);
+            using var expanded = Image.Load<Rgba32>(bytes);
+            if (expanded.Width <= expanded.Height)
+                throw new InvalidOperationException("模型未返回横屏背景。");
+
+            // 供应商请求尺寸可能与快手画布不同，只调整扩图背景。
+            expanded.Mutate(context => context.Resize(HorizontalWidth, HorizontalHeight)
+                .DrawImage(portrait, offset, 1f));
+            if (settings.EraseMode)
+            {
+                var expandedBase = Path.Combine(pending, "横屏无字底图.png");
+                await expanded.SaveAsPngAsync(expandedBase, cancellationToken);
+                PosterRenamer.DrawLowerTitle(expandedBase, outputPath, title);
+            }
+            else
+            {
+                await expanded.SaveAsJpegAsync(outputPath, new JpegEncoder { Quality = 95 }, cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException($"快手横屏扩图未完成，请重试生成海报。{ex.Message}", ex);
+        }
+    }
+
+    private static void FitPortrait(Image image)
+    {
+        if (image.Width != VerticalWidth || image.Height != VerticalHeight)
+            image.Mutate(context => context.Resize(new ResizeOptions
+            {
+                Size = new Size(VerticalWidth, VerticalHeight),
+                Mode = ResizeMode.Crop,
+                Position = AnchorPositionMode.Center,
+            }));
+    }
+
+    private static async Task EnsurePortraitSizeAsync(string path, CancellationToken cancellationToken)
+    {
+        using var image = await Image.LoadAsync(path, cancellationToken);
+        if (image.Width == VerticalWidth && image.Height == VerticalHeight)
+            return;
+        FitPortrait(image);
+        await image.SaveAsPngAsync(path, cancellationToken);
+    }
+
+    private static bool UsesOpenAiSizes(string? provider) =>
+        (provider ?? "").Trim().ToLowerInvariant() is "ofox_image2" or "openai_image2";
+
+    public static string VerticalRequestSize(string? provider) =>
+        UsesOpenAiSizes(provider) ? "1024x1536" : "1776x2368";
+
+    public static string HorizontalRequestSize(string? provider) =>
+        UsesOpenAiSizes(provider) ? "1536x1024" : "2560x1600";
+
+    public static string ComposePrompt(string prompt, string title, bool horizontal, bool eraseMode)
+    {
+        var includesTitle = prompt.Contains("{title}", StringComparison.Ordinal);
+        var text = prompt.Trim().Replace("{title}", eraseMode ? "" : title, StringComparison.Ordinal);
+        if (horizontal)
+            return text + "\n\n输入画布中央是需要完整保留的竖屏画面，只补全两侧的灰色背景占位区域。" +
+                (eraseMode ? "输出不得出现文字。" : "不要在扩图区域添加文字。");
+        if (eraseMode)
+            return text + "\n\n输出一张 3:4 无字底图，底部预留标题区。";
+        return text + "\n\n输出一张 3:4 竖屏海报。" +
+            (includesTitle ? "" : $"只写一次新剧名「{title}」。");
     }
 
     public static bool HasSourcePoster(string sourceDirectory, string workflowDirectory)
@@ -171,7 +229,18 @@ public sealed class KuaishouPosterService
 
     public static string FindSourcePoster(string sourceDirectory, string workflowDirectory)
     {
-        foreach (var directory in DistinctDirectories(sourceDirectory, workflowDirectory))
+        var directories = DistinctDirectories(sourceDirectory, workflowDirectory).ToArray();
+        foreach (var directory in directories)
+        {
+            foreach (var name in new[] { "海报原图.png", "海报原图.jpg", "海报原图.jpeg", "海报原图.webp" })
+            {
+                var path = Path.Combine(directory, name);
+                if (File.Exists(path))
+                    return path;
+            }
+        }
+
+        foreach (var directory in directories)
         {
             foreach (var name in new[] { "海报图片.png", "海报图片.jpg", "海报图片.jpeg", "海报图片.webp" })
             {
@@ -181,7 +250,7 @@ public sealed class KuaishouPosterService
             }
         }
 
-        foreach (var directory in DistinctDirectories(sourceDirectory, workflowDirectory))
+        foreach (var directory in directories)
         {
             var candidate = Directory.EnumerateFiles(directory)
                 .Where(IsUsableSourceImage)
@@ -196,19 +265,6 @@ public sealed class KuaishouPosterService
             "海报会在下载剧集的最后一步下载，请先确认下载剧集已完成。");
     }
 
-    public static async Task CropLandscapeAsync(string sourcePath, string targetPath, CancellationToken cancellationToken)
-    {
-        using var image = await Image.LoadAsync(sourcePath, cancellationToken);
-        image.Mutate(context => context.Resize(new ResizeOptions
-        {
-            Size = new Size(HorizontalWidth, HorizontalHeight),
-            Mode = ResizeMode.Crop,
-            Position = AnchorPositionMode.Center,
-        }));
-        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-        await image.SaveAsJpegAsync(targetPath, new JpegEncoder { Quality = 92 }, cancellationToken);
-    }
-
     private static async Task SaveJpegCopyAsync(string sourcePath, string targetPath, CancellationToken cancellationToken)
     {
         using var image = await Image.LoadAsync(sourcePath, cancellationToken);
@@ -220,7 +276,6 @@ public sealed class KuaishouPosterService
     {
         return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["PosterMode"] = settings.EraseMode ? "erase_fixed_lower_title" : "original",
             ["ImageProvider"] = settings.ImageProvider,
             ["ImageModelId"] = settings.ImageModelId,
             ["ImageModelApiKey"] = settings.ImageModelApiKey,
@@ -229,30 +284,16 @@ public sealed class KuaishouPosterService
             ["ImageEditApiKey"] = settings.ImageModelApiKey,
             ["ImageEditEndpoint"] = settings.ImageModelEndpoint,
             ["ImageEditPath"] = settings.ImageEditPath,
-            ["ImageSize"] = settings.ImageSize,
             ["ImageQuality"] = settings.ImageQuality,
             ["ChatModelEndpoint"] = settings.ChatEndpoint,
             ["ChatModelApiKey"] = settings.ChatApiKey,
             ["ChatModelId"] = settings.ChatModel,
-            ["PosterGenerationPrompt"] = settings.VerticalPrompt,
-            ["PosterInpaintPrompt"] = settings.VerticalPrompt,
-            ["PosterGenerationSafeRetryPrompt"] = settings.VerticalSafeRetryPrompt,
-            ["PosterInpaintSafeRetryPrompt"] = settings.VerticalSafeRetryPrompt,
-            ["PosterAllTextErasePrompt"] = settings.VerticalPrompt.Replace("{title}", "", StringComparison.Ordinal),
             ["PosterLayoutDetectPrompt"] = settings.LayoutDetectPrompt,
             ["PosterLayoutRequestMode"] = "standard",
             ["PosterTitleVerifyEnabled"] = settings.TitleVerifyEnabled ? "true" : "false",
             ["PosterTitleVerifyMode"] = settings.TitleVerifyMode,
             ["PosterTitleVerifyAiRetryCount"] = settings.TitleVerifyAiRetryCount.ToString(CultureInfo.InvariantCulture),
         };
-    }
-
-    private static string ApplyTitle(string prompt, string title, bool requireTitle)
-    {
-        var text = (prompt ?? "").Replace("{title}", title, StringComparison.Ordinal);
-        if (requireTitle && !text.Contains(title, StringComparison.Ordinal))
-            text = $"{text.TrimEnd()}\n只写一次海报标题：{title}";
-        return text;
     }
 
     private static string ReadTitle(string workflowDirectory)
@@ -304,15 +345,4 @@ public sealed class KuaishouPosterService
                && !name.StartsWith(".kuaishou-poster-", StringComparison.Ordinal);
     }
 
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-        catch (IOException)
-        {
-        }
-    }
 }

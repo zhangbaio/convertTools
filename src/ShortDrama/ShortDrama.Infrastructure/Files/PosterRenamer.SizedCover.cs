@@ -11,6 +11,26 @@ public sealed partial class PosterRenamer
     public static void DrawLowerTitle(string inputPath, string outputPath, string title) =>
         PosterTitleProgrammaticRenderer.RenderLowerHalf(inputPath, outputPath, title);
 
+    public async Task<byte[]> EditFullPosterAsync(
+        string inputPath, string prompt, string safeRetryPrompt, string requestSize,
+        Action<string>? log, CancellationToken cancellationToken)
+    {
+        var config = ReadConfig(null);
+        var previousCall = CurrentCall.Value;
+        CurrentCall.Value = new PosterCallContext(log, IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")));
+        try
+        {
+            return await GenerateSizedCoverBytesAsync(config, inputPath, prompt, safeRetryPrompt, requestSize, cancellationToken);
+        }
+        finally
+        {
+            CurrentCall.Value = previousCall;
+        }
+    }
+
+    public Task VerifyPosterTitleAsync(string path, string title, Action<string>? log, CancellationToken cancellationToken) =>
+        VerifySizedCoverTitleAsync("", ReadConfig(null), path, title, log, cancellationToken, "竖屏海报");
+
     /// <summary>
     /// 按指定请求尺寸做一次全图编辑，再居中裁成目标画布。去字模式由调用方决定是否再画标题。
     /// </summary>
@@ -122,7 +142,8 @@ public sealed partial class PosterRenamer
         string outputPath,
         string title,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string outputDescription = "横屏封面")
     {
         if (!IsPosterTitleVerifyEnabled(config))
             return;
@@ -134,7 +155,7 @@ public sealed partial class PosterRenamer
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            log?.Invoke($"横屏标题位置未定位，保留当前封面：{ex.Message}");
+            log?.Invoke($"{outputDescription}标题位置未定位，保留当前图片：{ex.Message}");
             return;
         }
 
@@ -142,23 +163,23 @@ public sealed partial class PosterRenamer
         var verify = await VerifyGeneratedTitleAsync(config, outputPath, title, layout, request, cancellationToken);
         if (verify.Ok)
         {
-            log?.Invoke($"横屏封面标题校验通过：{verify.DetectedTitle ?? title}");
+            log?.Invoke($"{outputDescription}标题校验通过：{verify.DetectedTitle ?? title}");
             return;
         }
 
-        log?.Invoke($"横屏封面标题校验未通过：{verify.Reason}");
+        log?.Invoke($"{outputDescription}标题校验未通过：{verify.Reason}");
         if (await TryRepairTitleWithAiRetriesAsync(config, outputPath, title, layout, verify, request, cancellationToken))
             return;
 
         var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
         if (verifyMode == "warn")
         {
-            log?.Invoke("横屏封面标题校验失败，已按配置保留当前封面。");
+            log?.Invoke($"{outputDescription}标题校验失败，已按配置保留当前图片。");
             return;
         }
 
         if (verifyMode == "blocking")
-            throw new InvalidOperationException($"横屏封面标题校验失败：{verify.Reason}");
+            throw new InvalidOperationException($"{outputDescription}标题校验失败：{verify.Reason}");
 
         await FallbackRepaintVerifiedTitleAsync(
             config, outputPath, title, layout, verify, request, cancellationToken);

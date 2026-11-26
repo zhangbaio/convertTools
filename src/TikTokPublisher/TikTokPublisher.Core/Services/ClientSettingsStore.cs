@@ -735,7 +735,7 @@ public static class ClientSettingsStore
     /// <summary>
     /// 快手竖屏、横屏提示词按模式取值。竖屏未单独设置时，沿用用户改过的海报 Agent 提示词；横屏不复用竖屏文案。
     /// </summary>
-    public static string ResolveKuaishouPosterPrompt(ClientSettings settings, bool horizontal, string? mode)
+    public static string ResolveKuaishouPosterPrompt(ClientSettings settings, bool horizontal, string? mode, string? accountPrompt = null)
     {
         var current = horizontal
             ? (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
@@ -744,8 +744,21 @@ public static class ClientSettingsStore
             : (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
                 ? settings.KuaishouPosterVerticalErasePrompt
                 : settings.KuaishouPosterVerticalDirectPrompt);
+        if (!string.IsNullOrWhiteSpace(accountPrompt))
+            current = accountPrompt;
         if (!string.IsNullOrWhiteSpace(current))
-            return current.Trim();
+        {
+            var previous = (horizontal, ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)) switch
+            {
+                (false, false) => ClientSettingsDefaults.PreviousKuaishouPosterVerticalDirectPrompt,
+                (false, true) => ClientSettingsDefaults.PreviousKuaishouPosterVerticalErasePrompt,
+                (true, false) => ClientSettingsDefaults.PreviousKuaishouPosterHorizontalDirectPrompt,
+                _ => ClientSettingsDefaults.PreviousKuaishouPosterHorizontalErasePrompt,
+            };
+            var trimmed = current.Trim();
+            return trimmed.ReplaceLineEndings("\n") == previous.Trim().ReplaceLineEndings("\n")
+                ? ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal, mode) : trimmed;
+        }
 
         if (!horizontal)
         {

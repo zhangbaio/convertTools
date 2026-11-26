@@ -402,7 +402,7 @@ public static class ClientSettingsDefaults
 
         """;
 
-    public const string KuaishouPosterVerticalDirectPrompt = """
+    internal const string PreviousKuaishouPosterVerticalDirectPrompt = """
         基于输入短剧海报重新设计一张可直接发布的竖屏成品海报。
         必须彻底清除原图中的全部标题、字幕、人物名、演员名、作者及改编来源、宣传语、季数、水印、Logo文字和角标，只写一次新的海报标题“{title}”，成品中不得出现其他任何可读文字。
         必须同时更换背景并重新设计构图，不能只对原文字区域做局部修补。
@@ -412,7 +412,7 @@ public static class ClientSettingsDefaults
         保持专业短剧海报质感，避免重复人物、畸形肢体、异常五官、额外文字、乱码和水印。
         """;
 
-    public const string KuaishouPosterVerticalErasePrompt = """
+    internal const string PreviousKuaishouPosterVerticalErasePrompt = """
         这是竖屏海报全图文字清理任务，不是重新设计或重绘海报。
         删除图片中所有可读文字和文字残影，包括主标题、副标题、人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、季数、字幕、水印、Logo文字、角标，以及任何中文、英文、拼音、字母和数字文字。
         用每处文字周围的背景、纹理和光影自然补全被删除区域，不能留下描边、底纹、模糊字或残影。
@@ -421,7 +421,7 @@ public static class ClientSettingsDefaults
         最终输出必须是一张完全无文字的干净竖屏海报底图，新剧名由程序用固定字体写入。
         """;
 
-    public const string KuaishouPosterHorizontalDirectPrompt = """
+    internal const string PreviousKuaishouPosterHorizontalDirectPrompt = """
         参考已完成的竖屏海报，生成一张 16:10 横屏短剧封面。
         最终画面必须是自然横屏构图，不能把竖屏海报压扁、拉宽或简单缩放到横屏，也不能做成竖屏画中画。
         保持人物、脸部、身体、道具和文字的真实比例，严禁横向拉伸、纵向压缩、头身比例变形、脸部变宽或文字被挤扁。
@@ -432,7 +432,7 @@ public static class ClientSettingsDefaults
         不要添加黑边、白边、相框或截图边框。
         """;
 
-    public const string KuaishouPosterHorizontalErasePrompt = """
+    internal const string PreviousKuaishouPosterHorizontalErasePrompt = """
         参考这张没有文字的竖屏海报底图，生成一张 16:10 横屏短剧封面底图，供程序随后写入标题。
         最终画面必须是自然横屏构图，不能把竖屏海报压扁、拉宽、简单缩放，也不能做成竖屏画中画。
         保持人物、脸部、身体和道具的真实比例，严禁横向拉伸或头身比例变形。
@@ -442,6 +442,27 @@ public static class ClientSettingsDefaults
         人物身份、主要面部特征、服装、动作和清晰度保持不变。
         不要添加黑边、白边、相框或截图边框。
         """;
+
+    public const string KuaishouPosterVerticalDirectPrompt = """
+        以输入海报为人物与剧情参考，重新设计一张 3:4 竖屏短剧宣传海报。保留主要人物的身份、可识别的面部特征、人物关系和剧情主题。重新设计背景、构图和镜头，调整服饰、动作与表情，同时符合原剧情设定。使用电影感光影、清晰细节和有戏剧张力的场景。
+        清理原图的旧标题、字幕、宣传文案、标识和其他干扰文字。画面只写一次新剧名「{title}」，逐字准确，采用清晰的宋体、黑体或楷体风格，避免艺术字、变形字和错别字。标题与人物脸部都要留出安全边距。避免文字残影、乱码、重复人物、多余角色、异常五官和畸形肢体。
+        """;
+
+    public const string KuaishouPosterVerticalErasePrompt = """
+        以输入海报为人物与剧情参考，重新设计一张 3:4 竖屏无字底图。保留主要人物的身份、可识别的面部特征、人物关系和剧情主题。重新设计背景和构图，调整服饰、动作与表情。保持清晰细节、电影感光影和戏剧氛围。
+        清理原画面的标题、字幕、宣传文案、标识和其他文字。最终不得出现文字、字母、数字、乱码或仿文字图形。底部留出与场景自然衔接的标题安全区，避免人物脸部和关键道具落入该区域。新剧名由程序在底图生成后写入。
+        """;
+
+    private const string KuaishouPosterHorizontalExpansionPrompt = """
+        把输入画布扩展为完整的 16:10 横屏海报。保留中央的完整竖版画面，包括人物、底部与边缘的所有内容。原图只能整体等比放置，禁止裁剪、拉伸、遮挡、移动或修改任何内部元素。
+        只补全原图以外的背景，延续已有场景、建筑、环境、光影、色彩与景深。让边界自然过渡，不要出现黑边、白边、模糊填充或拼接痕迹。
+        """;
+
+    public const string KuaishouPosterHorizontalDirectPrompt =
+        KuaishouPosterHorizontalExpansionPrompt + "\n完整保留竖版画面中的新剧名「{title}」，扩展区域不得新增文字。";
+
+    public const string KuaishouPosterHorizontalErasePrompt =
+        KuaishouPosterHorizontalExpansionPrompt + "\n输入是竖屏无字底图。横屏输出也必须无字，保留底部标题区，新剧名由程序写入。";
 
     public static bool IsEraseFixedTitlePosterMode(string? mode) =>
         string.Equals(mode?.Trim(), PosterModeEraseFixedTitle, StringComparison.OrdinalIgnoreCase);

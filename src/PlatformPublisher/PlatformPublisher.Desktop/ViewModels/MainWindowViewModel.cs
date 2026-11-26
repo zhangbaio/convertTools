@@ -2570,31 +2570,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(settings.PosterMode);
         var vertical = ClientSettingsStore.ResolveKuaishouPosterPrompt(settings, horizontal: false, settings.PosterMode);
         var horizontal = ClientSettingsStore.ResolveKuaishouPosterPrompt(settings, horizontal: true, settings.PosterMode);
-        if (!erase)
-        {
-            vertical = ClientSettingsStore.WithPosterTitlePlaceholder(vertical);
-            horizontal = ClientSettingsStore.WithPosterTitlePlaceholder(horizontal);
-        }
 
-        var prefix = ClientSettingsDefaults.PosterAgentSafeRetryPrefix;
+        const string safePrefix = "这是合规的短剧海报设计。人物着装和动作保持得体，画面避免暴力、血腥、裸露或低俗暗示。\n\n";
         var provider = PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider);
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
         PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
         string Value(string key) => payload.TryGetValue(key, out var value) ? value?.ToString()?.Trim() ?? "" : "";
         var endpoint = Value("ImageEditEndpoint");
         return new KuaishouPosterSettings(
-            settings.PosterMode,
             erase,
             vertical,
-            prefix + vertical,
+            safePrefix + vertical,
             horizontal,
-            prefix + horizontal,
+            safePrefix + horizontal,
             provider,
             Value("ImageEditModelId"),
             Value("ImageEditApiKey"),
             endpoint,
             FirstPosterSetting(Value("ImageEditPath"), PosterImageConfigHelper.DefaultImageEditPath(endpoint)),
-            Value("ImageSize"),
             Value("ImageQuality"),
             KuaishouPosterService.HorizontalRequestSize(provider),
             settings.AiTextEndpoint,

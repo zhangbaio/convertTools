@@ -18,7 +18,9 @@ public sealed class KuaishouAccountAiEditor : UserControl
 {
     private readonly ComboBox _textPresets = new() { DisplayMemberBinding = new Binding(nameof(KuaishouTextPreset.Name)) };
     private readonly ComboBox _imagePresets = new() { DisplayMemberBinding = new Binding(nameof(KuaishouImagePreset.Name)) };
-    private readonly ComboBox _mode = new() { DisplayMemberBinding = new Binding(nameof(PosterMode.Name)) };
+    private readonly RadioButton _direct = new() { Content = "AI 直接生成" };
+    private readonly RadioButton _erase = new() { Content = "去字后固定字体写入" };
+    private readonly CheckBox _inheritPosterMode = new() { Content = "使用本机默认" };
     private readonly TextBox _textKey = new() { PasswordChar = '●' };
     private readonly TextBox _imageKey = new() { PasswordChar = '●' };
     private readonly TextBox _publish = Prompt();
@@ -47,20 +49,28 @@ public sealed class KuaishouAccountAiEditor : UserControl
         panel.Children.Add(Field("发布信息提示词", PromptRow(_publish, () => ClientSettingsDefaults.KuaishouPublishInfoPrompt)));
         panel.Children.Add(Field("AI 图片模型预设", PresetRow(_imagePresets, EditImageAsync)));
         panel.Children.Add(Field("AI 图片 API Key", KeyRow(_imageKey)));
-        panel.Children.Add(Field("海报模式", _mode));
-        panel.Children.Add(Field("竖屏海报提示词", PromptRow(_vertical,
-            () => ClientSettingsDefaults.DefaultKuaishouPosterPrompt(false, _shownMode))));
-        panel.Children.Add(Field("横屏封面提示词", PromptRow(_horizontal,
-            () => ClientSettingsDefaults.DefaultKuaishouPosterPrompt(true, _shownMode))));
+        _direct.GroupName = _erase.GroupName = $"kuaishou-poster-{Guid.NewGuid():N}";
+        panel.Children.Add(Field("海报模式", new WrapPanel
+        {
+            Children = { _direct, _erase, _inheritPosterMode },
+        }));
+        panel.Children.Add(Field("3:4 竖屏海报提示词", PosterPromptRow(_vertical, horizontal: false)));
+        panel.Children.Add(Field("16:10 横屏封面提示词", PosterPromptRow(_horizontal, horizontal: true)));
         panel.Children.Add(_feedback);
         Content = panel;
         _textPresets.SelectionChanged += (_, _) => { if (!_loading) ChangeTextPreset(); };
         _imagePresets.SelectionChanged += (_, _) => { if (!_loading) ChangeImagePreset(); };
-        _mode.SelectionChanged += (_, _) =>
+        _direct.IsCheckedChanged += (_, _) =>
         {
-            if (_loading || _mode.SelectedItem is not PosterMode mode) return;
-            CapturePoster();
-            ShowPoster(mode);
+            if (!_loading && _direct.IsChecked == true) ChangePosterMode(ClientSettingsDefaults.PosterModeDirect);
+        };
+        _erase.IsCheckedChanged += (_, _) =>
+        {
+            if (!_loading && _erase.IsChecked == true) ChangePosterMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        };
+        _inheritPosterMode.IsCheckedChanged += (_, _) =>
+        {
+            if (!_loading) ChangePosterMode();
         };
     }
 
@@ -83,16 +93,9 @@ public sealed class KuaishouAccountAiEditor : UserControl
                 _draft.TextPresets, preset => preset.Id, _draft.TextPresetId);
             SelectPreset(_imagePresets, KuaishouAccountAiSettings.DefaultImage(_defaults),
                 _draft.ImagePresets, preset => preset.Id, _draft.ImagePresetId);
-            var modes = new[]
-            {
-                new PosterMode("", $"本机默认（{PosterModeName(_defaults.PosterMode)}）"),
-                new PosterMode(ClientSettingsDefaults.PosterModeDirect, "AI 直接生成"),
-                new PosterMode(ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"),
-            };
-            _mode.ItemsSource = modes;
-            var mode = modes.FirstOrDefault(item => item.Id == _draft.PosterMode) ?? modes[0];
-            _mode.SelectedItem = mode;
-            ShowPoster(mode);
+            _inheritPosterMode.IsChecked = _draft.PosterMode.Length == 0;
+            SelectPosterMode(_draft.PosterMode);
+            ShowPoster();
             _publish.Text = _shownPublish = _draft.PublishPrompt.Length > 0
                 ? _draft.PublishPrompt : ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(_defaults);
             ShowKeys();
@@ -124,7 +127,7 @@ public sealed class KuaishouAccountAiEditor : UserControl
         {
             TextPresetId = (_textPresets.SelectedItem as KuaishouTextPreset)?.Id ?? "",
             ImagePresetId = (_imagePresets.SelectedItem as KuaishouImagePreset)?.Id ?? "",
-            PosterMode = (_mode.SelectedItem as PosterMode)?.Id ?? "",
+            PosterMode = SelectedPosterMode(),
             PublishPrompt = EditedPrompt(_publish, _shownPublish, _draft.PublishPrompt),
         };
         _shownPublish = _publish.Text ?? "";
@@ -185,16 +188,38 @@ public sealed class KuaishouAccountAiEditor : UserControl
         else keys[address] = text;
     }
 
-    private void ShowPoster(PosterMode mode)
+    private void ChangePosterMode(string? selected = null)
     {
-        _shownMode = mode.Id.Length > 0 ? mode.Id : _defaults.PosterMode;
+        CapturePoster();
+        _loading = true;
+        try { SelectPosterMode(selected ?? SelectedPosterMode()); }
+        finally { _loading = false; }
+        ShowPoster();
+    }
+
+    private string SelectedPosterMode() => _inheritPosterMode.IsChecked == true ? "" : _erase.IsChecked == true
+        ? ClientSettingsDefaults.PosterModeEraseFixedTitle : ClientSettingsDefaults.PosterModeDirect;
+
+    private void SelectPosterMode(string mode)
+    {
+        var inherited = _inheritPosterMode.IsChecked == true;
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(inherited ? _defaults.PosterMode : mode);
+        _direct.IsEnabled = _erase.IsEnabled = !inherited;
+        _direct.IsChecked = !erase;
+        _erase.IsChecked = erase;
+    }
+
+    private void ShowPoster()
+    {
+        var mode = SelectedPosterMode();
+        _shownMode = mode.Length > 0 ? mode : _defaults.PosterMode;
         var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(_shownMode);
         _vertical.Text = _shownVertical = EffectivePrompt(erase ? _draft.VerticalErasePrompt : _draft.VerticalDirectPrompt, false);
         _horizontal.Text = _shownHorizontal = EffectivePrompt(erase ? _draft.HorizontalErasePrompt : _draft.HorizontalDirectPrompt, true);
     }
 
     private string EffectivePrompt(string own, bool horizontal) =>
-        own.Length > 0 ? own : ClientSettingsStore.ResolveKuaishouPosterPrompt(_defaults, horizontal, _shownMode);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(_defaults, horizontal, _shownMode, own);
 
     private void CapturePoster()
     {
@@ -215,9 +240,6 @@ public sealed class KuaishouAccountAiEditor : UserControl
 
     private static string EditedPrompt(TextBox box, string shown, string stored) =>
         string.Equals(box.Text ?? "", shown, StringComparison.Ordinal) ? stored : box.Text?.Trim() ?? "";
-
-    private static string PosterModeName(string mode) => ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
-        ? "去字后固定字体写入" : "AI 直接生成";
 
     private async Task EditTextAsync(bool create)
     {
@@ -284,6 +306,45 @@ public sealed class KuaishouAccountAiEditor : UserControl
         return Row(box, reset);
     }
 
+    private Control PosterPromptRow(TextBox box, bool horizontal)
+    {
+        box.Classes.Add("configurationInput");
+        var reset = new Button { Content = "恢复默认" };
+        reset.Click += (_, _) => box.Text = ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal, _shownMode);
+        var preview = new Button { Content = "发送预览" };
+        preview.Click += async (_, _) => await PreviewPosterAsync(box, horizontal);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { reset, preview } };
+        return new StackPanel { Spacing = 5, Children = { box, actions } };
+    }
+
+    private async Task PreviewPosterAsync(TextBox box, bool horizontal)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(_shownMode);
+        var prompt = EffectivePrompt(box.Text ?? "", horizontal);
+        var fields = new StackPanel { Margin = new Thickness(16), Spacing = 10 };
+        var title = new TextBox { Text = "示例剧名" };
+        var content = Prompt();
+        content.IsReadOnly = true;
+        content.MaxHeight = 400;
+        if (!erase)
+        {
+            fields.Children.Add(Field("预览剧名", title));
+            title.TextChanged += (_, _) =>
+                content.Text = KuaishouPosterService.ComposePrompt(prompt, title.Text ?? "", horizontal, erase);
+        }
+        content.Text = KuaishouPosterService.ComposePrompt(prompt, title.Text ?? "", horizontal, erase);
+        fields.Children.Add(Field("发送内容", content));
+        var dialog = new Window
+        {
+            Title = horizontal ? "横屏封面提示词发送预览" : "竖屏海报提示词发送预览",
+            Width = 680, MaxHeight = 600, SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = fields,
+        };
+        await dialog.ShowDialog(owner);
+    }
+
     private static TextBox Prompt() => new()
     {
         AcceptsReturn = true, MinHeight = 88, MaxHeight = 200, TextWrapping = TextWrapping.Wrap,
@@ -310,5 +371,4 @@ public sealed class KuaishouAccountAiEditor : UserControl
         return new StackPanel { Spacing = 5, Children = { caption, control } };
     }
 
-    private sealed record PosterMode(string Id, string Name);
 }
