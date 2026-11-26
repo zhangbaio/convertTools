@@ -148,6 +148,36 @@ public sealed class KuaishouArtifactColumnStatusReaderTests : IDisposable
         Assert.Equal("已完成 2图", status.ProjectImageStatus);
     }
 
+    [Theory]
+    [InlineData(3, 0, 1, KuaishouSettlementEpisodeVideoService.DedupWritingName, "已完成")]
+    [InlineData(1, 0, 3, KuaishouSettlementEpisodeVideoService.DedupWritingName, "失败")]
+    [InlineData(0, 3, 1, KuaishouSettlementEpisodeVideoService.DedupManifestName, "已完成")]
+    [InlineData(0, 0, 3, null, "已完成")]
+    public void Download_status_uses_originals_when_workflow_videos_contains_dedup_output(
+        int downloaded, int savedOriginals, int outputFiles, string? marker, string expected)
+    {
+        var source = Directory.CreateDirectory(Path.Combine(_root, "source")).FullName;
+        var workflow = Directory.CreateDirectory(Path.Combine(_root, "workflow", "_project")).FullName;
+        var videos = Directory.CreateDirectory(Path.Combine(workflow, "videos")).FullName;
+        var originals = Directory.CreateDirectory(Path.Combine(workflow, "原片")).FullName;
+        Write(Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { workflowProjectDir = workflow }));
+        Write(Path.Combine(workflow, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { sourceProjectDir = source }));
+        Write(Path.Combine(source, ".weixin-channel-download-state.json"), """
+            { "ok": true, "episode_mappings": [{ "episode": 1 }, { "episode": 2 }, { "episode": 3 }] }
+            """);
+        Write(Path.Combine(workflow, ".kuaishou-personal-prepare-state.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { source_video_dir = videos, episode_count = 3 }));
+        for (var index = 1; index <= downloaded; index++) Write(Path.Combine(source, $"第{index}集.mp4"), 1);
+        for (var index = 1; index <= savedOriginals; index++) Write(Path.Combine(originals, $"第{index}集.mp4"), 1);
+        for (var index = 1; index <= outputFiles; index++) Write(Path.Combine(videos, $"第{index}集.mp4"), 1);
+        if (marker is not null) Write(Path.Combine(videos, marker), "{}");
+
+        Assert.Equal(expected, KuaishouArtifactColumnStatusReader.Read(source, enterprise: false).DownloadStatus);
+        Assert.Equal(expected, KuaishouArtifactColumnStatusReader.Read(workflow, enterprise: false).DownloadStatus);
+    }
+
     [Fact]
     public void DownloadFailure_WinsOverCompletedMarker()
     {

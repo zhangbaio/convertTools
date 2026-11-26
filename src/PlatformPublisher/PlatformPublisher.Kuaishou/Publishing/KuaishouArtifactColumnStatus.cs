@@ -90,7 +90,7 @@ public static class KuaishouArtifactColumnStatusReader
         var completed = CompletedSteps(prepare);
         foreach (var step in KuaishouPrepareStateStore.ReadSteps(workflowDir, enterprise))
             completed.Add(step);
-        var downloadStatus = DownloadStatusText(prepare, download, downloadedCount, completed);
+        var downloadStatus = DownloadStatusText(prepare, download, downloadedCount, completed, sourceDir, workflowDir);
         var rewriteStatus = BoolStatus(IsRewriteCompleted(completed, originalTitle, newTitle, sourceDir));
         var posterStatus = BoolStatus(IsPosterCompleted(prepare, workflowDir, completed));
         var projectImageStatus = ProjectImageStatusText(imageCount, completed);
@@ -174,7 +174,9 @@ public static class KuaishouArtifactColumnStatusReader
         return prepare.Int("episode_count");
     }
 
-    private static string DownloadStatusText(JsonMap prepare, JsonMap download, int downloadedCount, HashSet<string> completed)
+    private static string DownloadStatusText(
+        JsonMap prepare, JsonMap download, int downloadedCount, HashSet<string> completed,
+        string sourceDirectory, string workflowDirectory)
     {
         var prepareStatus = prepare.Str("status").ToLowerInvariant();
         var failedStep = prepare.Str("failed_step");
@@ -186,12 +188,29 @@ public static class KuaishouArtifactColumnStatusReader
             if (download.IsTrue("ok"))
             {
                 var expected = download.ArrayLength("episode_mappings");
-                return expected <= 0 || downloadedCount >= expected ? "已完成" : "失败";
+                return expected <= 0 || HasExpectedOriginalVideos(sourceDirectory, workflowDirectory, expected)
+                    ? "已完成"
+                    : "失败";
             }
         }
         if (completed.Contains("download")) return "已完成";
         if (prepareStatus == "stopped" && failedStep is "" or "download") return "已停止";
         return BoolStatus(downloadedCount > 0);
+    }
+
+    private static bool HasExpectedOriginalVideos(string sourceDirectory, string workflowDirectory, int expected)
+    {
+        var candidates = new[]
+        {
+            sourceDirectory,
+            Path.Combine(sourceDirectory, KuaishouSettlementEpisodeVideoService.VideosDirectoryName),
+            Path.Combine(workflowDirectory, KuaishouSettlementEpisodeVideoService.DedupOriginalsDirectoryName),
+            Path.Combine(workflowDirectory, KuaishouSettlementEpisodeVideoService.VideosDirectoryName),
+        };
+
+        // Older projects can have originals in workflow/videos. A managed dedup batch contains generated episodes.
+        return candidates.Distinct(StringComparer.OrdinalIgnoreCase).Any(directory =>
+            !KuaishouSettlementEpisodeVideoService.HasManagedDedupVideos(directory) && CountVideos(directory) >= expected);
     }
 
     private static bool IsRewriteCompleted(HashSet<string> completed, string originalTitle, string newTitle, string sourceDir)
