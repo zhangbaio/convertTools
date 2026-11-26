@@ -21,10 +21,8 @@ namespace TikTokPublisher.Ui.Views;
 public partial class AccountProfileEditor : UserControl
 {
     private MainViewModel? _vm;
-    private SystemServicesViewModel? _systemServices;
     private bool _isReloadingFromSelectedAccount;
     private string _cleanDraft = "";
-    private bool _persistedRemoteDispatch;
     private int _contractLookupGeneration;
     private int _profileReloadSuppressions;
 
@@ -55,16 +53,11 @@ public partial class AccountProfileEditor : UserControl
             _vm.AccountProfileNetworkChanged -= OnAccountProfileChanged;
         }
 
-        if (_systemServices is not null)
-            _systemServices.PropertyChanged -= OnSystemServicesPropertyChanged;
-
         _vm = vm;
-        _systemServices = vm.SystemServices;
         DataContext = vm;
         ReloadFromSelectedAccount();
         vm.PropertyChanged += OnViewModelPropertyChanged;
         vm.AccountProfileNetworkChanged += OnAccountProfileChanged;
-        _systemServices.PropertyChanged += OnSystemServicesPropertyChanged;
     }
 
     public void RefreshSelectedAccount() => ReloadFromSelectedAccount();
@@ -130,25 +123,6 @@ public partial class AccountProfileEditor : UserControl
             ReloadFromSelectedAccount();
         else if (e.PropertyName == nameof(MainViewModel.WorkspacePath))
             SyncWorkspaceBoxFromSelectedAccount();
-    }
-
-    private void OnSystemServicesPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is null or nameof(SystemServicesViewModel.XingeRemoteEnabled))
-            ApplyRemoteDispatchAvailability();
-    }
-
-    private void ShowPersistedRemoteDispatch(TikTokAccountProfile? profile)
-    {
-        _persistedRemoteDispatch = profile?.ParticipatesInXingeRemoteDispatch == true;
-        ApplyRemoteDispatchAvailability();
-    }
-
-    private void ApplyRemoteDispatchAvailability()
-    {
-        var xingeEnabled = _vm?.SystemServices.XingeRemoteEnabled == true;
-        RemoteDispatchBox.IsEnabled = xingeEnabled;
-        RemoteDispatchBox.IsChecked = xingeEnabled && _persistedRemoteDispatch;
     }
 
     private void RequestContractAutofill(TikTokAccountProfile profile)
@@ -252,7 +226,6 @@ public partial class AccountProfileEditor : UserControl
         {
             ClearFields();
             LoginStatusText.Text = "尚未登录";
-            ShowPersistedRemoteDispatch(null);
             return;
         }
 
@@ -260,7 +233,6 @@ public partial class AccountProfileEditor : UserControl
         NicknameBox.Text = profile.TiktokAccountNickname;
         LoginEmailBox.Text = profile.TiktokLoginEmail;
         PasswordBox.Text = profile.TiktokLoginPassword;
-        ShowPersistedRemoteDispatch(profile);
         SeriesUrlBox.Text = profile.TiktokSeriesUrl;
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(profile.TiktokUploadProfilePath)
             ? profile.TiktokUploadProfilePath
@@ -386,19 +358,11 @@ public partial class AccountProfileEditor : UserControl
             return false;
         }
 
-        var dispatchChanged = _vm.SystemServices.XingeRemoteEnabled &&
-            (!profile.XingeRemoteDispatchConfigured || _persistedRemoteDispatch != (RemoteDispatchBox.IsChecked == true));
         try
         {
             profile.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
             profile.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
             profile.TiktokLoginPassword = PasswordBox.Text ?? "";
-            if (_vm.SystemServices.XingeRemoteEnabled)
-            {
-                profile.XingeRemoteDispatchConfigured = true;
-                profile.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
-                _persistedRemoteDispatch = profile.XingeRemoteDispatchEnabled;
-            }
             profile.TiktokApiSite = TikTokApiSites.Domestic;
             profile.TiktokSeriesUrl = TikTokApiSites.AlignConsoleUrl(
                 string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
@@ -506,8 +470,6 @@ public partial class AccountProfileEditor : UserControl
             _vm.RefreshFilteredAccounts();
             _vm.StatusMessage = $"已保存账号「{profile.DisplayName}」配置";
             ReloadFromSelectedAccount();
-            if (dispatchChanged)
-                _vm.SyncXingeAccountDispatchPreference(profile.Id);
             return true;
         }
         catch (Exception ex)
@@ -1071,7 +1033,6 @@ public partial class AccountProfileEditor : UserControl
         DownloadWorkspaceBox.Text = "";
         ExcelReportBox.Text = "";
         DeleteVideosOnArchiveBox.IsChecked = true;
-        RemoteDispatchBox.IsChecked = false;
         LegacyCdpSettings.IsVisible = false;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";

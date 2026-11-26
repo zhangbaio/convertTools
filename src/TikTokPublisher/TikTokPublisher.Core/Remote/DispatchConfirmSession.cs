@@ -4,7 +4,6 @@ public enum DispatchConfirmDecision
 {
     Execute,
     RejectOnce,
-    RejectToday,
     Dismissed,
 }
 

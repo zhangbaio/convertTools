@@ -38,12 +38,6 @@ public sealed class PublishAccount
     /// <summary>快手分账账号类型：personal、enterprise。空表示未设置，不能生成产物或上传。</summary>
     public string KuaishouAccountEdition { get; set; } = "";
     public bool KuaishouRemovedFromWorkspace { get; set; }
-    /// <summary>是否接收 XINGE 自动下发的剧集。未在快手分账配置里保存过时不参与。</summary>
-    public bool XingeRemoteDispatchEnabled { get; set; }
-    /// <summary>用户是否已经保存过远程分发勾选。未保存过时不参与。</summary>
-    public bool XingeRemoteDispatchConfigured { get; set; }
-    public bool ParticipatesInXingeRemoteDispatch =>
-        XingeRemoteDispatchConfigured && XingeRemoteDispatchEnabled;
     public DateTimeOffset? LegacySessionImportedAt { get; set; }
 
     /// <summary>运行期状态，不持久化。</summary>

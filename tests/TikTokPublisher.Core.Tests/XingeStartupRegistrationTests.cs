@@ -22,7 +22,6 @@ public sealed class XingeStartupRegistrationTests
             {
                 Assert.Equal("profile-1", pending.AccountProfiles[0].Id);
                 Assert.True(pending.AccountProfiles[0].AuthReady);
-                Assert.True(pending.AccountProfiles[0].RemoteDispatchEnabled);
                 Assert.True(pending.DispatchSyncing);
                 Assert.Null(pending.AccountProfiles[0].UploadedToday);
                 if (++registered == 2)
@@ -34,7 +33,6 @@ public sealed class XingeStartupRegistrationTests
 
         Assert.Equal(2, registered);
         Assert.Same(full, result);
-        Assert.True(result.AccountProfiles[0].RemoteDispatchEnabled);
         Assert.Single(result.AccountProfiles[0].UploadedToday!);
     }
 
@@ -60,7 +58,7 @@ public sealed class XingeStartupRegistrationTests
     private static XingeRemoteRegistrationSnapshot CreateSnapshot() =>
         new("workspace", "profile-1", "hgoffline",
         [
-            new("profile-1", "Test account", true, true, true,
+            new("profile-1", "Test account", true, true,
                 [new("series-1", "Test series", "2026-11-23T20:00:00+08:00")]),
         ]);
 }

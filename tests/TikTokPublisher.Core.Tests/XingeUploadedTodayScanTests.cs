@@ -50,7 +50,7 @@ public sealed class XingeUploadedTodayScanTests : IDisposable
         {
             Seed("acct-a"),
             Seed("acct-b"),
-            new XingeRemoteAccountSeed("acct-c", "无目录", "", false, true, "", "", ""),
+            new XingeRemoteAccountSeed("acct-c", "无目录", "", false, "", "", ""),
         }, includeExecutionHistory: false);
 
         result["acct-a"].Should().ContainSingle();
@@ -70,5 +70,5 @@ public sealed class XingeUploadedTodayScanTests : IDisposable
         ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(input).Should().Be(expected);
 
     private XingeRemoteAccountSeed Seed(string id) =>
-        new(id, id, "", false, true, _workspace, "", "");
+        new(id, id, "", false, _workspace, "", "");
 }

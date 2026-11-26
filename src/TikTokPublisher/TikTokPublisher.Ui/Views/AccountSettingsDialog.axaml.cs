@@ -53,10 +53,6 @@ public partial class AccountSettingsDialog : Window
         ArchiveRootBox.Text = p.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
         DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
-        var xingeEnabled = (XingeRuntimeConnection.Mode(ClientSettingsStore.Load()) != XingeRuntimeConnection.Off);
-        RemoteDispatchBox.IsEnabled = xingeEnabled;
-        RemoteDispatchBox.IsChecked = xingeEnabled && p.ParticipatesInXingeRemoteDispatch;
-
         ContractIdBox.Text = p.TiktokContractId;
         RequestContractAutofill();
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
@@ -214,11 +210,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokArchiveRootConfigMigrated = true;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
         p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
-        if ((XingeRuntimeConnection.Mode(ClientSettingsStore.Load()) != XingeRuntimeConnection.Off))
-        {
-            p.XingeRemoteDispatchConfigured = true;
-            p.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
-        }
         p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";

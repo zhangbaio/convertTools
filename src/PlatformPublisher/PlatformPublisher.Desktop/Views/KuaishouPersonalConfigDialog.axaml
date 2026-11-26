@@ -62,9 +62,6 @@
                                     <TextBlock Classes="configurationLabel" Text="任务队列并发数" />
                                     <TextBox x:Name="QueueParallelBox" Classes="configurationInput" AutomationProperties.Name="任务队列并发数" ToolTip.Tip="当前账号同时执行的项目数，范围 1 到 5" />
                                 </StackPanel>
-                                <StackPanel VerticalAlignment="Bottom">
-                                    <ToggleSwitch x:Name="RemoteDispatchBox" OnContent="远程分发" OffContent="远程分发" AutomationProperties.Name="远程分发" />
-                                </StackPanel>
                             </UniformGrid>
                             <StackPanel x:Name="PageUploadOptions" Spacing="10" IsVisible="False">
                                 <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">

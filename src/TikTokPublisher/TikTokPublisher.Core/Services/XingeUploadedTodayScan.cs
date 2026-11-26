@@ -7,7 +7,6 @@ public sealed record XingeRemoteAccountSeed(
     string Name,
     string AuthPath,
     bool IsCurrent,
-    bool RemoteDispatchEnabled,
     string UploadProfilePath,
     string LastWorkspace,
     string ArchiveRootDir,

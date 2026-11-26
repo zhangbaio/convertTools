@@ -250,6 +250,17 @@ public sealed class YunfanXingeDispatchService
             await CompleteAsync(http, config, message.Id, "success", "账号今日上传已达上限，已跳过", "", ct).ConfigureAwait(false);
             return;
         }
+        if (assignmentId > 0)
+        {
+            var start = await SendAsync<Envelope<JsonElement>>(http, config, HttpMethod.Post,
+                $"/client-api/kuaishou/settlement/auto-publish/assignments/{assignmentId}/start",
+                new { }, ct).ConfigureAwait(false);
+            if (!start.Ok || !start.CanStart)
+            {
+                _viewModel.LogKsSettleDispatch($"XINGE 已停止派单 {assignmentId}，跳过执行。");
+                return;
+            }
+        }
         var (assignedTitle, episodes) = ReadAssignedDrama(payload);
         var command = new MainWindowViewModel.KsSettleCommand(
             commandName,
@@ -302,6 +313,7 @@ public sealed class YunfanXingeDispatchService
             machine_id = machineId,
             device_name = $"云帆-{Environment.MachineName}",
             app_version = $"Yunfan/{version}",
+            xinge_managed_dispatch = true,
             workspace_path = accounts.FirstOrDefault()?.Workspace ?? "",
             active_account_profile_id = accounts.FirstOrDefault()?.Id ?? "",
             drama_source = dramaSource,
@@ -314,7 +326,6 @@ public sealed class YunfanXingeDispatchService
                     ["name"] = account.Name,
                     ["auth_ready"] = account.AuthReady,
                     ["is_current"] = false,
-                    ["remote_dispatch_enabled"] = account.RemoteDispatchEnabled,
                     ["queue_running"] = account.QueueRunning,
                     ["kuaishou_edition"] = account.Edition,
                     ["kuaishou_workspace"] = account.Workspace,
@@ -550,10 +561,6 @@ public sealed class YunfanXingeDispatchService
                 foreach (var item in items)
                     _heldConfirmMessages.Remove(item.MessageId);
                 break;
-            case DispatchConfirmDecision.RejectToday:
-                await PauseDayAsync(http, config, ct).ConfigureAwait(false);
-                _heldConfirmMessages.Clear();
-                break;
             default:
                 foreach (var item in items)
                 {
@@ -581,27 +588,6 @@ public sealed class YunfanXingeDispatchService
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _viewModel.LogKsSettleDispatch($"拒绝本次快手分账派单失败：{ex.Message}");
-        }
-    }
-
-    private async Task PauseDayAsync(HttpClient http, RemoteConfig config, CancellationToken ct)
-    {
-        try
-        {
-            var envelope = await SendAsync<Envelope<JsonElement>>(http, config, HttpMethod.Post,
-                "/client-api/kuaishou/settlement/auto-publish/pause-day",
-                new { client_id = config.ClientId, client_token = config.ClientToken }, ct).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(envelope.BusinessDate))
-                _dispatchPauseDate = envelope.BusinessDate;
-            else if (!string.IsNullOrWhiteSpace(envelope.DispatchPauseDate))
-                _dispatchPauseDate = envelope.DispatchPauseDate;
-            else
-                _dispatchPauseDate = "paused";
-            _viewModel.LogKsSettleDispatch("今日不再接收快手分账自动派单，尚未开始的剧已释放。");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _viewModel.LogKsSettleDispatch($"今日不再接收快手分账派单失败：{ex.Message}");
         }
     }
 
@@ -789,6 +775,9 @@ public sealed class YunfanXingeDispatchService
 
         [JsonPropertyName("quota_full_accounts")]
         public List<QuotaFullAccount>? QuotaFullAccounts { get; set; }
+
+        [JsonPropertyName("can_start")]
+        public bool CanStart { get; set; }
 
         [JsonPropertyName("dispatch_paused")]
         public bool DispatchPaused { get; set; }

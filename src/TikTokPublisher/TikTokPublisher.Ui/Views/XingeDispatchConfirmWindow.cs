@@ -42,10 +42,8 @@ public sealed class XingeDispatchConfirmWindow : Window
         _body = new TextBlock { TextWrapping = TextWrapping.Wrap };
         _countdown = new TextBlock { FontSize = 16, Margin = new Avalonia.Thickness(0, 12, 0, 12) };
         var rejectOnce = new Button { Content = "拒绝本次", MinWidth = 110 };
-        var rejectToday = new Button { Content = "今日不再接收", MinWidth = 130 };
         var execute = new Button { Content = "立即执行", MinWidth = 110 };
         rejectOnce.Click += (_, _) => Decide(DispatchConfirmDecision.RejectOnce);
-        rejectToday.Click += (_, _) => Decide(DispatchConfirmDecision.RejectToday);
         execute.Click += (_, _) => Decide(DispatchConfirmDecision.Execute);
 
         var buttons = new StackPanel
@@ -55,7 +53,6 @@ public sealed class XingeDispatchConfirmWindow : Window
             HorizontalAlignment = HorizontalAlignment.Right,
         };
         buttons.Children.Add(rejectOnce);
-        buttons.Children.Add(rejectToday);
         buttons.Children.Add(execute);
 
         Content = new StackPanel

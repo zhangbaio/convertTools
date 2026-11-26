@@ -104,7 +104,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         var edition = _account?.KuaishouAccountEdition ?? "";
         EditionPersonalBox.IsChecked = string.Equals(edition, "personal", StringComparison.OrdinalIgnoreCase);
         EditionEnterpriseBox.IsChecked = string.Equals(edition, "enterprise", StringComparison.OrdinalIgnoreCase);
-        RemoteDispatchBox.IsChecked = _account?.ParticipatesInXingeRemoteDispatch == true;
         ApiBaseUrlBox.Text = _config.ApiBaseUrl;
         AdvertiserIdBox.Text = FirstNonEmpty(_config.AdvertiserId, _config.KuaishouId);
         NicknameBox.Text = _config.KuaishouNickname;
@@ -543,15 +542,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
                 ValidationText.Text = "发布配置已写入，AI 配置保存失败。请重试保存。";
                 return false;
             }
-        }
-        _account.XingeRemoteDispatchConfigured = true;
-        _account.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
-        var stored = _accountStore?.Accounts.FirstOrDefault(item =>
-            string.Equals(item.Id, _account.Id, StringComparison.OrdinalIgnoreCase));
-        if (stored is not null && !ReferenceEquals(stored, _account))
-        {
-            stored.XingeRemoteDispatchConfigured = _account.XingeRemoteDispatchConfigured;
-            stored.XingeRemoteDispatchEnabled = _account.XingeRemoteDispatchEnabled;
         }
         _accountStore?.Update(_account);
         CaptureClean();

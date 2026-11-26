@@ -552,7 +552,6 @@ public static class TikTokAccountConfigManualSync
         "tiktokProxyPassword" => "代理密码",
         "tiktokProxyHost" => "代理地址",
         "tiktokContractId" => "合同",
-        "xingeRemoteDispatchEnabled" => "远程分发",
         _ => key,
     };
 

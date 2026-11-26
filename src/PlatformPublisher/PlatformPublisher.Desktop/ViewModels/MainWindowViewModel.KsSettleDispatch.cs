@@ -32,7 +32,6 @@ public sealed partial class MainWindowViewModel
         string Edition,
         string Workspace,
         bool AuthReady,
-        bool RemoteDispatchEnabled,
         bool QueueRunning = false);
 
     public sealed record KsSettleCommand(
@@ -72,7 +71,6 @@ public sealed partial class MainWindowViewModel
                 edition,
                 workspace,
                 !string.IsNullOrWhiteSpace(authPath) && File.Exists(authPath),
-                account.ParticipatesInXingeRemoteDispatch,
                 IsKuaishouAccountRunning(KuaishouRunKey(account.Id, platform))));
         }
         return accounts;
@@ -213,8 +211,6 @@ public sealed partial class MainWindowViewModel
             return new YunfanRemoteCommandResult("failed", "客户端没有这个快手分账账号");
         if (IsKuaishouDailyUploadLimited(account.Id))
             return new YunfanRemoteCommandResult("failed", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind);
-        if (!account.ParticipatesInXingeRemoteDispatch)
-            return new YunfanRemoteCommandResult("failed", "账号未启用远程分发", "account_remote_disabled");
         if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var accountPlatform))
             return new YunfanRemoteCommandResult("failed", "账号还没有选择快手分账类型");
         var edition = string.Equals(command.Edition, "enterprise", StringComparison.OrdinalIgnoreCase)

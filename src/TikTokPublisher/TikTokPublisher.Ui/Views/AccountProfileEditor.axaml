@@ -457,10 +457,9 @@
 
                             <Border Height="1" Background="#E4E9F0" Margin="0,8,0,0" />
 
-                            <TextBlock Classes="configurationHeading" Text="分发与归档" />
+                            <TextBlock Classes="configurationHeading" Text="归档" />
 
                             <WrapPanel>
-                                <ToggleSwitch x:Name="RemoteDispatchBox" OnContent="远程分发" OffContent="远程分发" Margin="0,0,24,4" />
                                 <ToggleSwitch x:Name="DeleteVideosOnArchiveBox" OnContent="归档时删除视频文件" OffContent="归档时删除视频文件" />
                             </WrapPanel>
 

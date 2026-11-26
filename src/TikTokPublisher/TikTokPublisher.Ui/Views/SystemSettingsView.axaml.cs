@@ -22,7 +22,7 @@ public partial class SystemSettingsView : UserControl
     {
         SoftwareLicenseHost.Bind(vm);
         var xinge = new XingeConnectionViewModel(null, "TikTokPublisher",
-            "跟随软件登录时，助手自动注册本机。哪些 TikTok 账号可以接单，由各账号的远程分发设置决定。", supportsLoginFollow: true)
+            "跟随软件登录时，助手自动注册本机。TikTok 账号是否接单由 XINGE 监控屏配置。", supportsLoginFollow: true)
         {
             ShowSaveButton = true,
             ShowHeading = false,

@@ -829,8 +829,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private DateTimeOffset _lastXingeProcessedScanAt;
 
-    internal void SyncXingeAccountDispatchPreference(string profileId) =>
-        _ = _xingeRemoteCommandService.SyncAccountDispatchPreferenceAsync(profileId, BuildXingeRemotePresenceSnapshotAsync);
+
 
     private async Task<XingeRemoteRegistrationSnapshot> BuildXingeRemotePresenceSnapshotAsync(CancellationToken ct)
     {
@@ -963,7 +962,6 @@ public sealed partial class MainViewModel : ViewModelBase
                 account.DisplayName,
                 authPath,
                 string.Equals(account.Id, activeId, StringComparison.OrdinalIgnoreCase),
-                model.ParticipatesInXingeRemoteDispatch,
                 model.TiktokUploadProfilePath ?? "",
                 model.LastWorkspace ?? "",
                 model.TiktokArchiveRootDir ?? "",
@@ -1024,7 +1022,6 @@ public sealed partial class MainViewModel : ViewModelBase
                     account.Name,
                     HasAccountAuthFile(account.AuthPath),
                     account.IsCurrent,
-                    account.RemoteDispatchEnabled,
                     uploaded,
                     DramaMarket: market,
                     DramaSource: VisibleDramaSource.ChainFor(settings, market));
@@ -3089,18 +3086,6 @@ public sealed partial class MainViewModel : ViewModelBase
         var assignment = XingeAutoPublishAssignment.FromCommand(command);
         if (assignment is null)
             return await ExecuteRemoteUploadSeriesCoreAsync(command, null);
-
-        var assignedAccount = FindAccountById(assignment.AccountProfileId)?.Model;
-        if (assignedAccount is not null && !assignedAccount.ParticipatesInXingeRemoteDispatch)
-        {
-            var blocked = new RemoteAutoPublishContext(assignment);
-            await ReportRemoteAutoPublishFailureAsync(
-                blocked,
-                "import",
-                "账号未启用远程分发",
-                XingeAutoPublishFailureKinds.AccountRemoteDisabled);
-            return TikTokRemoteCommandResult.Failed(command.Command, "账号未启用远程分发");
-        }
 
         var autoPublish = new RemoteAutoPublishContext(assignment);
         TikTokRemoteCommandResult result;

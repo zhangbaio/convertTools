@@ -25,7 +25,6 @@ public sealed record XingeRemoteAccountSnapshot(
     string Name,
     bool AuthReady,
     bool IsCurrent,
-    bool RemoteDispatchEnabled,
     IReadOnlyList<XingeRemoteUploadedDrama>? UploadedToday = null,
     bool QueueRunning = false,
     string DramaMarket = "",
@@ -461,7 +460,7 @@ public sealed class XingeRemoteCommandService
             var profiles = snapshot.AccountProfiles.Where(account => latest.ContainsKey(account.Id)).Select(account =>
             {
                 var current = latest[account.Id];
-                return account with { RemoteDispatchEnabled = current.RemoteDispatchEnabled, AuthReady = current.AuthReady };
+                return account with { AuthReady = current.AuthReady };
             }).ToArray();
             var version = typeof(XingeRemoteCommandService).Assembly.GetName().Version?.ToString() ?? "unknown";
             var machineId = config.SoftwareSession?.MachineId ?? MachineFingerprintHelper.GetMachineFingerprint();
@@ -479,6 +478,7 @@ public sealed class XingeRemoteCommandService
                 drama_source = snapshot.DramaSource,
                 dramabox_server_media = true,
                 project_slot_capacity = ClientSettingsStore.Load().TiktokGlobalProjectConcurrency,
+                xinge_managed_dispatch = true,
                 tiktok_dispatch_syncing = snapshot.DispatchSyncing,
                 account_profiles = profiles.Select(account =>
                 {
@@ -488,8 +488,6 @@ public sealed class XingeRemoteCommandService
                         ["name"] = account.Name,
                         ["auth_ready"] = account.AuthReady,
                         ["is_current"] = account.IsCurrent,
-                        ["remote_dispatch_enabled"] = !snapshot.DispatchSyncing && account.RemoteDispatchEnabled,
-                        ["remote_dispatch_preference"] = account.RemoteDispatchEnabled,
                         ["queue_running"] = account.QueueRunning,
                         ["drama_market"] = TikTokPublisher.Core.Models.TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket),
                         ["drama_source"] = string.IsNullOrWhiteSpace(account.DramaSource) ? snapshot.DramaSource : account.DramaSource,
@@ -524,67 +522,6 @@ public sealed class XingeRemoteCommandService
         finally
         {
             _registrationGate.Release();
-        }
-    }
-
-    public async Task SyncAccountDispatchPreferenceAsync(string profileId,
-        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> presenceProvider)
-    {
-        CancellationToken ct;
-        lock (_sync)
-        {
-            if (_cts is null)
-                return;
-            ct = _cts.Token;
-        }
-
-        Notify("账号配置已保存，正在同步至 XINGE...");
-        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(5) };
-        try
-        {
-            for (var attempt = 0; attempt < 3; attempt++)
-            {
-                await _registrationGate.WaitAsync(ct).ConfigureAwait(false);
-                try
-                {
-                    var config = XingeRemoteConfig.FromSettings(ClientSettingsStore.Load());
-                    if (config.HasClientCredentials)
-                    {
-                        var snapshot = await presenceProvider(ct).ConfigureAwait(false);
-                        var profile = snapshot.AccountProfiles.FirstOrDefault(account => account.Id == profileId);
-                        if (profile is null)
-                            return;
-                        var response = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
-                            "/client-api/tiktok/account-dispatch", new
-                            {
-                                account_profile_id = profile.Id,
-                                remote_dispatch_enabled = profile.RemoteDispatchEnabled,
-                                auth_ready = profile.AuthReady,
-                            }, ct).ConfigureAwait(false);
-                        if (response.Ok)
-                        {
-                            Notify(response.DispatchSyncing
-                                ? $"{profile.Name} 的远程分发设置已同步至 XINGE，派单数据仍在同步。"
-                                : $"{profile.Name} 的远程分发设置已同步至 XINGE。");
-                            return;
-                        }
-                    }
-                }
-                catch (Exception) when (!ct.IsCancellationRequested)
-                {
-                    // The next attempt reads the current preference again, including an intervening save.
-                }
-                finally
-                {
-                    _registrationGate.Release();
-                }
-                if (attempt < 2)
-                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
-            }
-            Notify("账号配置已保存，等待 XINGE 下次注册同步。");
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
         }
     }
 
@@ -665,10 +602,6 @@ public sealed class XingeRemoteCommandService
                 foreach (var item in items)
                     config.HeldConfirmMessages.Remove(item.MessageId);
                 break;
-            case DispatchConfirmDecision.RejectToday:
-                await PauseDayAsync(http, config, log, ct).ConfigureAwait(false);
-                config.HeldConfirmMessages.Clear();
-                break;
             case DispatchConfirmDecision.Dismissed:
                 foreach (var item in items)
                     config.HeldConfirmMessages.Remove(item.MessageId);
@@ -700,33 +633,12 @@ public sealed class XingeRemoteCommandService
         {
             await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
                 "/client-api/tiktok/auto-publish/decline",
-                new { client_id = config.ClientId, client_token = config.ClientToken, assignment_ids = ids }, ct).ConfigureAwait(false);
-            log?.Invoke($"已拒绝本次 TikTok 派单 {ids.Length} 部。这些剧今天不再派，今天也不会自动补派。");
+                new { client_id = config.ClientId, client_token = config.ClientToken, assignment_ids = ids, current_batch_only = true }, ct).ConfigureAwait(false);
+            log?.Invoke($"已拒绝本次 TikTok 派单 {ids.Length} 部。");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             log?.Invoke($"拒绝本次 TikTok 派单失败：{ex.Message}");
-        }
-    }
-
-    private async Task PauseDayAsync(HttpClient http, XingeRemoteConfig config, Action<string>? log, CancellationToken ct)
-    {
-        try
-        {
-            var envelope = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
-                "/client-api/tiktok/auto-publish/pause-day",
-                new { client_id = config.ClientId, client_token = config.ClientToken }, ct).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(envelope.BusinessDate))
-                config.DispatchPauseDate = envelope.BusinessDate;
-            else if (!string.IsNullOrWhiteSpace(envelope.DispatchPauseDate))
-                config.DispatchPauseDate = envelope.DispatchPauseDate;
-            else
-                config.DispatchPauseDate = "paused";
-            log?.Invoke("今日不再接收 TikTok 自动派单，尚未开始的剧已释放。");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            log?.Invoke($"今日不再接收 TikTok 派单失败：{ex.Message}");
         }
     }
 
@@ -745,6 +657,19 @@ public sealed class XingeRemoteCommandService
 
         var command = TikTokRemoteCommandParser.Parse(commandText)
                       ?? TikTokRemoteCommandParser.Parse(message.ContentText);
+
+        if (command is { IsAutoPublishAssignment: true } &&
+            AssignmentAlreadyLocal?.Invoke(command.AutoPublishAssignmentId) != true)
+        {
+            var start = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                $"/client-api/tiktok/auto-publish/assignments/{command.AutoPublishAssignmentId}/start",
+                new { }, ct).ConfigureAwait(false);
+            if (!start.Ok || !start.CanStart)
+            {
+                log?.Invoke($"XINGE 已停止派单 {command.AutoPublishAssignmentId}，跳过执行。");
+                return;
+            }
+        }
 
         if (command is null)
         {
@@ -1118,8 +1043,8 @@ public sealed class XingeRemoteCommandService
         [JsonPropertyName("quota_full_accounts")]
         public List<XingeQuotaFullAccount>? QuotaFullAccounts { get; set; }
 
-        [JsonPropertyName("dispatch_syncing")]
-        public bool DispatchSyncing { get; set; }
+        [JsonPropertyName("can_start")]
+        public bool CanStart { get; set; }
 
         [JsonPropertyName("dispatch_paused")]
         public bool DispatchPaused { get; set; }
