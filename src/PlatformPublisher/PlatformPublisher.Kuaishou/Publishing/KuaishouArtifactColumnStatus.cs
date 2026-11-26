@@ -17,7 +17,10 @@ public sealed record KuaishouArtifactColumnStatus(
     string ProjectImageStatus,
     string AutoFillStatus,
     string UploadStatus,
-    string OverallStatus);
+    string OverallStatus)
+{
+    public bool HasSubmittedDedupBatch { get; init; }
+}
 
 public static class KuaishouArtifactColumnStatusReader
 {
@@ -108,7 +111,10 @@ public static class KuaishouArtifactColumnStatusReader
             projectImageStatus,
             autoFillStatus,
             uploadStatus,
-            overallStatus);
+            overallStatus)
+        {
+            HasSubmittedDedupBatch = HasSubmittedDedupBatch(upload),
+        };
     }
 
     private static string ResolveSourceDirectory(string projectDir)
@@ -260,6 +266,13 @@ public static class KuaishouArtifactColumnStatusReader
         if (status is "running" or "uploading" or "publishing")
             return total > 0 ? $"进行中 {uploaded}/{total}" : "进行中";
         return "未执行";
+    }
+
+    private static bool HasSubmittedDedupBatch(JsonMap upload)
+    {
+        var batch = FirstText(upload.Str("VideoBatchIdentity"), upload.Str("videoBatchIdentity"), upload.Str("video_batch_identity"));
+        return batch is { Length: 64 } && batch.All(Uri.IsHexDigit) &&
+            (upload.Bool("ReviewSubmitted") || upload.Bool("reviewSubmitted") || upload.Bool("review_submitted"));
     }
 
     private static JsonMap OverallState(JsonMap prepare, JsonMap upload)

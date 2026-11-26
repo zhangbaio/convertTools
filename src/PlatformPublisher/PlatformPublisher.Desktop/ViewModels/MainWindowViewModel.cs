@@ -2678,6 +2678,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? Path.GetFileName(projectDirectory)
             : trackedJob.ProjectName;
         var enabled = steps.Where(step => step.Enabled).ToArray();
+        var submittedDedupBatch = false;
+        var skipDedupForCompletedUpload = request.RunVideoDedup && !request.Force && trackedJob is not null &&
+            KuaishouUploadCompleted(trackedJob, projectDirectory, request, out submittedDedupBatch);
         PublishVideoBatch? preparedVideos = null;
         if (enabled.Length > 0)
         {
@@ -2841,12 +2844,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("download");
                 }
-                if (request.RunVideoDedup)
+                if (skipDedupForCompletedUpload)
+                {
+                    trackedJob!.StepStates.TryGetValue(KuaishouVideoDedup.Step, out var dedup);
+                    var status = submittedDedupBatch || dedup?.Status == PublishJobStepStatus.Succeeded
+                        ? PublishJobStepStatus.Succeeded : PublishJobStepStatus.Skipped;
+                    var detail = status == PublishJobStepStatus.Succeeded
+                        ? "视频去重已完成，沿用已完成记录" : "上传已完成，跳过视频去重";
+                    AppendActivityLog(detail, projectName);
+                    if (dedup?.Status != status)
+                        await UpdateStepStateAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step,
+                            KuaishouVideoDedup.Label, status, detail);
+                    if (reportDispatchStep is not null)
+                        await reportDispatchStep(KuaishouVideoDedup.DispatchStep, detail);
+                }
+                else if (request.RunVideoDedup)
                 {
                     if (reportDispatchStep is not null)
                         await reportDispatchStep(KuaishouVideoDedup.DispatchStep, "正在执行视频去重");
                     try
                     {
+                        // 续传需要重新取得批次路径和身份，是否重新转码由去重服务按请求决定。
                         await RunTrackedStepAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step, KuaishouVideoDedup.Label,
                             force: true, async () => preparedVideos = await PrepareKuaishouDedupAsync(
                                 projectDirectory, projectName, config, request, cancellationToken));
@@ -2969,7 +2987,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (beforeArchive is not null)
                 await beforeArchive();
             if (trackedJob is not null &&
-                KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, KuaishouUploadCompleted(trackedJob, projectDirectory, request)))
+                KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, KuaishouUploadCompleted(trackedJob, projectDirectory, request, out _)))
                 await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
             return;
         }
@@ -2978,6 +2996,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var uploadStepSucceeded = trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
             && existingUpload.Status == PublishJobStepStatus.Succeeded;
+        if (skipDedupForCompletedUpload && !uploadStepSucceeded)
+        {
+            await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集",
+                PublishJobStepStatus.Succeeded, "已上传，跳过");
+            uploadStepSucceeded = true;
+        }
         var rerunUploadStep = request.Force ||
             uploadStepSucceeded && WasKuaishouUploadStoppedBeforeReview(projectDirectory, request.Platform);
         var uploadAlreadyDone = uploadStepSucceeded && !rerunUploadStep;
@@ -3113,8 +3137,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return int.MaxValue;
     }
 
-    private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)
+    private static bool KuaishouUploadCompleted(
+        PublishJob job, string projectDirectory, KuaishouPipelineRequest request, out bool submittedDedupBatch)
     {
+        submittedDedupBatch = false;
         if (WasKuaishouUploadStoppedBeforeReview(projectDirectory, request.Platform))
             return false;
         var stepSucceeded = job.StepStates.TryGetValue("weixin-upload", out var state)
@@ -3124,16 +3150,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             if (Directory.Exists(projectDirectory))
             {
-                artifactStatus = KuaishouArtifactColumnStatusReader.Read(
+                var artifacts = KuaishouArtifactColumnStatusReader.Read(
                     projectDirectory,
-                    request.Platform == PublishPlatform.KuaishouEnterpriseRevenue).UploadStatus;
+                    request.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+                artifactStatus = artifacts.UploadStatus;
+                submittedDedupBatch = artifacts.HasSubmittedDedupBatch;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             artifactStatus = null;
         }
-        return KuaishouAutoArchivePolicy.UploadCompleted(stepSucceeded, artifactStatus);
+        return KuaishouAutoArchivePolicy.UploadCompleted(stepSucceeded || submittedDedupBatch, artifactStatus);
     }
 
     private static bool WasKuaishouUploadStoppedBeforeReview(string projectDirectory, PublishPlatform platform)

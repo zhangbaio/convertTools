@@ -109,6 +109,42 @@ public sealed class PublishJobRowStatusTests
         Assert.Equal("已完成", row.StatusText);
     }
 
+    [Theory]
+    [InlineData(PublishPlatform.KuaishouPersonalRevenue, PublishJobStepStatus.Skipped, true, true, "已完成")]
+    [InlineData(PublishPlatform.KuaishouEnterpriseRevenue, PublishJobStepStatus.Skipped, true, true, "已完成")]
+    [InlineData(PublishPlatform.KuaishouPersonalRevenue, PublishJobStepStatus.Skipped, true, false, "已跳过")]
+    [InlineData(PublishPlatform.KuaishouPersonalRevenue, PublishJobStepStatus.Skipped, false, true, "已跳过")]
+    [InlineData(PublishPlatform.KuaishouPersonalRevenue, PublishJobStepStatus.Failed, true, true, "失败")]
+    [InlineData(PublishPlatform.KuaishouPersonalRevenue, PublishJobStepStatus.Running, true, true, "进行中")]
+    public void Dedup_history_recovers_completed_submissions_without_masking_current_failures(
+        PublishPlatform platform, PublishJobStepStatus savedStatus, bool submitted, bool usedDedup, string expected)
+    {
+        var root = Directory.CreateTempSubdirectory("ks-dedup-status-");
+        try
+        {
+            var edition = platform == PublishPlatform.KuaishouEnterpriseRevenue ? "enterprise" : "personal";
+            var state = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                Status = submitted ? "completed" : "draft_saved",
+                ReviewSubmitted = submitted,
+                VideoBatchIdentity = usedDedup ? new string('A', 64) : "",
+            });
+            File.WriteAllText(Path.Combine(root.FullName, $".kuaishou-{edition}-upload-state.json"), state);
+            var job = KuaishouJob();
+            job.Platform = platform;
+            job.ProjectDirectory = root.FullName;
+            job.StepStates["kuaishou-video-dedup"] = new PublishJobStepState { Status = savedStatus };
+
+            var row = new PublishJobRowViewModel(job, loadArtifacts: true, loadTableInfo: false);
+
+            Assert.Equal(expected, row.VideoDedupStepStatus);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static PublishJobRowViewModel RowWith(PublishJobStepStatus rewriteStatus, string message)
     {
         var job = KuaishouJob();

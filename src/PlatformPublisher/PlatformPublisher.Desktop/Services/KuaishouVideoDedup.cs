@@ -64,15 +64,41 @@ internal static class KuaishouVideoDedup
 
     internal static async Task<PublishVideoBatch> RunAsync(
         KuaishouPersonalProjectData data, string accountId, string accountName, VideoDedupPreset preset,
-        Action<string> log, Func<string, CancellationToken, Task<bool>> canPlay, CancellationToken ct)
+        PublishPlatform platform, bool force, Action<string> log, Func<string, CancellationToken, Task<bool>> canPlay,
+        CancellationToken ct)
     {
-        Validate(preset);
         var workflow = Path.GetFullPath(data.WorkflowDirectory);
         EnsureOrdinaryDirectory(workflow);
         await using var lease = await AcquireOutputLockAsync(workflow, ct);
         var directory = Path.Combine(workflow, VideosDirectoryName);
         EnsureOrdinaryDirectory(directory);
 
+        if (!force)
+        {
+            PublishVideoBatch? current = null;
+            try
+            {
+                current = ReadCurrentDedupBatch(workflow, accountId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                log(ex.Message);
+            }
+
+            var upload = new KuaishouPersonalUploadStateStore().Load(workflow, platform);
+            if (current is null && !string.IsNullOrWhiteSpace(upload.MiniSeriesId))
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(upload.VideoBatchIdentity)
+                    ? "已有快手草稿使用原片。请取消视频去重后续传，或按新分集另建草稿。"
+                    : "已有快手草稿绑定的去重成片缺失或未通过校验。请恢复原批次后续传，或按新分集另建草稿。");
+            if (current is not null)
+            {
+                upload.BindVideoBatch(current);
+                log($"复用当前账号已校验的 {current.Paths.Count} 集去重成片。");
+                return current;
+            }
+        }
+
+        Validate(preset);
         var originals = KuaishouSettlementEpisodeVideoService.ReadSource(data.SourceDirectory, workflow);
         if (originals.Count == 0)
             originals = data.VideoPaths;

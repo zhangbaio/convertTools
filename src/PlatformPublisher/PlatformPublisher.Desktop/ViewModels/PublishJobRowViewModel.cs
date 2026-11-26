@@ -88,6 +88,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string DownloadStepStatus => KuaishouStep(_kuaishou?.DownloadStatus, "download");
     public string VideoDedupStepStatus => KuaishouStep(null, PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step) switch
     {
+        "已跳过" when _kuaishou?.HasSubmittedDedupBatch == true => "已完成",
         "执行中" => "进行中",
         var status => status,
     };

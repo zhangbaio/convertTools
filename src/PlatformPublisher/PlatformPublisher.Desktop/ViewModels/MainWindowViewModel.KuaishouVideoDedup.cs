@@ -61,6 +61,6 @@ public sealed partial class MainWindowViewModel
         Log($"使用账号「{request.AccountName}」的去重方案。");
         var preset = request.VideoDedupPreset ?? KuaishouVideoDedup.LoadPreset(request.AccountId, config.VideoDedupTemplateId);
         return await KuaishouVideoDedup.RunAsync(data, request.AccountId, request.AccountName, preset,
-            Log, _dramaDownloader.HasFfmpegSupportedVideoAsync, cancellationToken);
+            request.Platform, request.Force, Log, _dramaDownloader.HasFfmpegSupportedVideoAsync, cancellationToken);
     }
 }
