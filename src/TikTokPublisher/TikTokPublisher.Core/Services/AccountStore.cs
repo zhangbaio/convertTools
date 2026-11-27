@@ -147,6 +147,30 @@ public sealed class AccountStore
         return account;
     }
 
+    public int? MoveRelativeTo(string accountId, string targetId, bool after)
+    {
+        var source = _accounts.FindIndex(account => account.Id == accountId);
+        var target = _accounts.FindIndex(account => account.Id == targetId);
+        if (source < 0 || target < 0 || source == target)
+            return null;
+
+        var destination = target + (after ? 1 : 0);
+        if (source < destination)
+            destination--;
+        if (source == destination)
+            return null;
+
+        var reordered = new List<TikTokAccountProfile>(_accounts);
+        var account = reordered[source];
+        reordered.RemoveAt(source);
+        reordered.Insert(destination, account);
+        SaveAccounts(reordered);
+        _accounts.Clear();
+        _accounts.AddRange(reordered);
+        NotifyAccountsChanged();
+        return destination;
+    }
+
     internal static string CreateAccountId() =>
         "acct-" + Guid.NewGuid().ToString("N")[..8];
 
@@ -227,10 +251,23 @@ public sealed class AccountStore
         return true;
     }
 
-    private void SaveAccounts()
+    private void SaveAccounts() => SaveAccounts(_accounts);
+
+    internal static void SaveAccounts(IReadOnlyList<TikTokAccountProfile> accounts)
     {
         Directory.CreateDirectory(AppPaths.DataRoot);
-        File.WriteAllText(AppPaths.AccountsFile, JsonSerializer.Serialize(_accounts, JsonOptions));
+        var path = AppPaths.AccountsFile;
+        var temporary = path + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(accounts, JsonOptions));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+                File.Delete(temporary);
+        }
     }
 
     private void BumpGeneration() => Interlocked.Increment(ref _generation);

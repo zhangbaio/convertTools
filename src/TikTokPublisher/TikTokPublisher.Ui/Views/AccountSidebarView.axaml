@@ -3,6 +3,19 @@
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
              x:Class="TikTokPublisher.Ui.Views.AccountSidebarView"
              x:DataType="vm:MainViewModel">
+    <UserControl.Styles>
+        <Style Selector="Border.accountDropIndicator">
+            <Setter Property="IsVisible" Value="False" />
+            <Setter Property="Height" Value="2" />
+            <Setter Property="Background" Value="#0078D4" />
+        </Style>
+        <Style Selector="ListBoxItem.accountDropBefore Border.accountDropTop">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="ListBoxItem.accountDropAfter Border.accountDropBottom">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+    </UserControl.Styles>
 
     <Border Classes="accountSidebarFrame" Padding="8,10">
         <DockPanel>
@@ -29,10 +42,22 @@
                      SelectionChanged="OnAccountSelectionChanged">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:AccountItemViewModel">
-                        <StackPanel Spacing="2">
-                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Subtitle}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Subtitle}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="Transparent" Cursor="Hand" Padding="5,0,0,0"
+                                    ToolTip.Tip="拖动调整账号顺序" AutomationProperties.Name="拖动调整账号顺序"
+                                    PointerPressed="OnDragGripPressed" PointerMoved="OnDragGripMoved"
+                                    PointerReleased="OnDragGripReleased" PointerCaptureLost="OnDragGripCaptureLost">
+                                <TextBlock Text="⋮⋮" VerticalAlignment="Center" Classes="pageSummary" />
+                            </Border>
+                            <Border Grid.ColumnSpan="2" Classes="accountDropIndicator accountDropTop"
+                                    VerticalAlignment="Top" IsHitTestVisible="False" />
+                            <Border Grid.ColumnSpan="2" Classes="accountDropIndicator accountDropBottom"
+                                    VerticalAlignment="Bottom" IsHitTestVisible="False" />
+                        </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>

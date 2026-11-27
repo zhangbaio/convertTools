@@ -1308,6 +1308,25 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = $"已添加「{account.Name}」，点击「登录」完成 TikTok 登录";
     }
 
+    internal void MoveSidebarAccount(AccountItemViewModel account, AccountItemViewModel target, bool after)
+    {
+        var previous = Accounts.IndexOf(account);
+        if (previous < 0 || !Accounts.Contains(target))
+            return;
+        try
+        {
+            if (_store.MoveRelativeTo(account.Id, target.Id, after) is not { } destination)
+                return;
+            Accounts.Move(previous, destination);
+            RefreshFilteredAccounts();
+            StatusMessage = "已保存 TikTok 账号顺序";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusMessage = $"保存账号顺序失败：{ex.Message}";
+        }
+    }
+
     [RelayCommand]
     private void RemoveAccount() => RemoveSelectedAccount();
 
