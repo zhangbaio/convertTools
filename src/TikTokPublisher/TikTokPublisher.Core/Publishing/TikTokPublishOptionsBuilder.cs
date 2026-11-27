@@ -9,14 +9,13 @@ public static class TikTokPublishOptionsBuilder
         TikTokAccountProfile? account,
         string? workflowProjectDir = null,
         Action<string>? log = null,
-        IEnumerable<string>? enabledQueueSteps = null,
-        ClientSettings? settings = null)
+        IEnumerable<string>? enabledQueueSteps = null)
     {
-        var options = TikTokPublishOptions.FromAccount(account, settings ?? ClientSettingsStore.Load());
         if (account is null)
-            return options;
+            return new TikTokPublishOptions();
 
         TikTokPublishConstants.ValidatePublishConfiguration(account);
+        var options = TikTokPublishOptions.FromAccount(account);
         options.SourceInfoPackageSelection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
             enabledQueueSteps,
             account.TiktokUploadSourceInfoRoleVector,

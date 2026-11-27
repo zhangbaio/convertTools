@@ -109,8 +109,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 account,
                 workflowDir,
                 L,
-                item.EnabledQueueSteps,
-                settings);
+                item.EnabledQueueSteps);
             await TikTokNewTitleLanguageService.ApplyAsync(
                 options,
                 account,

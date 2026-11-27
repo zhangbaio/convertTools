@@ -4,7 +4,6 @@ using Microsoft.Data.Sqlite;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services.VideoDedup;
@@ -626,7 +625,6 @@ public static class ClientSettingsStore
             1,
             200);
         settings.TiktokProjectImageSubtitleAiMode = NormalizeProjectImageSubtitleAiMode(settings.TiktokProjectImageSubtitleAiMode);
-        settings.TiktokDefaultPublishMode = TikTokPublishConstants.NormalizePublishMode(settings.TiktokDefaultPublishMode);
         settings.TiktokProofTemplateDocxPath = (settings.TiktokProofTemplateDocxPath ?? "").Trim();
         if (TikTokProofMaterialTemplateProvider.IsLegacyDefaultPath(settings.TiktokProofTemplateDocxPath))
             settings.TiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;

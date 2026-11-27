@@ -163,9 +163,6 @@ public sealed class ClientSettings
     public int TiktokProjectImageRenderEpisodeLimit { get; set; } = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     public bool TiktokProjectImageRenderEpisodeLimitDefaultMigrated { get; set; } = true;
     public string TiktokProjectImageSubtitleAiMode { get; set; } = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
-    public string TiktokDefaultPublishMode { get; set; } = ClientSettingsDefaults.TiktokDefaultPublishMode;
-    public bool TiktokDefaultConsignmentEnabled { get; set; } = ClientSettingsDefaults.TiktokDefaultConsignmentEnabled;
-    public bool TiktokDefaultAnchorPromotionEnabled { get; set; } = ClientSettingsDefaults.TiktokDefaultAnchorPromotionEnabled;
     public string TiktokProofTemplateDocxPath { get; set; } = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
     public string TiktokProofTemplateLanguage { get; set; } = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     public string TiktokProofWpsPath { get; set; } = ClientSettingsDefaults.TiktokProofWpsPath;
@@ -342,9 +339,6 @@ public sealed class ClientSettings
         TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
         TiktokProjectImageRenderEpisodeLimitDefaultMigrated = TiktokProjectImageRenderEpisodeLimitDefaultMigrated,
         TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
-        TiktokDefaultPublishMode = TiktokDefaultPublishMode,
-        TiktokDefaultConsignmentEnabled = TiktokDefaultConsignmentEnabled,
-        TiktokDefaultAnchorPromotionEnabled = TiktokDefaultAnchorPromotionEnabled,
         TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath,
         TiktokProofTemplateLanguage = TiktokProofTemplateLanguage,
         TiktokProofWpsPath = TiktokProofWpsPath,

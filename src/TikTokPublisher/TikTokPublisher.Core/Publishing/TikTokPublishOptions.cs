@@ -190,12 +190,6 @@ public static class TikTokPublishConstants
         ["scheduled"] = "定时发布",
     };
 
-    public static string NormalizePublishMode(string? value)
-    {
-        var mode = (value ?? "").Trim().ToLowerInvariant();
-        return PublishModeLabels.ContainsKey(mode) ? mode : ClientSettingsDefaults.TiktokDefaultPublishMode;
-    }
-
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TargetAudienceAliases = new Dictionary<string, IReadOnlyList<string>>
     {
         ["female"] = new[] { "女性", "女", "Female", "Women" },
@@ -581,20 +575,7 @@ public sealed class TikTokPublishOptions
         }
     }
 
-    public static TikTokPublishOptions FromAccount(TikTokAccountProfile? account, ClientSettings? settings = null)
-    {
-        var options = account is null ? new TikTokPublishOptions() : FromProfile(account);
-        if (settings is not null)
-        {
-            options.PublishMode = TikTokPublishConstants.NormalizePublishMode(settings.TiktokDefaultPublishMode);
-            options.ConsignmentEnabled = settings.TiktokDefaultConsignmentEnabled;
-            options.AnchorPromotionEnabled = settings.TiktokDefaultAnchorPromotionEnabled;
-        }
-
-        return options;
-    }
-
-    private static TikTokPublishOptions FromProfile(TikTokAccountProfile account) => new()
+    public static TikTokPublishOptions FromAccount(TikTokAccountProfile account) => new()
     {
         ContractId = account.TiktokContractId,
         ContractIdMode = TikTokPublishConstants.ContractIdModeManual,

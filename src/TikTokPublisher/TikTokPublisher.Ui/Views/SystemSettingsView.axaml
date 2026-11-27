@@ -609,29 +609,6 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="TikTok 发布默认" IsVisible="{Binding ShowsTikTokPublishPrompt}">
-                <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
-                        <TextBlock Text="本机所有 TikTok 账号共用。保存后在下次开始发布时生效。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
-                            <TextBlock Text="发布模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" Classes="configurationInput" HorizontalAlignment="Left" MinWidth="220"
-                                      AutomationProperties.Name="发布模式"
-                                      SelectedValueBinding="{ReflectionBinding Tag}"
-                                      SelectedValue="{Binding TiktokDefaultPublishMode, Mode=TwoWay}">
-                                <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
-                                <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
-                                <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
-                            </ComboBox>
-                        </Grid>
-                        <ToggleSwitch IsChecked="{Binding TiktokDefaultConsignmentEnabled}"
-                                      OnContent="寄售模式" OffContent="寄售模式" AutomationProperties.Name="寄售模式" />
-                        <ToggleSwitch IsChecked="{Binding TiktokDefaultAnchorPromotionEnabled}"
-                                      OnContent="锚点推广" OffContent="锚点推广" AutomationProperties.Name="锚点推广" />
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
             <TabItem Header="证明材料">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">

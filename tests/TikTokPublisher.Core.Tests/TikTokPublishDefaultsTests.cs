@@ -9,7 +9,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokPublishDefaultsTests
 {
     [Fact]
-    public void Publish_modes_round_trip_through_local_settings_without_inheriting_legacy_account_keys()
+    public void Publish_options_and_manifest_use_built_in_defaults_even_with_legacy_settings()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-publish-defaults-{Guid.NewGuid():N}");
         var databasePath = Path.Combine(tempDir, "app.db");
@@ -17,26 +17,27 @@ public sealed class TikTokPublishDefaultsTests
         {
             AppSettingStore.SaveJson(ClientSettingsStore.SettingsKey, new Dictionary<string, object?>
             {
-                ["tiktok_publish_mode"] = "manual",
-                ["tiktok_consignment_enabled"] = false,
-                ["tiktok_anchor_promotion_enabled"] = false,
+                ["tiktok_default_publish_mode"] = "manual",
+                ["tiktok_default_consignment_enabled"] = false,
+                ["tiktok_default_anchor_promotion_enabled"] = false,
             }, databasePath);
+            using var settings = ClientSettingsStore.UseSettingsForTests(() => ClientSettingsStore.Load(databasePath));
+            var account = new TikTokAccountProfile
+            {
+                TiktokPublishMode = "scheduled",
+                TiktokConsignmentEnabled = false,
+                TiktokAnchorPromotionEnabled = false,
+            };
 
-            var settings = ClientSettingsStore.Load(databasePath);
-            settings.TiktokDefaultPublishMode.Should().Be("auto_after_review");
-            settings.TiktokDefaultConsignmentEnabled.Should().BeTrue();
-            settings.TiktokDefaultAnchorPromotionEnabled.Should().BeTrue();
+            var options = TikTokPublishOptionsBuilder.FromAccount(account);
+            options.PublishMode.Should().Be("auto_after_review");
+            options.ConsignmentEnabled.Should().BeTrue();
+            options.AnchorPromotionEnabled.Should().BeTrue();
 
-            settings.TiktokDefaultPublishMode = " Scheduled ";
-            settings.TiktokDefaultConsignmentEnabled = false;
-            settings.TiktokDefaultAnchorPromotionEnabled = false;
-            ClientSettingsStore.Save(settings, databasePath);
-
-            var loaded = ClientSettingsStore.Load(databasePath).Clone();
-            loaded.TiktokDefaultPublishMode.Should().Be("scheduled");
-            loaded.TiktokDefaultConsignmentEnabled.Should().BeFalse();
-            loaded.TiktokDefaultAnchorPromotionEnabled.Should().BeFalse();
-            TikTokPublishConstants.NormalizePublishMode("unsupported").Should().Be("auto_after_review");
+            var manifest = TikTokUploadManifestService.BuildPublishConfigSnapshot(account);
+            manifest["publish_mode"].Should().Be("auto_after_review");
+            manifest["consignment_enabled"].Should().Be(true);
+            manifest["anchor_promotion_enabled"].Should().Be(true);
         }
         finally
         {
@@ -44,44 +45,6 @@ public sealed class TikTokPublishDefaultsTests
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Fact]
-    public void Shared_publish_settings_apply_to_all_accounts_and_manifest_and_are_snapshotted_for_an_upload()
-    {
-        var local = new ClientSettings
-        {
-            TiktokDefaultPublishMode = "manual",
-            TiktokDefaultConsignmentEnabled = false,
-            TiktokDefaultAnchorPromotionEnabled = false,
-        };
-        using var settings = ClientSettingsStore.UseSettingsForTests(() => local);
-        var firstAccount = new TikTokAccountProfile { TiktokPublishMode = "scheduled" };
-        var secondAccount = new TikTokAccountProfile
-        {
-            TiktokPublishMode = "auto_after_review",
-            TiktokConsignmentEnabled = false,
-            TiktokAnchorPromotionEnabled = false,
-        };
-
-        var first = TikTokPublishOptionsBuilder.FromAccount(firstAccount);
-        var second = TikTokPublishOptionsBuilder.FromAccount(secondAccount);
-        var manifest = TikTokUploadManifestService.BuildPublishConfigSnapshot(firstAccount);
-
-        first.PublishMode.Should().Be("manual");
-        first.ConsignmentEnabled.Should().BeFalse();
-        first.AnchorPromotionEnabled.Should().BeFalse();
-        second.PublishMode.Should().Be(first.PublishMode);
-        second.ConsignmentEnabled.Should().Be(first.ConsignmentEnabled);
-        second.AnchorPromotionEnabled.Should().Be(first.AnchorPromotionEnabled);
-        manifest["publish_mode"].Should().Be("manual");
-        manifest["consignment_enabled"].Should().Be(false);
-        manifest["anchor_promotion_enabled"].Should().Be(false);
-        firstAccount.TiktokPublishMode.Should().Be("scheduled");
-
-        local = new ClientSettings();
-        TikTokPublishOptionsBuilder.FromAccount(secondAccount).PublishMode.Should().Be("auto_after_review");
-        first.PublishMode.Should().Be("manual");
     }
 
     [Fact]
