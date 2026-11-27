@@ -1338,6 +1338,7 @@ public sealed partial class MainViewModel : ViewModelBase
         Accounts.Remove(vm);
         SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
         RefreshFilteredAccounts();
+        _xingeRemoteCommandService.RequestAccountRosterSync();
         StatusMessage = $"已删除「{vm.DisplayName}」";
     }
 

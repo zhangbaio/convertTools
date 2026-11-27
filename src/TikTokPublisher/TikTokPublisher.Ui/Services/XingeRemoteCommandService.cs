@@ -40,6 +40,10 @@ public sealed class XingeRemoteCommandService
 
     private static readonly TimeSpan RegistrationInterval = TimeSpan.FromSeconds(30);
 
+    private long _registrationRevision;
+
+    public void RequestAccountRosterSync() => Interlocked.Increment(ref _registrationRevision);
+
     private readonly SemaphoreSlim _registrationGate = new(1, 1);
     private readonly object _sync = new();
     private readonly object _quotaFullLock = new();
@@ -185,6 +189,7 @@ public sealed class XingeRemoteCommandService
     {
         using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(25) };
         var lastRegisteredAt = DateTimeOffset.MinValue;
+        var registeredRevision = -1L;
         var startupReady = false;
         var sentProcessedSeries = new HashSet<XingeTikTokProcessedFact>();
         XingeRemoteMessage? replay = null;
@@ -201,7 +206,8 @@ public sealed class XingeRemoteCommandService
                 if (config.NeedsProvisioning)
                     await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
 
-                if (DateTimeOffset.UtcNow - lastRegisteredAt >= RegistrationInterval)
+                var registrationRevision = Interlocked.Read(ref _registrationRevision);
+                if (registrationRevision != registeredRevision || DateTimeOffset.UtcNow - lastRegisteredAt >= RegistrationInterval)
                 {
                     XingeRemoteRegistrationSnapshot snapshot;
                     if (!startupReady)
@@ -231,6 +237,7 @@ public sealed class XingeRemoteCommandService
                     ct.ThrowIfCancellationRequested();
                     RememberQuotaFullAccounts(quotaFull);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
+                    registeredRevision = registrationRevision;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
                     await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
                     if (recoverAsync is not null)
@@ -490,6 +497,7 @@ public sealed class XingeRemoteCommandService
                 project_slot_capacity = ClientSettingsStore.Load().TiktokGlobalProjectConcurrency,
                 xinge_managed_dispatch = true,
                 tiktok_dispatch_syncing = snapshot.DispatchSyncing,
+                tiktok_account_roster_complete = profiles.Length == latest.Count,
                 account_profiles = profiles.Select(account =>
                 {
                     var profile = new Dictionary<string, object?>
