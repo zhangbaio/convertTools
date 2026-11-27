@@ -385,13 +385,20 @@
         </Border>
         <Border x:Name="WeixinChrome" Classes="controlsFrame uploadQueueToolbar" Padding="10">
             <StackPanel Spacing="7">
-                <WrapPanel>
-                    <Button x:Name="UploadDramasButton" Content="按剧名入队" Click="OnUploadDramasClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
-                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
-                    <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="contentAction compactAction" Margin="0,0,6,4" />
-                    <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="fileAction compactAction" Margin="0,0,6,4" />
-                    <Button x:Name="OpenLoginButton" Content="账号配置" Command="{Binding OpenLoginCommand}" Classes="logAction compactAction" Margin="0,0,6,4" />
-                </WrapPanel>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <WrapPanel>
+                        <Button x:Name="UploadDramasButton" Content="按剧名入队" Click="OnUploadDramasClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
+                        <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
+                        <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="contentAction compactAction" Margin="0,0,6,4" />
+                        <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="fileAction compactAction" Margin="0,0,6,4" />
+                        <Button x:Name="OpenLoginButton" Content="账号配置" Command="{Binding OpenLoginCommand}" Classes="logAction compactAction" Margin="0,0,6,4" />
+                    </WrapPanel>
+                    <WrapPanel x:Name="WeixinQuickActions" Grid.Column="1" HorizontalAlignment="Right">
+                        <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
+                        <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
+                        <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" Margin="0,0,0,4" />
+                    </WrapPanel>
+                </Grid>
                 <WrapPanel>
                     <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
                     <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
@@ -455,44 +462,6 @@
                             <CheckBox Content="同步管理" IsChecked="{Binding PipelineSyncManagementAfterUpload}" Margin="0,0,12,3" />
                         </WrapPanel>
                     </Grid>
-                </Expander>
-
-                <Expander Header="更多操作" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                    <StackPanel Spacing="6">
-                        <WrapPanel>
-                            <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
-                            <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
-                            <Button Content="重试上传失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
-                            <Button Content="上传选中项目" Command="{Binding RunSelectedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
-                            <Button Content="上传全部待办" Command="{Binding RunRunnableCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
-                            <Button Content="将工作目录加入队列" Command="{Binding AddJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
-                        </WrapPanel>
-                        <WrapPanel>
-                            <TextBox Width="200" Text="{Binding DraftNewProjectName}" Watermark="创建项目名称" Margin="0,0,6,4" />
-                            <Button Content="创建并入队" Command="{Binding CreateNamedProjectCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
-                            <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="8,0,6,0" />
-                            <NumericUpDown Width="82" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" AutomationProperties.Name="自动上架页数" />
-                            <TextBlock Text="页" VerticalAlignment="Center" Margin="4,0,6,0" />
-                            <NumericUpDown Width="82" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" AutomationProperties.Name="自动上架轮数" />
-                            <TextBlock Text="轮" VerticalAlignment="Center" Margin="4,0,6,0" />
-                            <Button Content="开始上架" Command="{Binding AutoShelfCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
-                        </WrapPanel>
-                        <WrapPanel>
-                            <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                            <Button Content="移出当前任务" Command="{Binding RemoveSelectedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                            <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                            <ComboBox Width="105" ItemsSource="{Binding JobStatusChoices}" SelectedItem="{Binding SelectedJobStatusChoice}" Margin="0,0,6,6">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:PublishJobStatusOptionViewModel"><TextBlock Text="{Binding Label}" /></DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                            <Button Content="修改状态" Command="{Binding ApplyCheckedStatusCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                            <Button Content="归属当前账号" Command="{Binding AssignCheckedToCurrentAccountCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                            <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-
-                        </WrapPanel>
-                        <TextBlock Text="{Binding DramaSourceStatusText}" Foreground="#9A3412" FontSize="12" TextWrapping="Wrap" />
-                    </StackPanel>
                 </Expander>
             </StackPanel>
         </Border>
