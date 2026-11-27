@@ -50,7 +50,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ("project-image", "工程图"),
         ("ai-proof", "AI制作证明"),
         ("timestamp-certificate", "可信时间戳"),
-        ("upload-remux", "无损重封装"),
         ("material-validate", "素材校验"),
         ("kuaishou-personal-artifacts", "快手个人版产物"),
         ("weixin-upload", "上传剧集"),
@@ -406,7 +405,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _pipelineCostReportEnabled = true;
     [ObservableProperty] private bool _pipelineProjectImageEnabled = true;
     [ObservableProperty] private bool _pipelineMaterialValidateEnabled = true;
-    [ObservableProperty] private bool _pipelineRemuxEnabled;
     [ObservableProperty] private bool _pipelineUploadEpisodesEnabled = true;
     [ObservableProperty] private bool _pipelineForceRerun;
     [ObservableProperty] private bool _pipelineAutoArchiveAfterUpload;
@@ -1056,7 +1054,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPipelineGenerateAiProofEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineGenerateTimestampCertificateEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineMaterialValidateEnabledChanged(bool value) => OnWorkflowStepChanged();
-    partial void OnPipelineRemuxEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineUploadEpisodesEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineForceRerunChanged(bool value) => RememberWorkflowSteps();
     partial void OnPipelineAutoArchiveAfterUploadChanged(bool value) => RememberWorkflowSteps();
@@ -1077,10 +1074,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await Task.WhenAll(loadJobs, loadAccounts, loadWorkflowSettings);
             _jobs.AddRange(await loadJobs);
             var recoveredSteps = 0;
+            var recoveredRemuxFailures = 0;
             foreach (var job in _jobs)
             {
                 EnsureStepStates(job);
-                foreach (var step in job.StepStates.Values.Where(step => step.Status == PublishJobStepStatus.Running))
+                if (_jobScope != PublishJobScope.Kuaishou && WeixinPublishQueueSteps.RecoverRetiredRemuxFailure(job))
+                    recoveredRemuxFailures++;
+                foreach (var step in WeixinPublishQueueSteps.ActiveStates(job).Where(step => step.Status == PublishJobStepStatus.Running))
                 {
                     step.Status = PublishJobStepStatus.Pending;
                     step.Message = "上次运行意外中断，已恢复为待执行";
@@ -1104,12 +1104,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 job.IsChecked = true;
                 restoredChecks++;
             }
-            if (recovered > 0 || recoveredSteps > 0 || restoredChecks > 0)
+            if (recovered > 0 || recoveredSteps > 0 || recoveredRemuxFailures > 0 || restoredChecks > 0)
             {
                 await PersistAsync();
                 StatusMessage = restoredChecks > 0
                     ? $"已勾选今日分发和今日执行的 {restoredChecks} 部剧。"
-                    : $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
+                    : $"已恢复 {recovered + recoveredRemuxFailures} 条任务、{recoveredSteps} 个中断步骤。";
             }
             if (_jobScope == PublishJobScope.Kuaishou)
             {
@@ -1480,7 +1480,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
          (!IsKuaishouPlatform && PipelineStoryboardRecordingEnabled) ||
          PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
-         PipelineRemuxEnabled || (IsKuaishouPlatform && PipelineUploadEpisodesEnabled));
+         (IsKuaishouPlatform && PipelineUploadEpisodesEnabled));
 
     private bool CanScanWorkspace() =>
         AllowsKuaishouWork() &&
@@ -1723,7 +1723,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PipelineCostReportEnabled = settings.CostReportEnabled;
         PipelineProjectImageEnabled = settings.ProjectImageEnabled;
         PipelineMaterialValidateEnabled = settings.MaterialValidateEnabled;
-        PipelineRemuxEnabled = settings.RemuxEnabled;
         PipelineUploadEpisodesEnabled = settings.UploadEpisodesEnabled;
         PipelineForceRerun = settings.ForceRerun;
         PipelineAutoArchiveAfterUpload = settings.AutoArchiveAfterUpload;
@@ -1763,7 +1762,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CostReportEnabled = PipelineCostReportEnabled,
         ProjectImageEnabled = PipelineProjectImageEnabled,
         MaterialValidateEnabled = PipelineMaterialValidateEnabled,
-        RemuxEnabled = PipelineRemuxEnabled,
         UploadEpisodesEnabled = PipelineUploadEpisodesEnabled,
         ForceRerun = PipelineForceRerun,
         AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
@@ -1852,7 +1850,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var stepNames = steps.Select(step => step.Label).ToList();
             if (!IsKuaishouPlatform && PipelineAutoRepairEnabled) stepNames.Add("一键修复");
             if (PipelineAutoFillEnabled) stepNames.Add("补齐字段");
-            if (!IsKuaishouPlatform && PipelineRemuxEnabled) stepNames.Add("无损重封装");
             if (IsKuaishouPlatform && PipelineUploadEpisodesEnabled) stepNames.Add("上传剧集");
             AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
             foreach (var projectDirectory in targets)
@@ -1961,15 +1958,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PipelineForceRerun,
                             async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
-                    }
-
-                    if (!IsKuaishouPlatform && PipelineRemuxEnabled)
-                    {
-                        await RunTrackedStepAsync(trackedJob, trackedRow, "upload-remux", "无损重封装", PipelineForceRerun, async () =>
-                        {
-                            var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
-                            if (!remux.Ok) throw new InvalidOperationException(remux.Message);
-                        });
                     }
 
                     if (PipelineMaterialValidateEnabled)
@@ -4373,7 +4361,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static void ResetFailedStepStates(PublishJob job)
     {
         EnsureStepStates(job);
-        foreach (var step in job.StepStates.Values.Where(step => step.Status is PublishJobStepStatus.Failed or PublishJobStepStatus.Running))
+        foreach (var step in WeixinPublishQueueSteps.ActiveStates(job).Where(step => step.Status is PublishJobStepStatus.Failed or PublishJobStepStatus.Running))
         {
             step.Status = PublishJobStepStatus.Pending;
             step.Message = "已重置为待执行";

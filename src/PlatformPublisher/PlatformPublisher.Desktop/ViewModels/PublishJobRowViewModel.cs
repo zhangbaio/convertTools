@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Kuaishou.Publishing;
+using PlatformPublisher.Weixin.Publishing;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -121,11 +122,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         Model.StepStates.GetValueOrDefault("material-validate")?.Status == PublishJobStepStatus.Succeeded &&
         Model.StepStates.GetValueOrDefault("weixin-upload")?.Status is null or PublishJobStepStatus.Pending;
     public string WeixinCurrentStep =>
-        Model.StepStates.Values.Where(step => step.Status is PublishJobStepStatus.Running or PublishJobStepStatus.Failed)
+        WeixinPublishQueueSteps.ActiveStates(Model).Where(step => step.Status is PublishJobStepStatus.Running or PublishJobStepStatus.Failed)
             .OrderByDescending(step => step.Status == PublishJobStepStatus.Running)
             .ThenByDescending(step => step.UpdatedAt).FirstOrDefault()?.Label ??
         (IsReadyForWeixinUpload ? "等待上传" : StepProgressSummary);
-    public IReadOnlyList<string> WeixinStepDetails => Model.StepStates.Values
+    public IReadOnlyList<string> WeixinStepDetails => WeixinPublishQueueSteps.ActiveStates(Model)
         .Select(step => $"{step.Label} · {StepStatus(step.Key)}{(string.IsNullOrWhiteSpace(step.Message) ? "" : $" · {step.Message}")}")
         .ToArray();
     private bool IsDraftReviewPending => Model.Status == PublishJobStatus.Blocked &&
@@ -168,7 +169,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         get
         {
-            var states = Model.StepStates.Values.ToArray();
+            var states = WeixinPublishQueueSteps.ActiveStates(Model).ToArray();
             if (states.Length == 0) return "未开始";
             var failed = states.FirstOrDefault(item => item.Status == PublishJobStepStatus.Failed);
             if (failed is not null) return $"失败：{failed.Label}";

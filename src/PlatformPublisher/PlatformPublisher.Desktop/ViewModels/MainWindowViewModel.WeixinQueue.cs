@@ -17,7 +17,7 @@ public sealed partial class MainWindowViewModel
         PipelineDownloadEnabled, PipelineSmartRecutEnabled, PipelineRewriteEnabled, PipelinePosterEnabled,
         PipelineTranscodeEnabled, PipelineAutoRepairEnabled, PipelineAutoFillEnabled, PipelineCostReportEnabled,
         PipelineProjectImageEnabled, PipelineGenerateAiProofEnabled, PipelineStoryboardRecordingEnabled,
-        PipelineGenerateTimestampCertificateEnabled, PipelineMaterialValidateEnabled, PipelineRemuxEnabled,
+        PipelineGenerateTimestampCertificateEnabled, PipelineMaterialValidateEnabled,
     }.Count(value => value)} 项";
 
     public string WeixinQueueSummary =>
@@ -58,7 +58,6 @@ public sealed partial class MainWindowViewModel
             PipelineStoryboardRecordingEnabled = enabled;
             PipelineGenerateTimestampCertificateEnabled = enabled;
             PipelineMaterialValidateEnabled = enabled;
-            PipelineRemuxEnabled = enabled;
         }
         finally { _applyingWorkflowSettings = false; }
         RememberWorkflowSteps();

@@ -440,7 +440,6 @@
                             <CheckBox x:Name="TimestampStep" Content="可信时间戳" IsChecked="{Binding PipelineGenerateTimestampCertificateEnabled}" Margin="0,0,14,3"
                                       ToolTip.Tip="本地模板，非 TSA 认证" />
                             <CheckBox x:Name="MaterialValidateStep" Content="素材校验" IsChecked="{Binding PipelineMaterialValidateEnabled}" Margin="0,0,14,3" />
-                            <CheckBox x:Name="RemuxStep" Content="无损重封装" IsChecked="{Binding PipelineRemuxEnabled}" Margin="0,0,14,3" />
                         </WrapPanel>
                         <WrapPanel x:Name="StoryboardRecordingSettings" Grid.Row="2" IsVisible="{Binding PipelineStoryboardRecordingEnabled}">
                             <TextBlock Text="分镜模板" VerticalAlignment="Center" Margin="0,0,8,3" />

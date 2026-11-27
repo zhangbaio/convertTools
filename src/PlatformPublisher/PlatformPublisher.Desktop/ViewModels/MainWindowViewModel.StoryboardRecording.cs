@@ -44,7 +44,7 @@ public sealed partial class MainWindowViewModel
                         AppendActivityLog(message, projectName);
                     }), cancellationToken);
             });
-        if (retrying && job is not null && job.StepStates.Values.All(step => step.Status != PublishJobStepStatus.Failed))
+        if (retrying && job is not null && WeixinPublishQueueSteps.ActiveStates(job).All(step => step.Status != PublishJobStepStatus.Failed))
         {
             job.Status = job.StepStates.GetValueOrDefault("weixin-upload")?.Status == PublishJobStepStatus.Succeeded
                 ? PublishJobStatus.Succeeded : PublishJobStatus.Pending;
