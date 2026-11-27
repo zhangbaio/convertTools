@@ -155,6 +155,13 @@ public partial class MainWindow : Window
         ApplyAccountPanelLayout();
         NavigateTo("queue");
         Closed += OnWindowClosed;
+        Opened += async (_, _) =>
+        {
+            _featurePermissionTimer.Tick += async (_, _) => await RefreshModulePermissionsAsync();
+            _featurePermissionTimer.Start();
+            await RefreshModulePermissionsAsync();
+        };
+        Closed += (_, _) => _featurePermissionTimer.Stop();
         ApplyStartupLayout();
         SizeChanged += (_, _) => RememberNormalPlacement();
         PositionChanged += (_, _) => RememberNormalPlacement();
@@ -481,6 +488,7 @@ public partial class MainWindow : Window
     private void SaveLicenseLoginResult(LicenseLoginDialogResult result)
     {
         LicenseGate.SaveLoginResult(result);
+        _ = RefreshModulePermissionsAsync();
         _viewModel.SystemServices.Load();
         _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
         _viewModel.StartXingeRemoteCommandService();
@@ -489,6 +497,7 @@ public partial class MainWindow : Window
     private void SaveVerifiedLicenseState(LicenseState state)
     {
         LicenseGate.SaveVerifiedState(state);
+        _ = RefreshModulePermissionsAsync();
         _viewModel.SystemServices.Load();
         _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
         _viewModel.StartXingeRemoteCommandService();
@@ -744,6 +753,33 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Background);
     }
 
+    private readonly DispatcherTimer _featurePermissionTimer = new() { Interval = TimeSpan.FromSeconds(30) };
+
+    private static bool IsModuleAllowed(string tag) => tag switch
+    {
+        "download" => ClientFeaturePermissions.Allows("download"),
+        "material-clip" => ClientFeaturePermissions.Allows("edit"),
+        "queue" => ClientFeaturePermissions.Allows("tiktok"),
+        "kuaishou" => ClientFeaturePermissions.Allows("kuaishou"),
+        "weixin" => ClientFeaturePermissions.Allows("weixin"),
+        "analytics" => ClientFeaturePermissions.Allows("analytics"),
+        _ => true,
+    };
+
+    private async Task RefreshModulePermissionsAsync()
+    {
+        await ClientFeaturePermissions.RefreshAsync(CancellationToken.None);
+        foreach (var button in ModuleNav.Children.OfType<Button>())
+            if (button.Tag is string tag)
+                button.IsVisible = IsModuleAllowed(tag);
+        if (!IsModuleAllowed(_activeNavTag))
+        {
+            _activeNavTag = "settings";
+            UpdateNavHighlight();
+            ShowPage(_activeNavTag);
+        }
+    }
+
     private void NavigateTo(string tag) => _ = NavigateAsync(tag);
 
     private bool IsTikTokBrowserActive => _activeNavTag == "queue" && _tikTokSubPage == "browser";
@@ -769,6 +805,8 @@ public partial class MainWindow : Window
             tikTokSubPage = tag;
             tag = "queue";
         }
+        if (!IsModuleAllowed(tag))
+            return;
         _navigationPending = true;
         try
         {

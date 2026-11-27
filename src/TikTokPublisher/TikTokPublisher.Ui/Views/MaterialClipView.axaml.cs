@@ -262,6 +262,11 @@ public partial class MaterialClipView : UserControl
             {
                 if (running.IsCancellationRequested)
                     break;
+                if (!TikTokPublisher.Core.Services.ClientFeaturePermissions.Allows("edit"))
+                {
+                    QueueStatus.Text = "当前用户无剪辑功能权限。";
+                    break;
+                }
                 task.BeginRun(options);
                 foreach (var mode in options.ModeSettings ?? [])
                 {

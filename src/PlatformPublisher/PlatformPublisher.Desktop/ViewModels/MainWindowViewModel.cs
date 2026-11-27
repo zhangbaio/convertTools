@@ -2463,6 +2463,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         KuaishouAccountOrder(request.AccountId),
                         ct,
                         () => AppendActivityLog($"等待全局剧集名额：{projectName}", projectName));
+                    if (!ClientFeaturePermissions.Allows("kuaishou"))
+                    {
+                        AppendActivityLog("当前用户无快手功能权限，暂停新项目。", projectName);
+                        return;
+                    }
                     SetKuaishouLogTone(item.directory, "running");
                     AppendActivityLog($"快手分账{request.EditionLabel} {index + 1}/{work.Length}：{projectName}", projectName);
                     await RunKuaishouSettlementPipelineAsync(

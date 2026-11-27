@@ -229,12 +229,12 @@ public partial class WeixinUploadWorkspace : UserControl
     private async void OnRetryClick(object? sender, RoutedEventArgs e) => await ActivateAsync();
 
     private Task<bool> ConfirmMaterialPublishAsync(int count) =>
-        TopLevel.GetTopLevel(this) is Window owner
+        TikTokPublisher.Core.Services.ClientFeaturePermissions.Allows("weixin") && TopLevel.GetTopLevel(this) is Window owner
             ? ConfirmDialog.ShowAsync(owner, "确认发表到微信视频号", $"将按任务绑定的账号正式发表 {count} 条素材。继续发表？")
             : Task.FromResult(false);
 
     private Task<bool> ConfirmQueueUploadAsync(int count) =>
-        TopLevel.GetTopLevel(this) is Window owner
+        TikTokPublisher.Core.Services.ClientFeaturePermissions.Allows("weixin") && TopLevel.GetTopLevel(this) is Window owner
             ? ConfirmDialog.ShowAsync(owner, "执行视频号剧集队列",
                 $"将按项目配置上传 {count} 部剧集。启用了自动提审的项目会提交审核。继续执行？")
             : Task.FromResult(false);

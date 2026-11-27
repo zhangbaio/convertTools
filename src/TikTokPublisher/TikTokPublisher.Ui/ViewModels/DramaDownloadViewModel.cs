@@ -1359,6 +1359,11 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [RelayCommand]
     private async Task StartDownloadQueueAsync()
     {
+        if (!ClientFeaturePermissions.Allows("download"))
+        {
+            LogRequested?.Invoke("当前用户无下载功能权限。");
+            return;
+        }
         if (IsDownloading) return;
         using var chainHold = HoldActiveChain();
         if (QueueRows.Count == 0)

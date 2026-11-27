@@ -814,6 +814,13 @@ public sealed class QueueWorkerRunner
                     var item = entry.Item;
                     if (!item.Enabled)
                         continue;
+                    if (!ClientFeaturePermissions.Allows("tiktok"))
+                    {
+                        MarkStopped(item, item.CurrentStep);
+                        Report(onProgress, workspace, item, "当前用户无 TikTok 功能权限，暂停新项目。");
+                        Persist(workspace, items, onPersist);
+                        continue;
+                    }
                     var currentSteps = options.OrderedEnabledSteps();
                     var itemPreUploadSteps = currentSteps
                         .Where(step => step != QueueStepRegistry.UploadSeries)
@@ -892,6 +899,14 @@ public sealed class QueueWorkerRunner
                 while (readyForUpload.Count > 0 && rotations > 0)
                 {
                     var item = readyForUpload.Dequeue();
+                    if (!ClientFeaturePermissions.Allows("tiktok") && (_projectSlots is null || !HoldsProjectSlot(item)))
+                    {
+                        MarkStopped(item, QueueStepRegistry.UploadSeries);
+                        Report(onProgress, workspace, item, "当前用户无 TikTok 功能权限，暂停新项目。");
+                        Persist(workspace, items, onPersist);
+                        rotations = readyForUpload.Count;
+                        continue;
+                    }
                     if (!item.Enabled)
                     {
                         ReleaseProjectSlot(item);

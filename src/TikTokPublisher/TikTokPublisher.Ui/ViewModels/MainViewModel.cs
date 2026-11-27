@@ -810,6 +810,10 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private async Task<TikTokRemoteCommandResult> ExecuteXingeRemoteCommandAsync(TikTokRemoteCommand command)
     {
+        await ClientFeaturePermissions.RefreshAsync(CancellationToken.None).ConfigureAwait(false);
+        if (!ClientFeaturePermissions.Allows("tiktok"))
+            return TikTokRemoteCommandResult.Failed(command.Command, "当前用户无 TikTok 功能权限");
+
         if (command.IsUploadCommand)
         {
             var seeds = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeAccountSeeds);

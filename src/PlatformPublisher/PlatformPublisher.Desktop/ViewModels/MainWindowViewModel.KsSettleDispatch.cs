@@ -6,6 +6,7 @@ using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Remote;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
 using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
 
@@ -83,6 +84,8 @@ public sealed partial class MainWindowViewModel
         Func<string, string, string, string, Task> reportAsync,
         CancellationToken cancellationToken)
     {
+        if (!ClientFeaturePermissions.Allows("kuaishou"))
+            return Task.FromResult(new YunfanRemoteCommandResult("failed", "当前用户无快手功能权限"));
         NoteKsSettleAssignmentReceived(command.AssignmentId);
         var done = new TaskCompletionSource<YunfanRemoteCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         Dispatcher.UIThread.Post(async () =>
@@ -625,6 +628,8 @@ public sealed partial class MainWindowViewModel
                     token,
                     () => AppendActivityLog($"等待全局剧集名额：{work.Command.Title}"));
                 await work.ReportAsync("running", "download", $"开始执行「{work.Command.Title}」", "").ConfigureAwait(false);
+                if (!ClientFeaturePermissions.Allows("kuaishou"))
+                    throw new InvalidOperationException("当前用户无快手功能权限，暂停新项目。");
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     job.Platform == work.Request.Platform &&
                     string.Equals(job.AccountId, work.Request.AccountId, StringComparison.OrdinalIgnoreCase) &&
