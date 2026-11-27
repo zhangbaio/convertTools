@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -35,10 +37,9 @@ public static class PublisherConfigTransfer
         try
         {
             if (File.Exists(AppPaths.AccountsFile))
-                File.Copy(AppPaths.AccountsFile, Path.Combine(tempRoot, "accounts.json"), overwrite: true);
+                ExportAccountsAndDedupTemplates(tempRoot, accounts);
             if (File.Exists(AppPaths.ActiveAccountFile))
                 File.Copy(AppPaths.ActiveAccountFile, Path.Combine(tempRoot, "active-account.json"), overwrite: true);
-            VideoDedupTemplateStore.Export(Path.Combine(tempRoot, VideoDedupTemplateStore.FileName), accounts);
             if (includeRunData)
             {
                 if (File.Exists(AppPaths.AppDatabaseFile))
@@ -113,6 +114,35 @@ public static class PublisherConfigTransfer
         }
     }
 
+    private static void ExportAccountsAndDedupTemplates(string packageRoot, IReadOnlyList<TikTokAccountProfile> accounts)
+    {
+        var effective = VideoDedupTemplateCatalog.OpenDefault().CaptureRunPresets(accounts,
+            message => System.Diagnostics.Trace.TraceWarning(message));
+        var templates = new Dictionary<string, VideoDedupTemplate>();
+        foreach (var account in accounts)
+        {
+            var preset = effective.GetValueOrDefault(account.Id);
+            account.VideoDedupPreset = preset;
+            if (preset is null)
+            {
+                account.VideoDedupTemplateId = VideoDedupTemplateStore.SystemId;
+                continue;
+            }
+            var fingerprint = preset.Fingerprint();
+            var id = account.VideoDedupTemplateId;
+            if (string.IsNullOrWhiteSpace(id) || id == VideoDedupTemplateStore.SystemId ||
+                (templates.TryGetValue(id, out var existing) &&
+                 (existing.Name != preset.Name || existing.Preset.Fingerprint() != fingerprint)))
+                id = "export-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(preset.Name + "\n" + fingerprint)));
+            account.VideoDedupTemplateId = id;
+            templates[id] = new VideoDedupTemplate(id, preset);
+        }
+        File.WriteAllText(Path.Combine(packageRoot, "accounts.json"), JsonSerializer.Serialize(accounts, JsonOptions));
+        if (templates.Count > 0)
+            File.WriteAllText(Path.Combine(packageRoot, VideoDedupTemplateStore.FileName),
+                JsonSerializer.Serialize(templates.Values, JsonOptions));
+    }
+
     public static ConfigPackageInfo Inspect(string zipPath)
     {
         var manifest = ReadManifest(zipPath);
@@ -169,8 +199,15 @@ public static class PublisherConfigTransfer
                     current.Add(account);
             }
 
-            Directory.CreateDirectory(AppPaths.DataRoot);
-            File.WriteAllText(AppPaths.AccountsFile, JsonSerializer.Serialize(current, JsonOptions));
+            AccountStore.SaveAccounts(current);
+            try
+            {
+                VideoDedupTemplateCatalog.OpenDefault().ApplyImportedAccountPresets(importedAccounts);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                notes.Add($"账号已导入，已有去重模板选择未更新：{ex.Message}");
+            }
             var activeId = manifest.ActiveAccountId;
             if (current.All(item => item.Id != activeId))
                 activeId = current.FirstOrDefault()?.Id ?? "";

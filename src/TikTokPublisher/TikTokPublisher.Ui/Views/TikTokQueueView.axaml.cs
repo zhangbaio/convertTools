@@ -105,11 +105,27 @@ public partial class TikTokQueueView : UserControl
         vm.AccountSwitchRequested += OnAccountSwitchRequested;
         vm.ManualInterventionDialogRequested += OnManualInterventionDialogRequested;
         vm.PropertyChanged += OnQueueRunningPropertyChanged;
+        vm.VideoDedupTemplatesChanged += RefreshDedupTemplateSummary;
+        RefreshDedupTemplateSummary();
         RefreshQueueRunButtons();
     }
 
     private void OnQueueRunningPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainViewModel.SelectedAccount))
+        {
+            void ResetDedupSelection()
+            {
+                _pendingDedupTemplateId = null;
+                _dedupSelectionVersion++;
+                RefreshDedupTemplateSummary();
+            }
+            if (Dispatcher.UIThread.CheckAccess()) ResetDedupSelection();
+            else Dispatcher.UIThread.Post(ResetDedupSelection);
+        }
+        else if (e.PropertyName == nameof(MainViewModel.QueueVideoDedupEnabled))
+            RefreshDedupTemplateSummary();
+
         // 并行队列下 IsQueueRunning 不足以反映按钮状态：切工作目录 / 任一队列启停都要刷新。
         if (e.PropertyName is nameof(MainViewModel.IsQueueRunning)
             or nameof(MainViewModel.RunningWorkspacesSummary)
@@ -352,6 +368,7 @@ public partial class TikTokQueueView : UserControl
             _vm.AccountSwitchRequested -= OnAccountSwitchRequested;
             _vm.ManualInterventionDialogRequested -= OnManualInterventionDialogRequested;
             _vm.PropertyChanged -= OnQueueRunningPropertyChanged;
+            _vm.VideoDedupTemplatesChanged -= RefreshDedupTemplateSummary;
         }
 
         if (_vm is null && DataContext is MainViewModel vm)
@@ -3647,7 +3664,30 @@ public partial class TikTokQueueView : UserControl
 
     private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
     {
-        await StartQueueRunAsync(confirmForceRerun: true, localCheckedQueue: true);
+        if (_vm is not { } vm) return;
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        if (options.IsStepEnabled(QueueStepRegistry.VideoDedup) && _pendingDedupTemplateId is { } id)
+        {
+            try
+            {
+                options.VideoDedupTemplateOverride = vm.LoadVideoDedupTemplates().Templates.FirstOrDefault(item => item.Id == id)
+                    ?? throw new InvalidOperationException("本批选择的去重模板已删除，请重新选择。");
+            }
+            catch (Exception ex)
+            {
+                vm.StatusMessage = $"无法使用本批去重模板：{ex.Message}";
+                return;
+            }
+        }
+        var selectionVersion = _dedupSelectionVersion;
+        await StartQueueRunAsync(options, confirmForceRerun: true, localCheckedQueue: true,
+            onWorkerStarted: options.VideoDedupTemplateOverride is null ? null : () => Dispatcher.UIThread.Post(() =>
+            {
+                if (selectionVersion != _dedupSelectionVersion) return;
+                _pendingDedupTemplateId = null;
+                _dedupSelectionVersion++;
+                RefreshDedupTemplateSummary();
+            }));
     }
 
     public async Task<bool> StartQueueRunFromRemoteAsync(

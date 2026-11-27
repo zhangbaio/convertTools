@@ -648,10 +648,12 @@ public sealed class QueueWorkerRunner
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();
         var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
-        var dedupPresets = preUploadSteps.Contains(QueueStepRegistry.VideoDedup)
-            ? VideoDedupTemplateStore.CaptureRunPresets(accountStore.Accounts.ToArray(),
-                message => Report(onProgress, workspace, null, message, QueueStepRegistry.VideoDedup))
-            : new Dictionary<string, VideoDedupPreset?>();
+        options = options.Clone();
+        IReadOnlyDictionary<string, VideoDedupPreset?> dedupPresets =
+            preUploadSteps.Contains(QueueStepRegistry.VideoDedup) && options.VideoDedupTemplateOverride is null
+                ? VideoDedupTemplateCatalog.OpenDefault().CaptureRunPresets(accountStore.Accounts.ToArray(),
+                    message => Report(onProgress, workspace, null, message, QueueStepRegistry.VideoDedup))
+                : new Dictionary<string, VideoDedupPreset?>(StringComparer.OrdinalIgnoreCase);
 
         var candidates = BuildInitialCandidates(items, options, accountStore, filterOrder, orderedSteps);
         EnsureExplicitFilterMatched(filterOrder, candidates.Count);
@@ -1493,9 +1495,11 @@ public sealed class QueueWorkerRunner
                             stepKey,
                             options,
                             stepAccount,
-                            stepAccount is not null && dedupPresets.TryGetValue(stepAccount.Id, out var capturedPreset)
-                                ? capturedPreset
-                                : stepAccount?.VideoDedupPreset?.Clone(),
+                            options.VideoDedupTemplateOverride is { } template
+                                ? template.Preset
+                                : stepAccount is not null && dedupPresets.TryGetValue(stepAccount.Id, out var capturedPreset)
+                                    ? capturedPreset
+                                    : stepAccount?.VideoDedupPreset?.Clone(),
                             host,
                             stepLog,
                             ct),
