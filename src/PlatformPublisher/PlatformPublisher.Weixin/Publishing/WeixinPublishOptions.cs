@@ -15,6 +15,7 @@ public sealed class WeixinPublishOptions
     public string EpisodeSelectionMode { get; set; } = "range";
     public WeixinSeriesUploadMode SeriesUploadMode { get; set; }
     public bool ReuploadSeriesApiFiles { get; set; }
+    public bool OverrideSeriesEpisodeSelection { get; set; }
     public int StartEpisodeIndex { get; set; } = 1;
     public string EpisodeIndexes { get; set; } = string.Empty;
     public bool MergePublishEnabled { get; set; }

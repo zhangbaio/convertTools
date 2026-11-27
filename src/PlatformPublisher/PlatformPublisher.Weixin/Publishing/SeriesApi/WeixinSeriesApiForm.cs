@@ -7,7 +7,7 @@ namespace PlatformPublisher.Weixin.Publishing;
 internal sealed record WeixinSeriesApiForm(
     string Title, string Intro, string Producer, string Tagline, int EpisodeCount, int TrialCount,
     int DramaType, int RevenueType, int CopyrightRole, bool AiDeclared, int? CostWan, string? PermitNumber,
-    IReadOnlyList<WeixinSeriesApiActor> Actors)
+    IReadOnlyList<WeixinSeriesApiActor> Actors, bool? IncludeAiSoftwareOwnership)
 {
     private string QualificationLabel => CostWan.HasValue ? "剧目资质" : "资质证明";
 
@@ -103,8 +103,14 @@ internal sealed record WeixinSeriesApiForm(
             throw new InvalidOperationException("真人剧提审至少需要两位演员的姓名、角色、简介和照片。");
 
         var count = Number("总集数", 1000);
+        var includeOwnership = first.Get("include_ai_software_ownership_proof").ValueKind switch
+        {
+            JsonValueKind.True => (bool?)true,
+            JsonValueKind.False => false,
+            _ => null,
+        };
         var form = new WeixinSeriesApiForm(title, intro, producer, tagline, count, Number("试看集数", count),
-            dramaType, revenue, copyright, aiDeclared, cost, permit, actors);
+            dramaType, revenue, copyright, aiDeclared, cost, permit, actors, includeOwnership);
         form.ValidateFiles(files);
         return form;
     }
@@ -132,6 +138,9 @@ internal sealed record WeixinSeriesApiForm(
         }
         if (Actors.Count > 0 && Actors.Count != labels["演员照片"].Count())
             throw new InvalidOperationException("真人剧演员照片数量须与演员资料数量一致。");
+        var ownershipCount = labels["AI软件权属证明"].Count() + labels["AI 软件权属证明"].Count();
+        if (IncludeAiSoftwareOwnership == true && ownershipCount is < 1 or > 3)
+            throw new InvalidOperationException("请提供 1–3 个 AI 软件权属证明文件。");
     }
 
     public JsonObject BuildPayload(IReadOnlyList<WeixinSeriesApiReceipt> receipts)
@@ -152,13 +161,18 @@ internal sealed record WeixinSeriesApiForm(
             ["name"] = actor.Name, ["role"] = actor.Role, ["profile"] = actor.Profile,
             ["photo"] = photo.MediaId, ["photoDetail"] = new JsonArray(),
         }).ToArray();
-        var aiProof = AiDeclared
-            ? new JsonArray(materials["AI制作证明"].Select(item => (JsonNode?)new JsonObject
+        IEnumerable<WeixinSeriesApiReceipt> ownership = IncludeAiSoftwareOwnership switch
+        {
+            true => materials["AI软件权属证明"].Concat(materials["AI 软件权属证明"]),
+            false => [],
+            null when AiDeclared => materials["AI制作证明"],
+            _ => [],
+        };
+        var aiProof = new JsonArray(ownership.Select(item => (JsonNode?)new JsonObject
             {
                 ["mediaId"] = item.MediaId,
                 ["type"] = Path.GetExtension(item.File.Path).Equals(".mp4", StringComparison.OrdinalIgnoreCase) ? 2 : 1,
-            }).ToArray())
-            : new JsonArray();
+            }).ToArray());
         var qualification = CostWan is { } cost
             ? new JsonObject { ["type"] = 2, ["costOfProduction"] = cost, ["costCommitmentLetter"] = LastId(QualificationLabel) }
             : new JsonObject { ["type"] = 1, ["qualificationCertificate"] = LastId(QualificationLabel) };

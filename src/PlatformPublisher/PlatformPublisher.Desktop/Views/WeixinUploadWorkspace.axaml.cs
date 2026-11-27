@@ -109,6 +109,15 @@ public partial class WeixinUploadWorkspace : UserControl
             _series.BindWorkspace(adapter, () => Publisher.SelectedAccountProfile,
                 () => !Publisher.HasActivePublish && !IsWorkflowRunning,
                 Publisher.PrepareSeriesSessionAsync);
+            var seriesForm = new WeixinSeriesPresetView();
+            seriesForm.Bind(workflowServices.GetRequiredService<WeixinSeriesPresetStore>(),
+                workflowServices.GetRequiredService<WeixinSeriesFormService>());
+            _series.BindSeriesForm((directory, config, mode) =>
+            {
+                seriesForm.OpenProject(directory, config, mode);
+                Publisher.ShowSeriesFormConfig();
+            });
+            Publisher.SetSeriesFormConfigContent(seriesForm);
             Publisher.SetSeriesPublishContent(_series);
             Publisher.SetWorkspaceRunLogs(new WeixinRuntimeLogView { DataContext = viewModel });
             _platformViewModel = viewModel;
@@ -116,9 +125,11 @@ public partial class WeixinUploadWorkspace : UserControl
             viewModel = null;
             workflowServices = null;
             Publisher.SelectedAccountChanged += _series.SetAccount;
+            Publisher.SelectedAccountChanged += seriesForm.SetAccount;
             Publisher.SelectedAccountChanged += ApplyWorkflowAccount;
             _platformViewModel.PropertyChanged += OnWorkflowPropertyChanged;
             _series.SetAccount(Publisher.SelectedAccountProfile);
+            seriesForm.SetAccount(Publisher.SelectedAccountProfile);
             ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
             _ready = true;
             _lease = lease;

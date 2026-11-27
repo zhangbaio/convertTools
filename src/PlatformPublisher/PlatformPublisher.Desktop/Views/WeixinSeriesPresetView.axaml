@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PlatformPublisher.Desktop.Views.WeixinSeriesPresetView">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="14,8,14,12" RowSpacing="10">
+        <Border Grid.Row="0" Padding="14,12" Background="#FFFFFF" BorderBrush="#D9E2EC"
+                BorderThickness="1" CornerRadius="7">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                <StackPanel Spacing="3">
+                    <TextBlock Text="剧集上传方案" FontSize="19" FontWeight="SemiBold" />
+                    <TextBlock x:Name="AccountSummary" Foreground="#475569" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="新增方案" Click="OnNewClick"
+                        x:Name="NewButton" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+        <Grid x:Name="Editor" Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="10">
+            <Grid ColumnDefinitions="80,*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="当前方案" VerticalAlignment="Center" />
+                <ComboBox x:Name="PresetPicker" Grid.Column="1" HorizontalAlignment="Stretch"
+                          SelectionChanged="OnPresetChanged" AutomationProperties.Name="当前方案" />
+                <Button x:Name="DefaultButton" Grid.Column="2" Content="设为账号默认" Click="OnDefaultClick" />
+                <Button Grid.Column="3" Content="关闭账号默认" Click="OnClearDefaultClick" />
+            </Grid>
+            <TabControl x:Name="Sections" Grid.Row="1" Classes="secondaryTabs">
+                <TabItem Header="方案字段">
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="0,10,10,12" Spacing="14">
+                            <Grid ColumnDefinitions="220,*" ColumnSpacing="12">
+                                <TextBlock Text="方案名称" VerticalAlignment="Center" />
+                                <TextBox x:Name="NameBox" Watermark="例如 真人剧提审" Grid.Column="1" />
+                            </Grid>
+                            <StackPanel x:Name="PresetFields" Spacing="14" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+                <TabItem x:Name="ProjectTab" Header="项目表单">
+                    <Grid RowDefinitions="Auto,*" Margin="0,10,0,0" RowSpacing="10">
+                        <Grid ColumnDefinitions="125,*,Auto,Auto" RowDefinitions="Auto,Auto,Auto,Auto"
+                              ColumnSpacing="8" RowSpacing="7">
+                            <TextBlock Text="项目目录" VerticalAlignment="Center" />
+                            <TextBox x:Name="ProjectDirectoryBox" Grid.Column="1" Watermark="选择要预览的剧集项目" />
+                            <Button Grid.Column="2" Content="选择目录" Click="OnChooseProjectClick" />
+                            <TextBlock Grid.Row="1" Text="剧集配置文件" VerticalAlignment="Center" />
+                            <TextBox x:Name="ConfigPathBox" Grid.Row="1" Grid.Column="1" Watermark="留空时在项目目录查找" />
+                            <Button Grid.Row="1" Grid.Column="2" Content="选择 JSON" Click="OnChooseConfigClick" />
+                            <TextBlock Grid.Row="2" Text="按上传方式校验" VerticalAlignment="Center" />
+                            <ComboBox x:Name="PreviewModePicker" Grid.Row="2" Grid.Column="1" SelectedIndex="0">
+                                <ComboBoxItem Content="浏览器" />
+                                <ComboBoxItem Content="接口仅上传" />
+                                <ComboBoxItem Content="接口提审" />
+                            </ComboBox>
+                            <Button Grid.Row="2" Grid.Column="3" Content="生成表单"
+                                    Click="OnGenerateClick" Classes="primaryAction" />
+                            <TextBlock Grid.Row="3" Grid.ColumnSpan="4" x:Name="PreviewNotes"
+                                       Foreground="#475569" TextWrapping="Wrap"
+                                       Text="生成后可核对取值来源，并保存当前项目的覆盖值。" />
+                        </Grid>
+                        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="PreviewFields" Spacing="9" Margin="0,0,10,10" />
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </Grid>
+        <Border Grid.Row="2" Padding="12,9" Background="#F1F5F9" CornerRadius="6">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                <TextBlock x:Name="StatusText" TextWrapping="Wrap" VerticalAlignment="Center" />
+                <Button x:Name="CancelButton" Grid.Column="1" Content="取消生成" IsVisible="False" Click="OnCancelClick" />
+                <Button x:Name="ApplyButton" Grid.Column="2" IsEnabled="False"
+                        Content="保存到此项目" Click="OnApplyClick" />
+                <Button x:Name="SaveButton" Grid.Column="3" Content="保存方案" Click="OnSaveClick"
+                        Classes="primaryAction" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

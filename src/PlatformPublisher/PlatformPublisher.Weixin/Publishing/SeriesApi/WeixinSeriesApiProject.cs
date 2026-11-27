@@ -7,7 +7,7 @@ namespace PlatformPublisher.Weixin.Publishing;
 internal sealed record WeixinSeriesApiFile(string Label, string Path, int? Episode, long Length, long ModifiedUtcTicks)
 {
     public string Name => System.IO.Path.GetFileName(Path);
-    public bool Preview => Label is "AI制作证明" or "剧目制作证明材料" or "版权采买&播出授权证明材料";
+    public bool Preview => Label is "AI制作证明" or "AI软件权属证明" or "AI 软件权属证明" or "剧目制作证明材料" or "版权采买&播出授权证明材料";
     public string Kind => Episode.HasValue ? "video" : Preview ? "preview" : "bizmedia";
 }
 
@@ -47,10 +47,11 @@ internal sealed record WeixinSeriesApiProject(
             .OrderBy(item => item.Episode).ToArray();
         if (episodes.Select(item => item.Episode).Distinct().Count() != episodes.Length)
             throw new InvalidOperationException("剧集视频的集号有重复。");
-        if (options.EpisodeSelectionMode == "range")
+        var isResolved = root.Get(WeixinSeriesFormService.ResolvedFormKey).ValueKind == JsonValueKind.True;
+        if (!isResolved && options.EpisodeSelectionMode == "range")
             episodes = episodes.Where(item => item.Episode >= options.StartEpisodeIndex)
                 .Take(Math.Max(1, requestedCount)).ToArray();
-        else if (options.EpisodeSelectionMode == "explicit")
+        else if (!isResolved && options.EpisodeSelectionMode == "explicit")
         {
             var numbers = options.EpisodeIndexes.Split([',', '，', ';', '；'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Select(text => ParseNumber(text, "指定集数", int.MaxValue)).ToHashSet();
@@ -86,7 +87,7 @@ internal sealed record WeixinSeriesApiProject(
         return Path.GetFullPath(Environment.ExpandEnvironmentVariables(value), baseDir);
     }
 
-    private static int ParseEpisode(string path)
+    internal static int ParseEpisode(string path)
     {
         var stem = Path.GetFileNameWithoutExtension(path);
         foreach (var pattern in new[] { @"第\s*([0-9]+)\s*集", @"(?i)EP\s*([0-9]+)", @"^([0-9]+)$" })

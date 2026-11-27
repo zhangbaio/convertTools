@@ -16,6 +16,7 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
     private readonly WeixinSeriesConfigOverrideService _seriesConfigOverrideService;
     private readonly WeixinAdxMaterialPublishService _adxMaterialPublishService;
     private readonly WeixinSeriesApiUploadService _seriesApi;
+    private readonly WeixinSeriesFormService? _seriesForms;
 
     public WeixinChannelPublishAdapter(
         IWeixinChannelUploader uploader,
@@ -25,7 +26,8 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         WeixinLocalVideoPublishService localVideoPublishService,
         WeixinSeriesConfigOverrideService seriesConfigOverrideService,
         WeixinAdxMaterialPublishService adxMaterialPublishService,
-        WeixinSeriesApiUploadService? seriesApi = null)
+        WeixinSeriesApiUploadService? seriesApi = null,
+        WeixinSeriesFormService? seriesForms = null)
     {
         _uploader = uploader;
         _browserSessionLauncher = browserSessionLauncher;
@@ -35,6 +37,7 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         _seriesConfigOverrideService = seriesConfigOverrideService;
         _adxMaterialPublishService = adxMaterialPublishService;
         _seriesApi = seriesApi ?? new WeixinSeriesApiUploadService();
+        _seriesForms = seriesForms;
     }
 
     public PublishPlatform Platform => PublishPlatform.WeixinChannel;
@@ -86,7 +89,11 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         }
 
         using var browser = _seriesApi.OpenBrowserRun(job);
-        var overridePlan = _seriesConfigOverrideService.Prepare(job);
+        var resolvedForm = _seriesForms is not null
+            ? await _seriesForms.PrepareUploadAsync(job, progress, cancellationToken) : null;
+        if (resolvedForm is null && _seriesForms is not null)
+            resolvedForm = await RequireQueuedSeriesConfigAsync(job, cancellationToken);
+        var overridePlan = _seriesConfigOverrideService.Prepare(job, resolvedForm);
         if (confirmSeriesReviewCompleteAsync is not null && overridePlan is null)
             throw new InvalidOperationException("未找到可用的视频号剧集配置。");
         var effectiveConfigPath = overridePlan?.OverrideConfigPath ?? NullIfWhiteSpace(job.ConfigPath);
@@ -110,21 +117,25 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
             throw new InvalidOperationException(result.Message ?? "视频号上传失败。");
     }
 
-    public Task<WeixinSeriesApiResult> RunSeriesApiAsync(PublishJob job, IProgress<string>? progress,
+    public async Task<WeixinSeriesApiResult> RunSeriesApiAsync(PublishJob job, IProgress<string>? progress,
         Func<WeixinSeriesApiConfirmation, CancellationToken, Task<bool>>? confirm, CancellationToken cancellationToken)
     {
         ValidateProject(job);
         if (job.Kind != PublishJobKind.Series)
             throw new InvalidOperationException("接口上传仅用于视频号剧集上架。");
-        if (!string.IsNullOrWhiteSpace(job.ConfigPath) && !File.Exists(job.ConfigPath))
+        var resolvedForm = _seriesForms is not null
+            ? await _seriesForms.PrepareUploadAsync(job, progress, cancellationToken) : null;
+        if (resolvedForm is null && !string.IsNullOrWhiteSpace(job.ConfigPath) && !File.Exists(job.ConfigPath))
             throw new InvalidOperationException("找不到选择的剧集配置。");
-        var config = WeixinSeriesConfigOverrideService.ResolveSourceConfigPath(job)
+        var config = resolvedForm ?? WeixinSeriesConfigOverrideService.ResolveSourceConfigPath(job)
             ?? throw new InvalidOperationException("未找到可用的视频号剧集配置。");
-        return _seriesApi.RunAsync(job, config, WeixinPublishOptions.FromJob(job), progress, confirm, cancellationToken);
+        return await _seriesApi.RunAsync(job, config, WeixinPublishOptions.FromJob(job), progress, confirm, cancellationToken);
     }
 
     public static async Task<string> RequireQueuedSeriesConfigAsync(PublishJob job, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(job.ConfigPath) && !File.Exists(job.ConfigPath))
+            throw new FileNotFoundException("找不到所选剧集配置文件。", job.ConfigPath);
         var path = WeixinSeriesConfigOverrideService.ResolveSourceConfigPath(job)
             ?? throw new InvalidOperationException("未找到剧集配置，请先执行「素材校验」准备配置。");
         await using var stream = File.OpenRead(path);

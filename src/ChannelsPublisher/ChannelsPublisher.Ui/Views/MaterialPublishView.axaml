@@ -281,6 +281,10 @@
             </Grid>
         </TabItem>
 
+        <TabItem x:Name="SeriesFormConfigTab" Header="发布配置" IsVisible="False">
+            <ContentControl x:Name="SeriesFormConfigHost" />
+        </TabItem>
+
         <TabItem x:Name="SeriesUploadTab" Header="剧集上架">
             <ContentControl x:Name="SeriesPublishContentHost">
                 <TextBlock Text="当前宿主尚未绑定视频号剧集上架服务。"

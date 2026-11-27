@@ -11,7 +11,7 @@ using System.Text.Json;
 
 namespace ShortDrama.Infrastructure.Imaging;
 
-internal static class CostReportImageRenderer
+public static class CostReportImageRenderer
 {
     private static readonly FontCollection BundledFontCollection = new();
     private static readonly Lazy<FontFamily?> BundledFontFamily = new(LoadBundledFontFamily);

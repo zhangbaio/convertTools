@@ -30,6 +30,7 @@ public partial class WeixinSeriesUploadView : UserControl
     private Func<ChannelAccount?>? _accountProvider;
     private CancellationTokenSource? _cancellation;
     private WeixinPublishOptions _options = new();
+    private Action<string, string, WeixinSeriesUploadMode>? _openSeriesForm;
 
     public WeixinSeriesUploadView()
     {
@@ -74,6 +75,22 @@ public partial class WeixinSeriesUploadView : UserControl
         UploadModeLabel.IsVisible = UploadModePanel.IsVisible = adapter is not null;
         UpdateUploadModeControls();
     }
+
+    internal void BindSeriesForm(Action<string, string, WeixinSeriesUploadMode> openForm)
+    {
+        _openSeriesForm = openForm;
+        LegacySeriesOptionsButton.IsVisible = false;
+        SeriesFormButton.IsVisible = true;
+        OptionsSummary.Text = "按账号方案和项目表单上传";
+    }
+
+    private void OnSeriesFormClick(object? sender, RoutedEventArgs e) =>
+        _openSeriesForm?.Invoke(ProjectDirectoryInput.Text ?? "", ConfigPathInput.Text ?? "", SelectedUploadMode());
+
+    private WeixinSeriesUploadMode SelectedUploadMode() =>
+        _seriesAdapter is not null && UploadBackend.SelectedIndex == 1
+            ? SubmitWithApi.IsChecked == true ? WeixinSeriesUploadMode.ApiSubmit : WeixinSeriesUploadMode.ApiUpload
+            : WeixinSeriesUploadMode.Browser;
 
     private void OnUploadBackendChanged(object? sender, SelectionChangedEventArgs e) => UpdateUploadModeControls();
 
@@ -168,6 +185,7 @@ public partial class WeixinSeriesUploadView : UserControl
         var result = await WeixinPublishConfigDialog.ShowAsync(owner, _options);
         if (result is null) return;
         _options = result;
+        _options.OverrideSeriesEpisodeSelection = true;
         OptionsSummary.Text = result.EpisodeSelectionMode switch
         {
             "all" => "全部集数",
@@ -204,11 +222,6 @@ public partial class WeixinSeriesUploadView : UserControl
         }
 
         var configPath = ConfigPathInput.Text?.Trim() ?? string.Empty;
-        if (_canStart is not null && configPath.Length > 0 && !File.Exists(configPath))
-        {
-            SetStatus("找不到选择的剧集配置。", isError: true);
-            return;
-        }
         if (_canStart is not null && string.IsNullOrWhiteSpace(account.ProfileDir))
         {
             SetStatus("当前账号缺少会话目录，请在账号配置中核对。", isError: true);
@@ -217,8 +230,7 @@ public partial class WeixinSeriesUploadView : UserControl
 
         RefreshAccountSummary();
         var api = _seriesAdapter is not null && UploadBackend.SelectedIndex == 1;
-        var mode = api ? SubmitWithApi.IsChecked == true ? WeixinSeriesUploadMode.ApiSubmit : WeixinSeriesUploadMode.ApiUpload
-            : WeixinSeriesUploadMode.Browser;
+        var mode = SelectedUploadMode();
         _options.SeriesUploadMode = mode;
         _options.ReuploadSeriesApiFiles = api && ForceApiReupload.IsChecked == true;
         var job = new PublishJob

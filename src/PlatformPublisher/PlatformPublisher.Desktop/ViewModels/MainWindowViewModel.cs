@@ -4039,7 +4039,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             if (_prepareEmbeddedWeixinSession is { } prepareSession)
             {
-                job.ConfigPath = await WeixinChannelPublishAdapter.RequireQueuedSeriesConfigAsync(job, cancellationToken);
                 await prepareSession(job.AccountId, cancellationToken);
             }
             await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Running, "正在执行");

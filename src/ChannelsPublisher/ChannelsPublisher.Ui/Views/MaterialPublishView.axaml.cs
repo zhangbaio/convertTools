@@ -222,6 +222,14 @@ public partial class MaterialPublishView : UserControl
         SeriesPublishContentHost.Content = content;
     }
 
+    public void SetSeriesFormConfigContent(Control content)
+    {
+        SeriesFormConfigHost.Content = content;
+        SeriesFormConfigTab.IsVisible = true;
+    }
+
+    public void ShowSeriesFormConfig() => WorkspaceTabs.SelectedItem = SeriesFormConfigTab;
+
     public void SetUnifiedPublishContent(Control content)
     {
         UnifiedPublishContentHost.Content = content;
@@ -242,7 +250,9 @@ public partial class MaterialPublishView : UserControl
         for (var index = 0; index < WorkspaceTabs.ItemCount; index++)
         {
             if (WorkspaceTabs.Items[index] is TabItem tab)
-                tab.IsVisible = !settingsOnly || index == 1;
+                tab.IsVisible = tab == SeriesFormConfigTab
+                    ? !settingsOnly && SeriesFormConfigHost.Content is not null
+                    : !settingsOnly || index == 1;
         }
         if (settingsOnly)
             ShowAccountSettings();

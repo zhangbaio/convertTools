@@ -249,6 +249,11 @@ public partial class App : Application
         services.AddSingleton<WeixinStoryboardRecordingService>();
         services.AddSingleton<WeixinSeriesConfigOverrideService>();
         services.AddSingleton<WeixinSeriesApiUploadService>();
+        if (jobScope == PublishJobScope.Weixin)
+        {
+            services.AddSingleton<WeixinSeriesPresetStore>();
+            services.AddSingleton<WeixinSeriesFormService>();
+        }
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<KuaishouPersonalSessionService>();

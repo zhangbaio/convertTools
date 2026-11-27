@@ -36,9 +36,9 @@ public sealed class WeixinSeriesConfigOverrideService
         _aiSettingsProvider = aiSettingsProvider ?? EmptyAiRuntimeSettingsProvider.Instance;
     }
 
-    public WeixinSeriesConfigOverridePlan? Prepare(PublishJob job)
+    public WeixinSeriesConfigOverridePlan? Prepare(PublishJob job, string? resolvedFormPath = null)
     {
-        var sourceConfigPath = ResolveSourceConfigPath(job);
+        var sourceConfigPath = resolvedFormPath ?? ResolveSourceConfigPath(job);
         if (sourceConfigPath is null)
             return null;
 
@@ -49,7 +49,8 @@ public sealed class WeixinSeriesConfigOverrideService
 
         var originalPaths = ResolveUploadPaths(root);
         var selectedPaths = originalPaths;
-        if (!string.IsNullOrWhiteSpace(job.PlatformOptionsJson) && originalPaths.Count > 0)
+        if (root[WeixinSeriesFormService.ResolvedFormKey]?.GetValue<bool>() != true &&
+            !string.IsNullOrWhiteSpace(job.PlatformOptionsJson) && originalPaths.Count > 0)
         {
             var options = WeixinPublishOptions.FromJob(job);
             var indexes = options.ResolveEpisodeIndexes(originalPaths.Count, job.PublishCount);
@@ -141,7 +142,7 @@ public sealed class WeixinSeriesConfigOverrideService
         }
     }
 
-    private static void AbsolutizeKnownPaths(JsonObject root, string sourceDirectory)
+    internal static void AbsolutizeKnownPaths(JsonObject root, string sourceDirectory)
     {
         AbsolutizeProperty(root, "auth_file", sourceDirectory);
         if (root["browser"] is JsonObject browser)
@@ -156,10 +157,8 @@ public sealed class WeixinSeriesConfigOverrideService
             if (secondPage["upload"] is JsonObject upload)
                 AbsolutizeArray(upload, "paths", sourceDirectory);
             if (secondPage["upload_queue"] is JsonObject queue && queue["items"] is JsonArray items)
-            {
                 foreach (var item in items.OfType<JsonObject>())
                     AbsolutizeProperty(item, "path", sourceDirectory);
-            }
         }
         if (root["video_publish"] is JsonObject publish)
         {

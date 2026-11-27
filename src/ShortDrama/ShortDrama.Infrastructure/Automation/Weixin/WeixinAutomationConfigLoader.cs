@@ -97,7 +97,8 @@ public sealed class WeixinAutomationConfigLoader : IWeixinAutomationConfigLoader
                 ReadyText: ResolveString(firstPageElement, "ready_text") ?? string.Empty,
                 NextButtonText: ResolveString(firstPageElement, "next_button_text") ?? "下一步",
                 ReadyLabels: ResolveFirstPageReadyLabels(firstPageElement),
-                Actions: ResolveFirstPageActions(firstPageElement, secondPageElement, globalConfig)),
+                Actions: ResolveFirstPageActions(firstPageElement, secondPageElement,
+                    ResolveBool(root, "_resolved_series_form") == true ? new Dictionary<string, string>() : globalConfig)),
             SecondPage: new WeixinSecondPageOptions(
                 ReadyText: ResolveString(secondPageElement, "ready_text") ?? "请选择要上传的视频文件",
                 ActionsBeforeUpload: ResolveFormActions(secondPageElement, "actions_before_upload"),
