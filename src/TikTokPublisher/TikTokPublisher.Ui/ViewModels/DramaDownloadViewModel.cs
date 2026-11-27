@@ -30,7 +30,14 @@ public sealed record TikTokQueueImportTarget(
     string AccountProfileName,
     string WorkspaceRoot,
     string PlatformKey = "",
-    string PlatformLabel = "");
+    string PlatformLabel = "")
+{
+    public string LoginEmail { get; init; } = "";
+    internal string FallbackWorkspaceRoot { get; init; } = "";
+    internal string WorkspaceIssue { get; init; } = "";
+    internal string Label => string.IsNullOrWhiteSpace(PlatformLabel)
+        ? AccountProfileName : $"{PlatformLabel} · {AccountProfileName}";
+}
 
 public sealed partial class DramaPlatformQueueAction : ObservableObject
 {
@@ -50,7 +57,16 @@ public sealed partial class DramaPlatformQueueAction : ObservableObject
 
 public sealed record TikTokQueueImportRequest(
     TikTokQueueImportTarget Target,
-    IReadOnlyList<string> ProjectDirs);
+    IReadOnlyList<string> ProjectDirs)
+{
+    internal bool IsBatch { get; init; }
+}
+
+internal sealed class QueueImportPartialException(IEnumerable<string> importedPaths)
+    : InvalidOperationException("部分项目未能写入目标队列，请检查项目目录。")
+{
+    public HashSet<string> ImportedPaths { get; } = new(importedPaths, StringComparer.OrdinalIgnoreCase);
+}
 
 public sealed partial class DramaSearchRowViewModel : ViewModelBase
 {
@@ -385,6 +401,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [ObservableProperty] private string _authorExclude = DramaDownloadQueueState.DefaultAuthorExclude;
     [ObservableProperty] private bool _isSearching;
     [ObservableProperty] private bool _isDownloading;
+    [ObservableProperty] private bool _isQueueBatchActive;
+    [ObservableProperty] private string _queueBatchStatus = "";
     [ObservableProperty] private string _selectedCountText = "已选 0 项";
     [ObservableProperty] private string _searchPageText = "第 1 页";
     [ObservableProperty] private string _rankCategory = "漫剧";
@@ -430,8 +448,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public event Func<TikTokQueueImportTarget?>? TikTokQueueTargetRequested;
     public event Func<string, TikTokQueueImportTarget?>? PlatformQueueTargetRequested;
     public event Func<IReadOnlyList<TikTokQueueImportTarget>>? TikTokQueueTargetsRequested;
-    public Func<IReadOnlyList<TikTokQueueImportTarget>, string?, Task<IReadOnlyList<TikTokQueueImportTarget>?>>? PickTikTokQueueTargetsAsync { get; set; }
-    public Func<string, Task<bool?>>? ConfirmDuplicateQueueAsync { get; set; }
+    public Func<IReadOnlyList<TikTokQueueImportTarget>, TikTokQueueImportTarget?, int, CancellationToken,
+        Task<IReadOnlyList<TikTokQueueImportTarget>?>>? PickTikTokQueueTargetsAsync { get; set; }
+    public Func<string, bool, Task<bool?>>? ConfirmQueueBatchAsync { get; set; }
+    public Func<string, bool, Task<bool>>? ShowQueueBatchResultAsync { get; set; }
     public event Func<string, TikTokAccountProfile?>? AccountProfileRequested;
     public event Func<IReadOnlyList<TikTokAccountProfile>>? ExistenceAccountsRequested;
 
@@ -1128,9 +1148,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{platformLabel}队列");
     }
 
-    [RelayCommand]
-    private async Task AddSelectedToMultipleTikTokQueuesAsync(string? platformKey)
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task AddSelectedToMultipleTikTokQueuesAsync(string? platformKey, CancellationToken cancellationToken)
     {
+        if (IsQueueBatchActive) return;
         var action = PlatformQueueActions.FirstOrDefault(item => item.Key == platformKey);
         if (platformKey is not null && action is null) return;
         var queueLabel = action is not null ? $"{action.PlatformLabel} 队列"
@@ -1157,124 +1178,292 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             targets = targets.Where(item => item.PlatformKey == action.Key).ToArray();
         if (targets.Count == 0)
         {
-            var platform = action?.PlatformLabel ?? (UsePlatformQueueActions ? "" : QueuePlatformLabel);
-            LogRequested?.Invoke($"没有已配置上传工作目录的{platform}账号");
+            LogRequested?.Invoke($"没有可选的{queueLabel}账号");
             return;
         }
 
         var picker = PickTikTokQueueTargetsAsync;
-        if (picker is null) return;
-        var currentTarget = action is null
-            ? TikTokQueueTargetRequested?.Invoke()
-            : PlatformQueueTargetRequested?.Invoke(action.Key);
-        var currentId = currentTarget?.AccountProfileId;
-        var picked = await picker(targets, currentId);
-        if (picked is null || picked.Count == 0) return;
-        if (picked.GroupBy(target => Path.TrimEndingDirectorySeparator(Path.GetFullPath(target.WorkspaceRoot)),
-                StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
-        {
-            LogRequested?.Invoke("多个目标账号使用了同一工作目录。请为各账号设置独立目录后再加入队列。");
-            return;
-        }
+        var confirm = ConfirmQueueBatchAsync;
+        var import = ImportToQueueRequested;
+        if (picker is null || import is null) return;
 
-        var importHandler = ImportToQueueRequested;
-        if (importHandler is null) return;
-
-        LogRequested?.Invoke("正在检查各账号的归档、管理系统和工作目录");
-        var conflicts = await CollectQueueConflictsAsync(picked, selected);
-        var skipExisting = false;
-        if (conflicts.HasAny)
+        IsQueueBatchActive = true;
+        QueueBatchStatus = "正在读取账号工作目录…";
+        try
         {
-            var confirm = ConfirmDuplicateQueueAsync;
-            if (confirm is null) return;
-            var choice = await confirm(conflicts.Summary);
-            if (choice is null) return;
-            skipExisting = choice.Value;
-        }
+            var currentTarget = action is null ? TikTokQueueTargetRequested?.Invoke() : PlatformQueueTargetRequested?.Invoke(action.Key);
+            var picked = await picker(targets, currentTarget, selected.Count, cancellationToken);
+            if (picked is null || picked.Count == 0 || confirm is null) return;
+            cancellationToken.ThrowIfCancellationRequested();
 
-        var overLimitSettings = ClientSettingsStore.Load();
-        var failed = false;
-        foreach (var target in picked)
-        {
-            if (!await Task.Run(() => Directory.Exists(target.WorkspaceRoot)))
+            var workspaceIssues = await Task.Run(() => picked.Select(target => (Target: target, Issue: GetQueueWorkspaceIssue(target)))
+                .Where(entry => entry.Issue.Length > 0).ToArray(), cancellationToken);
+            var invalidAccounts = workspaceIssues.Select(entry => QueueTargetKey(entry.Target)).ToHashSet(StringComparer.Ordinal);
+            var validTargets = picked.Where(target => !invalidAccounts.Contains(QueueTargetKey(target))).ToArray();
+            if (validTargets.Length == 0)
             {
-                failed = true;
-                LogRequested?.Invoke($"「{target.AccountProfileName}」工作目录不存在：{target.WorkspaceRoot}");
-                continue;
+                var issues = string.Join("\n", workspaceIssues.Select(entry => $"{entry.Target.Label} · {entry.Issue}"));
+                var showResult = ShowQueueBatchResultAsync;
+                if (showResult is not null)
+                    await showResult($"没有可入队的账号。\n\n{issues}", false);
+                return;
             }
 
+            if (validTargets.GroupBy(target => QueueWorkspaceKey(target.WorkspaceRoot), StringComparer.OrdinalIgnoreCase)
+                .Any(group => group.Skip(1).Any()))
+            {
+                LogRequested?.Invoke("所选账号的工作目录有冲突，请为各账号设置独立目录后再入队。");
+                return;
+            }
+
+            QueueBatchStatus = $"正在核对 0 / {validTargets.Length} 个账号…";
+            var conflicts = await CollectQueueConflictsAsync(validTargets, selected, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var duplicateCount = validTargets.Sum(target => conflicts.BlockedCount(target, selected));
+            var plannedCount = picked.Count * (long)selected.Count;
+            var unavailableCount = workspaceIssues.Length * (long)selected.Count;
+            var readyCount = plannedCount - unavailableCount - duplicateCount;
+            var preview = $"{selected.Count} 部剧 × {picked.Count} 个账号，共 {plannedCount} 条待入队任务。\n"
+                + $"可直接入队 {readyCount} 条 · 已存在 {duplicateCount} 条 · 账号目录异常 {unavailableCount} 条";
+            if (conflicts.Lines.Count > 0)
+                preview += "\n\n" + string.Join("\n", conflicts.Lines);
+            if (workspaceIssues.Length > 0)
+                preview += "\n\n" + string.Join("\n", workspaceIssues.Select(entry => $"{entry.Target.Label} · {entry.Issue}"));
+
+            var skipExisting = await confirm(preview, duplicateCount > 0);
+            if (skipExisting is null) return;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var pending = validTargets.Select(target => new QueueImportAccount(
+                target,
+                selected.Where(item => skipExisting != true || !conflicts.IsBlocked(target, item))
+                    .Select(item => new QueueImportItem(item)).ToArray()))
+                .Where(account => account.Items.Count > 0)
+                .ToArray();
+            var skippedCount = (skipExisting == true ? duplicateCount : 0L) + unavailableCount;
+            var options = new QueueImportOptions(episodes, DefaultQuality, DownloadConcurrent, EpisodeNumberMode,
+                ClientSettingsStore.Load(_stateDatabasePath));
+            var addedCount = 0L;
+
+            while (true)
+            {
+                var failures = new List<QueueImportAccount>();
+                var errors = new List<string>();
+                var processed = 0;
+                foreach (var account in pending)
+                {
+                    // 当前账号写完后再停止，保留成功记录以及剩余任务的准确数量。
+                    if (cancellationToken.IsCancellationRequested) break;
+                    QueueBatchStatus = $"正在入队 {processed + 1} / {pending.Length} 个账号 · {account.Target.Label}";
+
+                    var failedItems = await ImportQueueAccountAsync(account, options, import, errors);
+                    addedCount += account.Items.Count - failedItems.Count;
+                    if (failedItems.Count > 0)
+                        failures.Add(new QueueImportAccount(account.Target, failedItems));
+                    processed++;
+                }
+
+                var remaining = pending.Skip(processed).Sum(account => (long)account.Items.Count);
+                var failedCount = failures.Sum(account => (long)account.Items.Count);
+                var summary = $"已入队 {addedCount} 条 · 跳过 {skippedCount} 条 · 失败 {failedCount} 条";
+                if (remaining > 0)
+                    summary += $" · 停止后未处理 {remaining} 条";
+                QueueBatchStatus = summary;
+                LogRequested?.Invoke(summary);
+
+                var showResult = ShowQueueBatchResultAsync;
+                var allowRetry = failedCount > 0 && !cancellationToken.IsCancellationRequested;
+                var details = errors.Count == 0 ? summary : summary + "\n\n" + string.Join("\n", errors);
+                if (showResult is null || !await showResult(details, allowRetry) || !allowRetry)
+                {
+                    if (failedCount == 0 && remaining == 0)
+                    {
+                        foreach (var item in selected)
+                            ClearSearchItemSelection(item);
+                        UpdateSelectedCount();
+                    }
+                    return;
+                }
+                pending = failures.ToArray();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            LogRequested?.Invoke("已取消批量入队。");
+        }
+        catch (Exception ex)
+        {
+            LogRequested?.Invoke($"批量入队失败：{ex.Message}");
+        }
+        finally
+        {
+            IsQueueBatchActive = false;
+        }
+    }
+
+    private async Task<IReadOnlyList<QueueImportItem>> ImportQueueAccountAsync(
+        QueueImportAccount account,
+        QueueImportOptions options,
+        Func<TikTokQueueImportRequest, Task> import,
+        List<string> errors)
+    {
+        if ((account.Target.PlatformKey is "" or DramaQueuePlatforms.TikTok) && AccountProfileRequested is { } findAccount)
+        {
+            var current = findAccount(account.Target.AccountProfileId);
+            var workspace = await Task.Run(() => current?.ResolveWorkspacePath() ?? "");
+            if (workspace.Length == 0 ||
+                !string.Equals(Path.TrimEndingDirectorySeparator(workspace),
+                    QueueWorkspaceKey(account.Target.WorkspaceRoot), StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add($"{account.Target.Label} · 账号或工作目录已变更，请重新选择账号");
+                return account.Items;
+            }
+        }
+
+        var issue = await Task.Run(() => GetQueueWorkspaceIssue(account.Target));
+        if (issue.Length > 0)
+        {
+            errors.Add($"{account.Target.Label} · {issue}");
+            return account.Items;
+        }
+
+        var failed = new List<QueueImportItem>();
+        var prepared = new List<QueueImportItem>();
+        foreach (var item in account.Items)
+        {
             try
             {
-                var accountItems = selected;
-                if (skipExisting && conflicts.BlockedTitles.TryGetValue(QueueTargetKey(target), out var blocked))
+                var itemEpisodes = ResolveOverLimitEpisodes(item.Drama, options.Episodes, options.Settings);
+                var dramaType = ResolveQueueEntryDramaType(item.Drama);
+                var projectDirectory = await Task.Run(async () =>
                 {
-                    accountItems = selected.Where(item => !blocked.Contains(item.Title)).ToList();
-                    var skipped = selected.Count - accountItems.Count;
-                    if (skipped > 0)
-                        LogRequested?.Invoke($"「{target.AccountProfileName}」跳过 {skipped} 部已存在的剧");
-                }
+                    if (item.ProjectDirectory is { } path && WorkspaceProjectScanner.IsValidProjectDirectory(path))
+                        return path;
 
-                if (accountItems.Count == 0)
-                    continue;
-
-                var dirs = new List<string>();
-                foreach (var item in accountItems)
-                {
-                    var itemEpisodes = ResolveOverLimitEpisodes(item, episodes, overLimitSettings);
-                    var projectDir = await Task.Run(() => ShortDramaDramaServices.BootstrapAsync(
-                            target.WorkspaceRoot,
-                            item,
-                            itemEpisodes,
-                            DefaultQuality,
-                            DownloadConcurrent,
-                            EpisodeNumberMode,
-                            ResolveQueueEntryDramaType(item),
-                            CancellationToken.None))
-                        .ConfigureAwait(true);
-                    MarkOverLimitProject(projectDir, item, overLimitSettings);
-                    dirs.Add(projectDir);
-                }
-
-                await importHandler(new TikTokQueueImportRequest(target, dirs));
-                var targetPlatformLabel = string.IsNullOrWhiteSpace(target.PlatformLabel) ? QueuePlatformLabel : target.PlatformLabel;
-                LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{targetPlatformLabel}队列");
+                    var directory = await ShortDramaDramaServices.BootstrapAsync(
+                        account.Target.WorkspaceRoot, item.Drama, itemEpisodes, options.Quality,
+                        options.DownloadConcurrent, options.EpisodeNumberMode, dramaType, CancellationToken.None);
+                    MarkOverLimitProject(directory, item.Drama, options.Settings);
+                    return directory;
+                });
+                prepared.Add(item with { ProjectDirectory = projectDirectory });
             }
             catch (Exception ex)
             {
-                failed = true;
-                LogRequested?.Invoke($"加入「{target.AccountProfileName}」队列失败：{ex.Message}");
+                failed.Add(item);
+                errors.Add($"{account.Target.Label} · 《{item.Drama.Title}》 · {ex.Message}");
             }
         }
 
-        if (failed)
-        {
-            LogRequested?.Invoke("有账号没有加入成功，勾选仍保留");
-            return;
-        }
+        if (prepared.Count == 0) return failed;
 
-        foreach (var item in selected)
-            ClearSearchItemSelection(item);
-        UpdateSelectedCount();
+        try
+        {
+            await import(new TikTokQueueImportRequest(account.Target, prepared.Select(item => item.ProjectDirectory!)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()) { IsBatch = true });
+        }
+        catch (QueueImportPartialException ex)
+        {
+            failed.AddRange(prepared.Where(item => !ex.ImportedPaths.Contains(item.ProjectDirectory!)));
+            errors.Add($"{account.Target.Label} · {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            failed.AddRange(prepared);
+            errors.Add($"{account.Target.Label} · {ex.Message}");
+        }
+        return failed;
     }
+
+    internal static string GetQueueWorkspaceIssue(TikTokQueueImportTarget target)
+    {
+        if (string.IsNullOrWhiteSpace(target.WorkspaceRoot))
+            return "未配置上传工作目录";
+        if (!Directory.Exists(target.WorkspaceRoot))
+            return "工作目录不存在或无法访问";
+        try
+        {
+            using var entries = Directory.EnumerateFileSystemEntries(target.WorkspaceRoot).GetEnumerator();
+            entries.MoveNext();
+            return "";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return "工作目录无法访问";
+        }
+    }
+
+    internal static TikTokQueueImportTarget CheckQueueAccountWorkspace(TikTokQueueImportTarget target)
+    {
+        var issue = GetQueueWorkspaceIssue(target);
+        if (issue.Length > 0 && !Directory.Exists(target.WorkspaceRoot) &&
+            !string.IsNullOrWhiteSpace(target.FallbackWorkspaceRoot))
+        {
+            var fallback = target with { WorkspaceRoot = target.FallbackWorkspaceRoot };
+            if (GetQueueWorkspaceIssue(fallback).Length == 0)
+                return fallback with { WorkspaceIssue = "" };
+        }
+        return target with { WorkspaceIssue = issue };
+    }
+
+    internal static string QueueWorkspaceKey(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    private sealed record QueueImportItem(DramaSearchItem Drama, string? ProjectDirectory = null);
+    private sealed record QueueImportAccount(TikTokQueueImportTarget Target, IReadOnlyList<QueueImportItem> Items);
+    private sealed record QueueImportOptions(string Episodes, string Quality, int DownloadConcurrent,
+        string EpisodeNumberMode, ClientSettings Settings);
 
     private async Task<QueueConflictReport> CollectQueueConflictsAsync(
         IReadOnlyList<TikTokQueueImportTarget> accounts,
-        IReadOnlyList<DramaSearchItem> items)
+        IReadOnlyList<DramaSearchItem> items,
+        CancellationToken cancellationToken)
     {
+        var titles = items.Select(item => item.Title).Where(title => !string.IsNullOrWhiteSpace(title)).ToArray();
         var report = new QueueConflictReport();
-        var titles = items.Select(item => item.Title).Where(title => !string.IsNullOrWhiteSpace(title)).ToList();
-        foreach (var account in accounts)
+        var checkedCount = 0;
+        foreach (var batch in accounts.Chunk(3))
         {
-            var isTikTok = account.PlatformKey is "" or DramaQueuePlatforms.TikTok;
-            var profile = isTikTok ? AccountProfileRequested?.Invoke(account.AccountProfileId) : null;
-            var existence = isTikTok
-                ? await DramaDownloadExistenceService.CheckAsync(titles, profile, CancellationToken.None)
-                : null;
-            var archiveKeys = new HashSet<string>(
-                (IEnumerable<string>?)existence?.ArchiveKeys ?? [], StringComparer.Ordinal);
-            if (profile is not null && !string.IsNullOrWhiteSpace(account.WorkspaceRoot))
+            cancellationToken.ThrowIfCancellationRequested();
+            var tasks = batch.Select(account =>
             {
-                try
+                var isTikTok = account.PlatformKey is "" or DramaQueuePlatforms.TikTok;
+                var profile = isTikTok ? AccountProfileRequested?.Invoke(account.AccountProfileId) : null;
+                return Task.Run(() => CheckQueueAccountAsync(account, isTikTok, profile, titles, cancellationToken), cancellationToken);
+            });
+            var results = await Task.WhenAll(tasks);
+            foreach (var result in results)
+            {
+                report.BlockedTitles[QueueTargetKey(result.Account)] = result.BlockedTitles;
+                if (result.Details.Length > 0)
+                    report.Lines.Add($"{result.Account.Label} · {result.Details}");
+            }
+
+            checkedCount += batch.Length;
+            QueueBatchStatus = $"正在核对 {checkedCount} / {accounts.Count} 个账号…";
+        }
+
+        return report;
+    }
+
+    private static async Task<QueueAccountCheck> CheckQueueAccountAsync(
+        TikTokQueueImportTarget account,
+        bool isTikTok,
+        TikTokAccountProfile? profile,
+        IReadOnlyList<string> titles,
+        CancellationToken cancellationToken)
+    {
+        var archiveKeys = new HashSet<string>(StringComparer.Ordinal);
+        var managementKeys = new HashSet<string>(StringComparer.Ordinal);
+        var workspaceKeys = new HashSet<string>(StringComparer.Ordinal);
+        var details = new List<string>();
+        if (isTikTok)
+        {
+            try
+            {
+                var existence = await DramaDownloadExistenceService.CheckAsync(titles, profile, cancellationToken).ConfigureAwait(false);
+                archiveKeys.UnionWith(existence.ArchiveKeys);
+                managementKeys.UnionWith(existence.ManagementKeys);
+                if (profile is not null && existence.ArchiveChecked)
                 {
                     var archiveRoot = profile.ResolveArchiveRootPath(account.WorkspaceRoot);
                     foreach (var archived in TikTokArchivedProjectService.ListForNewTitleCheck(account.WorkspaceRoot, archiveRoot))
@@ -1284,61 +1473,48 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                         AddTitleKey(archiveKeys, archived.OriginalTitle);
                     }
                 }
-                catch (Exception ex)
-                {
-                    LogRequested?.Invoke($"「{account.AccountProfileName}」归档核对失败：{ex.Message}");
-                }
+                if (!existence.ManagementChecked && !string.IsNullOrWhiteSpace(existence.ManagementMessage))
+                    details.Add($"管理系统未核对：{existence.ManagementMessage}");
             }
-
-            var workspaceKeys = new HashSet<string>(StringComparer.Ordinal);
-            try
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                foreach (var project in WorkspaceQueueService.ScanProjects(account.WorkspaceRoot))
-                {
-                    AddTitleKey(workspaceKeys, project.NewTitle);
-                    AddTitleKey(workspaceKeys, project.OriginalTitle);
-                    AddTitleKey(workspaceKeys, project.DisplayName);
-                }
+                details.Add($"归档或管理系统未核对：{ex.Message}");
             }
-            catch (Exception ex)
-            {
-                LogRequested?.Invoke($"「{account.AccountProfileName}」工作目录核对失败：{ex.Message}");
-            }
-
-            if (existence is { ManagementChecked: false } && !string.IsNullOrWhiteSpace(existence.ManagementMessage))
-                LogRequested?.Invoke($"「{account.AccountProfileName}」管理系统未核对：{existence.ManagementMessage}");
-
-            var archiveCount = 0;
-            var managementCount = 0;
-            var workspaceCount = 0;
-            var blocked = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var item in items)
-            {
-                var key = AiRewriteHistoryService.NormalizeTitleKey(item.Title);
-                if (key.Length == 0) continue;
-                var inArchive = existence?.ArchiveChecked == true && archiveKeys.Contains(key);
-                var inManagement = existence?.ManagementChecked == true && existence.ManagementKeys.Contains(key);
-                var inWorkspace = workspaceKeys.Contains(key);
-                if (!inArchive && !inManagement && !inWorkspace) continue;
-                blocked.Add(item.Title);
-                if (inArchive) archiveCount++;
-                if (inManagement) managementCount++;
-                if (inWorkspace) workspaceCount++;
-            }
-
-            if (blocked.Count == 0) continue;
-            report.BlockedTitles[QueueTargetKey(account)] = blocked;
-            var parts = new List<string>();
-            if (archiveCount > 0) parts.Add($"{archiveCount} 部已归档");
-            if (managementCount > 0) parts.Add($"{managementCount} 部在管理系统");
-            if (workspaceCount > 0) parts.Add($"{workspaceCount} 部已在工作目录");
-            var accountLabel = string.IsNullOrWhiteSpace(account.PlatformLabel)
-                ? account.AccountProfileName
-                : $"{account.PlatformLabel} · {account.AccountProfileName}";
-            report.Lines.Add($"「{accountLabel}」：{string.Join("，", parts)}");
         }
 
-        return report;
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            var projectTitles = isTikTok
+                ? WorkspaceQueueService.InspectProjects(account.WorkspaceRoot)
+                    .Select(project => (project.NewTitle, project.OriginalTitle, project.DisplayName))
+                : WorkspaceProjectScanner.Scan(account.WorkspaceRoot)
+                    .Select(project => (project.NewTitle, project.OriginalTitle, project.DisplayName));
+            foreach (var (newTitle, originalTitle, displayName) in projectTitles)
+            {
+                AddTitleKey(workspaceKeys, newTitle);
+                AddTitleKey(workspaceKeys, originalTitle);
+                AddTitleKey(workspaceKeys, displayName);
+            }
+        }
+        catch (Exception ex)
+        {
+            details.Add($"工作目录未核对：{ex.Message}");
+        }
+
+        var normalizedTitles = titles.Select(title => (Title: title, Key: AiRewriteHistoryService.NormalizeTitleKey(title)))
+            .Where(title => title.Key.Length > 0).ToArray();
+        var blocked = normalizedTitles.Where(title =>
+            archiveKeys.Contains(title.Key) || managementKeys.Contains(title.Key) || workspaceKeys.Contains(title.Key))
+            .Select(title => title.Title).ToHashSet(StringComparer.Ordinal);
+        if (blocked.Count > 0)
+        {
+            var archiveCount = normalizedTitles.Count(title => archiveKeys.Contains(title.Key));
+            var managementCount = normalizedTitles.Count(title => managementKeys.Contains(title.Key));
+            var workspaceCount = normalizedTitles.Count(title => workspaceKeys.Contains(title.Key));
+            details.Insert(0, $"{blocked.Count} 部已存在（归档 {archiveCount}、管理系统 {managementCount}、工作目录 {workspaceCount}）");
+        }
+        return new QueueAccountCheck(account, blocked, string.Join("，", details));
     }
 
     private static void AddTitleKey(ISet<string> keys, string? title)
@@ -1348,12 +1524,18 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             keys.Add(key);
     }
 
+    private sealed record QueueAccountCheck(TikTokQueueImportTarget Account, HashSet<string> BlockedTitles, string Details);
+
     private sealed class QueueConflictReport
     {
         public List<string> Lines { get; } = [];
         public Dictionary<string, HashSet<string>> BlockedTitles { get; } = new(StringComparer.Ordinal);
-        public bool HasAny => Lines.Count > 0;
-        public string Summary => "以下剧集已存在。跳过已存在的剧，还是仍然加入？本次选择对所有账号生效。\n\n" + string.Join("\n", Lines);
+
+        public bool IsBlocked(TikTokQueueImportTarget target, DramaSearchItem item) =>
+            BlockedTitles[QueueTargetKey(target)].Contains(item.Title);
+
+        public int BlockedCount(TikTokQueueImportTarget target, IReadOnlyList<DramaSearchItem> items) =>
+            items.Count(item => IsBlocked(target, item));
     }
 
     [RelayCommand]

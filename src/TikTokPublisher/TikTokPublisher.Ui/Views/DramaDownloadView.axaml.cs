@@ -35,7 +35,8 @@ public partial class DramaDownloadView : UserControl
         _vm = vm;
         vm.LogRequested += log;
         vm.PickTikTokQueueTargetsAsync = PickTikTokQueueTargetsAsync;
-        vm.ConfirmDuplicateQueueAsync = ConfirmDuplicateQueueAsync;
+        vm.ConfirmQueueBatchAsync = ConfirmQueueBatchAsync;
+        vm.ShowQueueBatchResultAsync = ShowQueueBatchResultAsync;
         vm.LoadState();
         DataContext = vm;
         SyncComboFromVm();
@@ -45,20 +46,35 @@ public partial class DramaDownloadView : UserControl
 
     private async Task<IReadOnlyList<TikTokQueueImportTarget>?> PickTikTokQueueTargetsAsync(
         IReadOnlyList<TikTokQueueImportTarget> targets,
-        string? currentAccountId)
+        TikTokQueueImportTarget? currentTarget,
+        int dramaCount,
+        CancellationToken cancellationToken)
     {
-        var dialog = new TikTokMultiAccountQueueDialog(targets, currentAccountId);
-        if (TopLevel.GetTopLevel(this) is Window owner)
-            return await dialog.ShowDialog<IReadOnlyList<TikTokQueueImportTarget>?>(owner);
-        return null;
+        if (TopLevel.GetTopLevel(this) is not Window owner) return null;
+        var choices = await Task.Run(() => targets.Select(target =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return DramaDownloadViewModel.CheckQueueAccountWorkspace(target);
+        }).ToArray(), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        var dialog = new TikTokMultiAccountQueueDialog(choices, currentTarget, dramaCount);
+        return await dialog.ShowDialog<IReadOnlyList<TikTokQueueImportTarget>?>(owner);
     }
 
-    private async Task<bool?> ConfirmDuplicateQueueAsync(string summary)
+    private async Task<bool?> ConfirmQueueBatchAsync(string summary, bool hasDuplicates)
     {
-        var dialog = new TikTokDuplicateQueueDialog(summary);
-        if (TopLevel.GetTopLevel(this) is Window owner)
-            return await dialog.ShowDialog<bool?>(owner);
-        return null;
+        if (TopLevel.GetTopLevel(this) is not Window owner) return null;
+        var dialog = new TikTokQueueBatchSummaryDialog("确认批量入队", summary,
+            hasDuplicates ? "跳过已存在并入队" : "确认入队", hasDuplicates ? "仍然加入" : null, "取消");
+        return await dialog.ShowDialog<bool?>(owner);
+    }
+
+    private async Task<bool> ShowQueueBatchResultAsync(string summary, bool canRetry)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner) return false;
+        var dialog = new TikTokQueueBatchSummaryDialog("批量入队结果", summary,
+            canRetry ? "仅重试失败" : "完成", secondaryLabel: null, cancelLabel: canRetry ? "关闭" : null);
+        return await dialog.ShowDialog<bool?>(owner) == true;
     }
 
     private void OnDownloadTabChanged(object? sender, SelectionChangedEventArgs e)

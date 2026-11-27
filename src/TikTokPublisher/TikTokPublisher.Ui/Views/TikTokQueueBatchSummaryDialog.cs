@@ -4,12 +4,13 @@ using Avalonia.Media;
 
 namespace TikTokPublisher.Ui.Views;
 
-public sealed class TikTokDuplicateQueueDialog : Window
+internal sealed class TikTokQueueBatchSummaryDialog : Window
 {
-    public TikTokDuplicateQueueDialog(string summary)
+    public TikTokQueueBatchSummaryDialog(string title, string summary, string primaryLabel,
+        string? secondaryLabel, string? cancelLabel)
     {
-        Title = "已存在的剧集";
-        Width = 560;
+        Title = title;
+        Width = 600;
         Height = 360;
         MinWidth = 420;
         MinHeight = 240;
@@ -20,29 +21,34 @@ public sealed class TikTokDuplicateQueueDialog : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Avalonia.Thickness(0, 0, 0, 16),
         };
-        var skip = new Button
+        var primary = new Button
         {
-            Content = "跳过已存在",
+            Content = primaryLabel,
             MinWidth = 108,
             IsDefault = true,
             HorizontalContentAlignment = HorizontalAlignment.Center,
+            Classes = { "primaryAction" },
         };
-        var add = new Button
-        {
-            Content = "仍然加入",
-            MinWidth = 108,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-        };
-        skip.Click += (_, _) => Close(true);
-        add.Click += (_, _) => Close(false);
+        primary.Click += (_, _) => Close(true);
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             HorizontalAlignment = HorizontalAlignment.Right,
         };
-        buttons.Children.Add(skip);
-        buttons.Children.Add(add);
+        buttons.Children.Add(primary);
+        if (secondaryLabel is not null)
+        {
+            var secondary = new Button { Content = secondaryLabel };
+            secondary.Click += (_, _) => Close(false);
+            buttons.Children.Add(secondary);
+        }
+        if (cancelLabel is not null)
+        {
+            var cancel = new Button { Content = cancelLabel, IsCancel = true };
+            cancel.Click += (_, _) => Close(null);
+            buttons.Children.Add(cancel);
+        }
         var root = new DockPanel { Margin = new Avalonia.Thickness(16) };
         DockPanel.SetDock(buttons, Dock.Bottom);
         root.Children.Add(buttons);

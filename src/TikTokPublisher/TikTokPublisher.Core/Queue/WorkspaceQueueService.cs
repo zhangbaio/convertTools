@@ -22,12 +22,19 @@ public static class WorkspaceQueueService
         RemoveProjectsFromQueue(workspaceRoot, [projectDir]);
     }
 
-    public static IReadOnlyList<QueueProjectItem> ScanProjects(string workspaceRoot)
+    public static IReadOnlyList<QueueProjectItem> ScanProjects(string workspaceRoot) =>
+        ScanProjects(workspaceRoot, reconcile: true);
+
+    public static IReadOnlyList<QueueProjectItem> InspectProjects(string workspaceRoot) =>
+        ScanProjects(workspaceRoot, reconcile: false);
+
+    private static IReadOnlyList<QueueProjectItem> ScanProjects(string workspaceRoot, bool reconcile)
     {
         var root = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(root)) return Array.Empty<QueueProjectItem>();
 
-        TryDeleteDeletedProjectDirectories(root, SnapshotDeletedProjectDirs(root));
+        if (reconcile)
+            TryDeleteDeletedProjectDirectories(root, SnapshotDeletedProjectDirs(root));
         var deleted = SnapshotDeletedProjectDirs(root);
 
         var state = WorkspaceQueueDatabase.Load(root);
@@ -82,7 +89,8 @@ public static class WorkspaceQueueService
             seen.Add(normalized);
         }
 
-        RemoveStoredProjectsOutsideWorkspace(root, outsideWorkspace);
+        if (reconcile)
+            RemoveStoredProjectsOutsideWorkspace(root, outsideWorkspace);
 
         foreach (var (normalized, item) in discovered)
         {

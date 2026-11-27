@@ -5444,12 +5444,12 @@ public sealed partial class MainViewModel : ViewModelBase
         var targets = new List<TikTokQueueImportTarget>();
         foreach (var account in Accounts)
         {
-            var workspace = NormalizeWorkspacePath(account.Model.ResolveWorkspacePath());
-            if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
-                continue;
+            var configured = NormalizeWorkspacePath(account.Model.TiktokUploadProfilePath);
+            var lastWorkspace = NormalizeWorkspacePath(account.Model.LastWorkspace);
+            var workspace = string.IsNullOrWhiteSpace(configured) ? lastWorkspace : configured;
             targets.Add(new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace,
                 _kuaishouDownloadTargets is null ? "" : DramaQueuePlatforms.TikTok,
-                _kuaishouDownloadTargets is null ? "" : "TikTok"));
+                "TikTok") { LoginEmail = account.LoginEmail, FallbackWorkspaceRoot = lastWorkspace });
         }
 
         if (_kuaishouDownloadTargets is { } kuaishouTargets)
@@ -5464,7 +5464,8 @@ public sealed partial class MainViewModel : ViewModelBase
         var workspace = NormalizeWorkspacePath(account.ResolveWorkspacePath());
         return string.IsNullOrWhiteSpace(workspace)
             ? null
-            : new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace);
+            : new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace,
+                _kuaishouDownloadTargets is null ? "" : DramaQueuePlatforms.TikTok, "TikTok");
     }
 
     private void UpdateDramaDownloadQueueTarget() =>
@@ -5486,6 +5487,13 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
         {
             error = $"账号「{target.AccountProfileName}」的 TikTok 上传工作目录不存在：{target.WorkspaceRoot}";
+            return false;
+        }
+        var currentRoot = NormalizeWorkspacePath(account.ResolveWorkspacePath());
+        if (!string.Equals(Path.TrimEndingDirectorySeparator(root),
+                Path.TrimEndingDirectorySeparator(currentRoot), StringComparison.OrdinalIgnoreCase))
+        {
+            error = $"账号「{target.AccountProfileName}」的工作目录已变更，请重新选取账号";
             return false;
         }
 
@@ -5564,44 +5572,57 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             StatusMessage = error;
             AppendLog(error);
-            return;
+            throw new InvalidOperationException(error);
         }
 
         var root = NormalizeWorkspacePath(target.WorkspaceRoot);
         StatusMessage = $"正在加入「{target.AccountProfileName}」上传队列…";
         var importResult = await Task.Run(() =>
         {
+            if (request.ProjectDirs.Any(path => !WorkspaceProjectScanner.IsValidProjectDirectory(path)))
+                throw new InvalidOperationException("入队项目目录已变更，请检查目录后重试。");
             var added = WorkspaceQueueService.AddProjectsToQueue(
                 root,
                 request.ProjectDirs,
                 target.AccountProfileId,
                 target.AccountProfileName);
-            var snapshot = WorkspaceQueueService.LoadPersistedSnapshot(root);
-            return (Added: added, Snapshot: snapshot);
+            return added;
         }).ConfigureAwait(true);
 
-        if (string.Equals(SelectedAccount?.Id, target.AccountProfileId, StringComparison.Ordinal))
+        try
         {
-            WorkspacePath = root;
-            SystemSettings.UpdateWorkspacePath(root);
-            ArchivedProjects.SetWorkspace(root, refresh: false);
-            ApplyWorkspaceScanResult(
-                root,
-                importResult.Snapshot.Items.ToList(),
-                importResult.Snapshot.Options);
+            if (request.IsBatch && !string.Equals(SelectedAccount?.Id, target.AccountProfileId, StringComparison.Ordinal))
+            {
+                lock (_workspaceQueueSnapshotsLock)
+                    _workspaceQueueSnapshots.Remove(NormalizeWorkspaceRootKey(root));
+            }
+            else
+            {
+                var snapshot = await Task.Run(() => WorkspaceQueueService.LoadPersistedSnapshot(root));
+                if (string.Equals(SelectedAccount?.Id, target.AccountProfileId, StringComparison.Ordinal))
+                {
+                    WorkspacePath = root;
+                    SystemSettings.UpdateWorkspacePath(root);
+                    ArchivedProjects.SetWorkspace(root, refresh: false);
+                    ApplyWorkspaceScanResult(root, snapshot.Items.ToList(), snapshot.Options);
+                }
+                else
+                {
+                    CacheWorkspaceQueueSnapshot(root, snapshot.Items, snapshot.Options);
+                }
+            }
         }
-        else
+        catch (Exception ex)
         {
-            CacheWorkspaceQueueSnapshot(
-                root,
-                importResult.Snapshot.Items,
-                importResult.Snapshot.Options);
+            AppendLog($"「{target.AccountProfileName}」已入队，队列刷新失败：{ex.Message}");
         }
 
-        StatusMessage = importResult.Added.Count > 0
-            ? $"已导入 {importResult.Added.Count} 个项目到「{target.AccountProfileName}」上传队列"
+        StatusMessage = importResult.Count > 0
+            ? $"已导入 {importResult.Count} 个项目到「{target.AccountProfileName}」上传队列"
             : $"没有可导入「{target.AccountProfileName}」队列的新项目";
         AppendLog(StatusMessage);
+        if (request.IsBatch && importResult.Count != request.ProjectDirs.Count)
+            throw new QueueImportPartialException(importResult.Select(item => Path.GetFullPath(item.ProjectDir)));
     }
 
     public async Task<LocalManualDramaImportResult?> ImportLocalManualDramaAsync(string sourceProjectDir)

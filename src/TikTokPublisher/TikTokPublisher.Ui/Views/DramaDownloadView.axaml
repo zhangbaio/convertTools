@@ -64,6 +64,11 @@
             <ComboBox MinWidth="180" ItemsSource="{Binding ChainOptions}" SelectedItem="{Binding SelectedChain, Mode=TwoWay}" />
         </StackPanel>
 
+        <Grid DockPanel.Dock="Top" IsVisible="{Binding IsQueueBatchActive}" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+            <TextBlock Text="{Binding QueueBatchStatus}" Classes="pageSummary" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <Button Grid.Column="1" Content="停止批量入队" Command="{Binding AddSelectedToMultipleTikTokQueuesCancelCommand}" />
+        </Grid>
+
         <TabControl x:Name="DownloadTabs" Classes="downloadTabs" SelectionChanged="OnDownloadTabChanged">
             <TabItem Header="搜索">
                 <DockPanel Margin="8">
