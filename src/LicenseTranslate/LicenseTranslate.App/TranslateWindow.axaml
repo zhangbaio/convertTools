@@ -27,17 +27,21 @@
     <DockPanel Grid.Row="3">
       <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,8">
         <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="翻译执照" Click="TranslateLicenses_Click" />
-          <Button Content="生成 Word 和 PDF" Click="Generate_Click" />
+          <Button x:Name="TranslateButton" Content="翻译执照" Click="TranslateLicenses_Click" />
+          <Button x:Name="GenerateBatchButton" Content="生成 Word 和 PDF" Click="Generate_Click" />
+          <Button x:Name="GeneratePdfButton" Content="仅生成当前 PDF" Click="GenerateCurrentPdf_Click" />
         </StackPanel>
         <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
-        <ComboBox x:Name="FileBox" HorizontalAlignment="Stretch" SelectionChanged="FileBox_SelectionChanged" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <ComboBox x:Name="FileBox" HorizontalAlignment="Stretch" SelectionChanged="FileBox_SelectionChanged" />
+          <Button x:Name="ClearLicensesButton" Grid.Column="1" Content="清空已选执照" Click="ClearLicenses_Click" />
+        </Grid>
       </StackPanel>
-      <ScrollViewer>
+      <ScrollViewer x:Name="LicenseForm">
         <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
           <StackPanel Spacing="6">
             <TextBlock Text="中文" FontWeight="SemiBold" />
-            <TextBlock Text="统一社会信用代码" /><TextBox x:Name="CreditBox" TextChanged="CreditBox_TextChanged" />
+            <TextBlock Text="统一社会信用代码" /><TextBox x:Name="CreditBox" TextChanging="CreditBox_TextChanging" />
             <TextBlock Text="名称" /><TextBox x:Name="NameBox" />
             <TextBlock Text="类型" /><TextBox x:Name="TypeBox" />
             <TextBlock x:Name="PersonLabel" Text="法定代表人" /><TextBox x:Name="PersonBox" />
@@ -50,7 +54,7 @@
           </StackPanel>
           <StackPanel Grid.Column="1" Spacing="6">
             <TextBlock Text="英文" FontWeight="SemiBold" />
-            <TextBlock Text="Unified Social Credit Code" /><TextBox x:Name="EnglishCreditBox" TextChanged="EnglishCreditBox_TextChanged" />
+            <TextBlock Text="Unified Social Credit Code" /><TextBox x:Name="EnglishCreditBox" TextChanging="EnglishCreditBox_TextChanging" />
             <TextBlock Text="Name" /><TextBox x:Name="EnglishNameBox" />
             <TextBlock Text="Type" /><TextBox x:Name="EnglishTypeBox" />
             <TextBlock x:Name="EnglishPersonLabel" Text="Legal Representative" /><TextBox x:Name="EnglishPersonBox" />

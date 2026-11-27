@@ -88,14 +88,18 @@ public static class BusinessLicenseDocumentWriter
 
     private static long Emu(double points) => (long)Math.Round(points * 12700d);
 
-    public static string OutputPath(BusinessLicenseDraft draft, string extension)
+    public static string OutputPath(BusinessLicenseDraft draft, string extension) =>
+        OutputPath(draft, extension, companionExtension: null);
+
+    internal static string OutputPath(BusinessLicenseDraft draft, string extension, string? companionExtension)
     {
         var folder = Path.GetDirectoryName(draft.SourcePath) ?? "";
         var person = string.IsNullOrWhiteSpace(draft.PersonName) ? Path.GetFileNameWithoutExtension(draft.SourcePath) : draft.PersonName.Trim();
         var stem = "营业执照 " + person;
         var path = Path.Combine(folder, stem + extension);
         var index = 2;
-        while (File.Exists(path))
+        while (Path.Exists(path) ||
+               (companionExtension is not null && Path.Exists(Path.ChangeExtension(path, companionExtension))))
         {
             path = Path.Combine(folder, $"{stem}{index}{extension}");
             index++;

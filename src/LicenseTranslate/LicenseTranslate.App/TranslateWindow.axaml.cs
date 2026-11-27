@@ -1,6 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using LicenseTranslate.Auth;
@@ -13,7 +16,9 @@ public partial class TranslateWindow : Window
     private readonly AccountSession _session;
     private readonly DispatcherTimer _verifyTimer;
     private readonly List<BusinessLicenseDraft> _drafts = [];
+    private readonly HashSet<BusinessLicenseDraft> _editedDrafts = [];
     private BusinessLicenseDraft? _current;
+    private bool _busy;
     private bool _loading;
 
     public TranslateWindow(AccountSession session)
@@ -25,6 +30,9 @@ public partial class TranslateWindow : Window
         LlmUrlBox.Text = settings.LlmBaseUrl;
         LlmModelBox.Text = settings.LlmModel;
         LlmKeyBox.Text = settings.LlmApiKey;
+        foreach (var field in LicenseForm.GetLogicalDescendants().OfType<TextBox>())
+            field.TextChanging += LicenseField_TextChanging;
+        UpdateActions();
         _verifyTimer = new DispatcherTimer { Interval = AccountProduct.VerifyInterval };
         _verifyTimer.Tick += async (_, _) => await VerifyAsync();
         Opened += (_, _) => _verifyTimer.Start();
@@ -89,6 +97,24 @@ public partial class TranslateWindow : Window
 
     private async void TranslateLicenses_Click(object? sender, RoutedEventArgs e)
     {
+        if (_busy) return;
+        SetBusy(true);
+        try
+        {
+            await TranslateLicensesAsync();
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "翻译失败：" + ex.Message;
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private async Task TranslateLicensesAsync()
+    {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "选择营业执照图片",
@@ -125,6 +151,7 @@ public partial class TranslateWindow : Window
                 draft.EnglishName = draft.EnglishType = draft.EnglishAddress = draft.EnglishScope = draft.EnglishAuthority = "";
                 BusinessLicenseTranslator.ApplyFixed(draft);
                 await BusinessLicenseAiTranslator.TranslateAsync(draft, options);
+                _editedDrafts.Remove(draft);
             }
             catch (Exception ex)
             {
@@ -139,74 +166,174 @@ public partial class TranslateWindow : Window
             : "翻译失败：" + string.Join(" ", failures);
     }
 
-    private void Generate_Click(object? sender, RoutedEventArgs e)
+    private async void ClearLicenses_Click(object? sender, RoutedEventArgs e)
     {
+        if (_busy || _drafts.Count == 0) return;
+        if (_editedDrafts.Count > 0 && !await ConfirmClearAsync()) return;
+
+        _drafts.Clear();
+        _editedDrafts.Clear();
+        BindFiles();
+        StatusText.Text = "已清空已选执照。";
+    }
+
+    private Task<bool> ConfirmClearAsync()
+    {
+        var confirm = new Button { Content = "清空" };
+        var cancel = new Button { Content = "取消", IsCancel = true, IsDefault = true };
+        var dialog = new Window
+        {
+            Title = "清空已选执照",
+            Width = 380,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(16),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock { Text = "清空后会丢弃尚未导出的手动修改。", TextWrapping = TextWrapping.Wrap },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { cancel, confirm },
+                    },
+                },
+            },
+        };
+        confirm.Click += (_, _) => dialog.Close(true);
+        cancel.Click += (_, _) => dialog.Close(false);
+        return dialog.ShowDialog<bool>(this);
+    }
+
+    private async void Generate_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
         SaveCurrent();
-        if (_drafts.Count == 0 || _drafts.All(item => string.IsNullOrWhiteSpace(item.EnglishName)))
+        var drafts = _drafts.Where(draft => !string.IsNullOrWhiteSpace(draft.EnglishName)).ToList();
+        if (drafts.Count == 0)
         {
             StatusText.Text = "请先翻译执照，并确认英文名称。";
             return;
         }
-        var options = TranslationOptions();
-        var written = new List<string>();
-        var failures = new List<string>();
-        foreach (var draft in _drafts.Where(item => !string.IsNullOrWhiteSpace(item.EnglishName)))
+        await GenerateAsync(drafts, pdfOnly: false);
+    }
+
+    private async void GenerateCurrentPdf_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_busy || _current is not { } draft) return;
+        SaveCurrent();
+        if (string.IsNullOrWhiteSpace(draft.EnglishName)) return;
+        await GenerateAsync([draft], pdfOnly: true);
+    }
+
+    private async Task GenerateAsync(IReadOnlyList<BusinessLicenseDraft> drafts, bool pdfOnly)
+    {
+        SetBusy(true);
+        StatusText.Text = pdfOnly ? "正在生成当前执照的 PDF…" : "正在批量生成 Word 和 PDF…";
+        try
         {
-            BusinessLicenseAiTranslator.Remember(draft, options.GlossaryPath);
-            try
+            var options = TranslationOptions();
+            var written = new List<string>();
+            var failures = new List<string>();
+            foreach (var draft in drafts)
             {
-                var docx = BusinessLicenseDocumentWriter.OutputPath(draft, ".docx");
-                BusinessLicenseDocumentWriter.Write(docx, draft);
-                var pdf = Path.ChangeExtension(docx, ".pdf");
-                BusinessLicensePdfWriter.Write(pdf, draft);
-                written.Add(docx);
-                written.Add(pdf);
+                try
+                {
+                    var paths = await Task.Run(() => Export(draft, options.GlossaryPath, pdfOnly));
+                    written.AddRange(paths);
+                    _editedDrafts.Remove(draft);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{Path.GetFileName(draft.SourcePath)}：{ex.Message}");
+                }
             }
-            catch (Exception ex)
-            {
-                failures.Add($"{Path.GetFileName(draft.SourcePath)}：{ex.Message}");
-            }
+            var success = written.Count > 0 ? "已生成：" + string.Join("；", written) : "";
+            StatusText.Text = failures.Count == 0
+                ? success
+                : (success.Length > 0 ? success + "。" : "") + "生成失败：" + string.Join(" ", failures);
         }
-        StatusText.Text = failures.Count == 0
-            ? "已生成：" + string.Join("；", written)
-            : "已生成：" + string.Join("；", written) + "。失败：" + string.Join(" ", failures);
+        catch (Exception ex)
+        {
+            StatusText.Text = "生成失败：" + ex.Message;
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private static string[] Export(BusinessLicenseDraft draft, string glossaryPath, bool pdfOnly)
+    {
+        BusinessLicenseAiTranslator.Remember(draft, glossaryPath);
+        if (pdfOnly) return [BusinessLicenseExporter.ExportPdf(draft)];
+        var (word, pdf) = BusinessLicenseExporter.ExportWordAndPdf(draft);
+        return [word, pdf];
     }
 
     private void FileBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
         SaveCurrent();
-        if (FileBox.SelectedIndex >= 0 && FileBox.SelectedIndex < _drafts.Count)
-            Show(_drafts[FileBox.SelectedIndex]);
+        var index = FileBox.SelectedIndex;
+        Show(index >= 0 && index < _drafts.Count ? _drafts[index] : null);
     }
 
     private void BindFiles()
     {
         _loading = true;
         FileBox.ItemsSource = _drafts.Select(item => item.DisplayName).ToList();
-        if (_drafts.Count > 0)
-        {
-            FileBox.SelectedIndex = 0;
-            Show(_drafts[0]);
-        }
+        FileBox.SelectedIndex = _drafts.Count > 0 ? 0 : -1;
         _loading = false;
+        Show(_drafts.Count > 0 ? _drafts[0] : null);
     }
 
-    private void CreditBox_TextChanged(object? sender, TextChangedEventArgs e) => CopyCredit(CreditBox, EnglishCreditBox);
+    private void SetBusy(bool busy)
+    {
+        _busy = busy;
+        UpdateActions();
+    }
 
-    private void EnglishCreditBox_TextChanged(object? sender, TextChangedEventArgs e) => CopyCredit(EnglishCreditBox, CreditBox);
+    private void UpdateActions()
+    {
+        TranslateButton.IsEnabled = !_busy;
+        ClearLicensesButton.IsEnabled = !_busy && _drafts.Count > 0;
+        GenerateBatchButton.IsEnabled = !_busy && _drafts.Count > 0;
+        GeneratePdfButton.IsEnabled = !_busy && _current is not null && !string.IsNullOrWhiteSpace(EnglishNameBox.Text);
+        FileBox.IsEnabled = !_busy && _drafts.Count > 0;
+        LicenseForm.IsEnabled = !_busy && _current is not null;
+    }
+
+    private void LicenseField_TextChanging(object? sender, TextChangingEventArgs e)
+    {
+        if (_loading || _current is null) return;
+        _editedDrafts.Add(_current);
+        if (ReferenceEquals(sender, EnglishNameBox))
+            UpdateActions();
+    }
+
+    private void CreditBox_TextChanging(object? sender, TextChangingEventArgs e) => CopyCredit(CreditBox, EnglishCreditBox);
+
+    private void EnglishCreditBox_TextChanging(object? sender, TextChangingEventArgs e) => CopyCredit(EnglishCreditBox, CreditBox);
 
     private void CopyCredit(TextBox source, TextBox target)
     {
+        // 同步另一栏后，切换执照时才能读到最新的信用代码。
         if (_loading || source.Text == target.Text) return;
         _loading = true;
         target.Text = source.Text;
         _loading = false;
     }
 
-    private void Show(BusinessLicenseDraft draft)
+    private void Show(BusinessLicenseDraft? draft)
     {
         _current = draft;
+        draft ??= new BusinessLicenseDraft();
         _loading = true;
         CreditBox.Text = draft.CreditCode;
         EnglishCreditBox.Text = draft.CreditCode;
@@ -237,6 +364,7 @@ public partial class TranslateWindow : Window
         EnglishAuthorityBox.Text = draft.EnglishAuthority;
         EnglishIssueBox.Text = draft.EnglishIssueDate;
         _loading = false;
+        UpdateActions();
     }
 
     private void SaveCurrent()
