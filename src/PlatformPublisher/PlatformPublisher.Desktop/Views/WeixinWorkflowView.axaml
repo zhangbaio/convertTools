@@ -439,7 +439,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Classes="panel" Padding="10">
+        <Border Grid.Row="1" Classes="panel" Padding="10" IsEnabled="{Binding !IsBusy}">
             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -664,7 +664,7 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
                                     <Grid ColumnDefinitions="44,110,210,210,90,60,100,64,72,64,64,64,64,64,64,80,80,64,72,64,64,64,90,240" ColumnSpacing="8" Margin="8,2">
-                                        <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
+                                        <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" Click="OnQueueCheckClick" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="1" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
                                         <Button Grid.Column="2" Click="OnOpenSourceDirectoryClick" Background="Transparent" BorderThickness="0" Padding="0" MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="{Binding SourceDirectory}">
                                             <TextBlock Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />

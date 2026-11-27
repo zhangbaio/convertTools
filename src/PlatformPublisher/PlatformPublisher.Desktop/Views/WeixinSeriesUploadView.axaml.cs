@@ -182,7 +182,7 @@ public partial class WeixinSeriesUploadView : UserControl
             return;
         if (_canStart?.Invoke() == false)
         {
-            SetStatus("素材发布正在运行，请等任务结束后再开始剧集上架。", isError: true);
+            SetStatus("有其他视频号任务正在运行，请等任务结束后再开始剧集上架。", isError: true);
             return;
         }
         if (_run is null)

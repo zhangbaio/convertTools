@@ -28,6 +28,7 @@ public partial class WeixinWorkflowView : UserControl
     private bool _embeddedUploadLayout;
     private bool _kuaishouColumnsAdjusted;
     private Func<PublishAccount?>? _accountProvider;
+    private Action? _refreshWorkspaceAccount;
     private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
     public event EventHandler? ViewLogsRequested;
@@ -180,6 +181,14 @@ public partial class WeixinWorkflowView : UserControl
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
+    private async void OnQueueCheckClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { DataContext: PublishJobRowViewModel row } checkBox || ViewModel is not { } viewModel)
+            return;
+        row.IsChecked = checkBox.IsChecked == true;
+        await viewModel.SaveQueueSelectionAsync(row);
+    }
+
     private void OnOpenSourceDirectoryClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
@@ -210,7 +219,21 @@ public partial class WeixinWorkflowView : UserControl
         ViewModel?.UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
     }
 
-    private void OnRefreshAccountClick(object? sender, RoutedEventArgs e) => ApplyAccount(_accountProvider?.Invoke());
+    internal void BindWorkspaceAccountActions(Action refreshAccount, Action openAccountSettings)
+    {
+        _refreshWorkspaceAccount = refreshAccount;
+        OpenLoginButton.Command = null;
+        OpenLoginButton.Content = "视频号登录";
+        OpenLoginButton.Click += (_, _) => openAccountSettings();
+    }
+
+    private void OnRefreshAccountClick(object? sender, RoutedEventArgs e)
+    {
+        if (_refreshWorkspaceAccount is { } refresh)
+            refresh();
+        else
+            ApplyAccount(_accountProvider?.Invoke());
+    }
 
     private async void OnPickProjectDirectoryClick(object? sender, RoutedEventArgs e)
     {

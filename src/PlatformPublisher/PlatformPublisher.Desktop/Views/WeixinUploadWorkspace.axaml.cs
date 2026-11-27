@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using ChannelsPublisher.Core.Services;
@@ -9,6 +10,7 @@ using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
+using Account = ChannelsPublisher.Core.Models.PublishAccount;
 using AccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -19,6 +21,7 @@ public partial class WeixinUploadWorkspace : UserControl
     private KuaishouUploadWorkspace? _platformWorkspace;
     private Panel? _accountPanel;
     private MainWindowViewModel? _platformViewModel;
+    private ServiceProvider? _workflowServices;
     private FileStream? _lease;
     private Task? _initialization;
     private bool _accountPanelVisible;
@@ -34,9 +37,11 @@ public partial class WeixinUploadWorkspace : UserControl
         _series.RuntimeChanged += () => UpdateStatus(_series.RuntimeStatus);
     }
 
-    public bool HasActiveUploads => Publisher.HasActivePublish || _series.IsRunning;
+    private bool IsWorkflowRunning => _platformViewModel?.IsBusy == true;
+    public bool HasActiveUploads => Publisher.HasActivePublish || _series.IsRunning || IsWorkflowRunning;
     public string RuntimeStatus => _lastStatus;
     public event Action? RuntimeChanged;
+    public event Action? SettingsRequested;
 
     public void Bind(Panel accountPanel, KuaishouUploadWorkspace platformWorkspace)
     {
@@ -51,7 +56,8 @@ public partial class WeixinUploadWorkspace : UserControl
         if (_ready)
         {
             Publisher.RefreshWorkspaceAccounts();
-            RefreshPreviousJobs();
+            ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
+            _platformViewModel?.RefreshDramaSourceStatus();
             return;
         }
         var initialization = _initialization ??= InitializeAsync();
@@ -66,6 +72,8 @@ public partial class WeixinUploadWorkspace : UserControl
             return;
 
         FileStream? lease = null;
+        ServiceProvider? workflowServices = null;
+        MainWindowViewModel? viewModel = null;
         RetryButton.IsVisible = false;
         StartupMessage.Text = "正在加载视频号工作区…";
         try
@@ -77,24 +85,45 @@ public partial class WeixinUploadWorkspace : UserControl
                 throw new InvalidOperationException("平台工作区初始化失败。请确认独立云帆客户端已退出后重试。");
 
             lease = ChannelsWorkspaceLease.Acquire();
-            var adapter = (WeixinChannelPublishAdapter)services.GetRequiredService<PlatformPublishCoordinator>()
+            workflowServices = App.BuildServices(embeddedInTikTok: true, embeddedKuaishou: services);
+            viewModel = workflowServices.GetRequiredService<MainWindowViewModel>();
+            await viewModel.Initialization;
+            if (_closed)
+                return;
+            var adapter = (WeixinChannelPublishAdapter)workflowServices.GetRequiredService<PlatformPublishCoordinator>()
                 .GetAdapter(PublishPlatform.WeixinChannel);
-            _platformViewModel = services.GetRequiredService<MainWindowViewModel>();
+            var workflow = new WeixinWorkflowView { DataContext = viewModel };
+            workflow.BindWorkspaceAccountActions(() =>
+            {
+                Publisher.RefreshWorkspaceAccounts();
+                ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
+            }, Publisher.ShowAccountSettings);
+            workflow.SettingsRequested += (_, _) => SettingsRequested?.Invoke();
+            viewModel.BindEmbeddedWeixinWork(() => !Publisher.HasActivePublish && !_series.IsRunning,
+                Publisher.PrepareSeriesSessionAsync, ConfirmQueueUploadAsync);
             var queuePath = Path.Combine(PlatformPublisherPaths.DataRoot, "weixin", "material-queue.json");
-            Publisher.UseUploadWorkspace(_accountPanel, services.GetRequiredService<AccountStore>(), queuePath,
-                () => !_series.IsRunning, ConfirmMaterialPublishAsync, ConfirmPendingOutcomeAsync,
+            Publisher.UseUploadWorkspace(_accountPanel, services.GetRequiredService<AccountStore>(), queuePath, workflow,
+                () => !_series.IsRunning && !IsWorkflowRunning, ConfirmMaterialPublishAsync, ConfirmPendingOutcomeAsync,
                 id => AccountBrowserPortAllocator.Allocate("weixin:" + id),
                 id => AccountBrowserPortAllocator.Release("weixin:" + id));
-            _series.BindWorkspace(adapter, () => Publisher.SelectedAccountProfile, () => !Publisher.HasActivePublish,
+            _series.BindWorkspace(adapter, () => Publisher.SelectedAccountProfile,
+                () => !Publisher.HasActivePublish && !IsWorkflowRunning,
                 Publisher.PrepareSeriesSessionAsync);
             Publisher.SetSeriesPublishContent(_series);
+            Publisher.SetWorkspaceRunLogs(new WeixinRuntimeLogView { DataContext = viewModel });
+            _platformViewModel = viewModel;
+            _workflowServices = workflowServices;
+            viewModel = null;
+            workflowServices = null;
             Publisher.SelectedAccountChanged += _series.SetAccount;
+            Publisher.SelectedAccountChanged += ApplyWorkflowAccount;
+            _platformViewModel.PropertyChanged += OnWorkflowPropertyChanged;
             _series.SetAccount(Publisher.SelectedAccountProfile);
+            ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
             _ready = true;
             _lease = lease;
             lease = null;
             SetAccountPanelVisible(_accountPanelVisible && _active);
-            RefreshPreviousJobs();
             StartupPanel.IsVisible = false;
             Publisher.IsVisible = true;
         }
@@ -105,6 +134,9 @@ public partial class WeixinUploadWorkspace : UserControl
         }
         finally
         {
+            viewModel?.Shutdown();
+            if (workflowServices is not null)
+                await workflowServices.DisposeAsync();
             lease?.Dispose();
         }
     }
@@ -138,18 +170,30 @@ public partial class WeixinUploadWorkspace : UserControl
     {
         Publisher.StopWorkspace();
         _series.Stop();
+        _platformViewModel?.Stop();
     }
 
     public async Task CloseWorkspaceAsync()
     {
         _closed = true;
         _series.Stop();
+        if (_platformViewModel is { } viewModel)
+        {
+            viewModel.PropertyChanged -= OnWorkflowPropertyChanged;
+            viewModel.Shutdown();
+            Publisher.SelectedAccountChanged -= ApplyWorkflowAccount;
+        }
         try
         {
             await Publisher.DisposeWorkspaceAsync();
+            while (IsWorkflowRunning)
+                await Task.Delay(100);
         }
         finally
         {
+            if (_workflowServices is not null)
+                await _workflowServices.DisposeAsync();
+            _workflowServices = null;
             _lease?.Dispose();
             _lease = null;
         }
@@ -168,6 +212,12 @@ public partial class WeixinUploadWorkspace : UserControl
             ? ConfirmDialog.ShowAsync(owner, "确认发表到微信视频号", $"将按任务绑定的账号正式发表 {count} 条素材。继续发表？")
             : Task.FromResult(false);
 
+    private Task<bool> ConfirmQueueUploadAsync(int count) =>
+        TopLevel.GetTopLevel(this) is Window owner
+            ? ConfirmDialog.ShowAsync(owner, "执行视频号剧集队列",
+                $"将按项目配置上传 {count} 部剧集。启用了自动提审的项目会提交审核。继续执行？")
+            : Task.FromResult(false);
+
     private Task<bool?> ConfirmPendingOutcomeAsync(string videoName) =>
         TopLevel.GetTopLevel(this) is Window owner
             ? ConfirmDialog.ShowChoiceAsync(owner, "核对视频号提交记录",
@@ -175,15 +225,21 @@ public partial class WeixinUploadWorkspace : UserControl
                 "平台已有记录", "平台没有记录")
             : Task.FromResult<bool?>(null);
 
-    private void RefreshPreviousJobs()
+    private void ApplyWorkflowAccount(Account? account)
     {
-        if (_platformViewModel is not { } viewModel)
-            return;
+        if (_platformViewModel is { IsBusy: false } viewModel)
+            viewModel.UseEmbeddedWeixinAccount(Publisher.AccountProfiles, account);
+    }
 
-        var list = new ListBox { ItemsSource = viewModel.ListWeixinJobSummaries() };
-        var header = new TextBlock { Text = "原视频号项目队列", Margin = new Avalonia.Thickness(8) };
-        DockPanel.SetDock(header, Dock.Top);
-        var previous = new DockPanel { Children = { header, list } };
-        Publisher.SetWorkspaceRunHistory(previous);
+    private void OnWorkflowPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.IsBusy))
+        {
+            Publisher.SetWorkspaceAccountPanelEnabled(!IsWorkflowRunning);
+            ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
+        }
+        if (e.PropertyName is nameof(MainWindowViewModel.IsBusy) or nameof(MainWindowViewModel.StatusMessage) &&
+            _platformViewModel is { } viewModel)
+            UpdateStatus(viewModel.StatusMessage);
     }
 }

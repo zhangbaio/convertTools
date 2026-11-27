@@ -7,6 +7,7 @@ namespace PlatformPublisher.Desktop.Services;
 public sealed class WeixinWorkflowSettingsStore
 {
     private const string SettingsKey = "weixin.workflow";
+    private const string KuaishouSettingsKey = "kuaishou.workflow";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -15,18 +16,26 @@ public sealed class WeixinWorkflowSettingsStore
 
     private readonly string _path = Path.Combine(PlatformPublisherPaths.DataRoot, "weixin-workflow-settings.json");
     private readonly IJsonSettingStore? _databaseStore;
+    private readonly string _settingsKey = SettingsKey;
 
     public WeixinWorkflowSettingsStore() { }
-    public WeixinWorkflowSettingsStore(IJsonSettingStore databaseStore) => _databaseStore = databaseStore;
+    public WeixinWorkflowSettingsStore(IJsonSettingStore databaseStore, bool kuaishouWorkspace = false)
+    {
+        _databaseStore = databaseStore;
+        _settingsKey = kuaishouWorkspace ? KuaishouSettingsKey : SettingsKey;
+    }
 
     public async Task<WeixinWorkflowSettings> LoadAsync(CancellationToken cancellationToken = default)
     {
         if (_databaseStore is not null)
         {
-            if (_databaseStore.TryLoad<WeixinWorkflowSettings>(SettingsKey, out var stored) && stored is not null)
+            if (_databaseStore.TryLoad<WeixinWorkflowSettings>(_settingsKey, out var stored) && stored is not null)
                 return stored;
-            var legacy = await LoadLegacyAsync(cancellationToken);
-            _databaseStore.Save(SettingsKey, legacy);
+            var legacy = _settingsKey == KuaishouSettingsKey &&
+                _databaseStore.TryLoad<WeixinWorkflowSettings>(SettingsKey, out var shared) && shared is not null
+                ? shared
+                : await LoadLegacyAsync(cancellationToken);
+            _databaseStore.Save(_settingsKey, legacy);
             return legacy;
         }
         return await LoadLegacyAsync(cancellationToken);
@@ -51,7 +60,7 @@ public sealed class WeixinWorkflowSettingsStore
     {
         if (_databaseStore is not null)
         {
-            _databaseStore.Save(SettingsKey, settings);
+            _databaseStore.Save(_settingsKey, settings);
             await Task.CompletedTask;
             return;
         }

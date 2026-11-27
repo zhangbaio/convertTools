@@ -1,5 +1,6 @@
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Services;
+using PlatformPublisher.Persistence;
 using Xunit;
 
 namespace PlatformPublisher.Common.Tests;
@@ -65,6 +66,57 @@ public sealed class PublishJobStoreTests
         {
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EmbeddedQueueRecoversAndSavesOnlyItsOwnPlatformJobs()
+    {
+        var tempRoot = Directory.CreateTempSubdirectory("embedded-publish-queue-");
+        try
+        {
+            var database = new PlatformDatabase(Path.Combine(tempRoot.FullName, "jobs.db"));
+            var store = new PublishJobStore(database, Path.Combine(tempRoot.FullName, "jobs.json"));
+            var weixin = new PublishJob
+            {
+                Platform = PublishPlatform.WeixinChannel,
+                AccountId = "weixin-account",
+                Status = PublishJobStatus.Running,
+                StepStates = new()
+                {
+                    ["download"] = new() { Key = "download", Status = PublishJobStepStatus.Succeeded },
+                },
+            };
+            var personal = new PublishJob { Platform = PublishPlatform.KuaishouPersonalRevenue, Status = PublishJobStatus.Running };
+            var enterprise = new PublishJob { Platform = PublishPlatform.KuaishouEnterpriseRevenue };
+            await store.SaveAsync([weixin, personal, enterprise]);
+
+            var recovered = Assert.Single(await store.LoadAsync(PublishJobScope.Weixin));
+            Assert.Equal(weixin.Id, recovered.Id);
+            Assert.Equal(PublishJobStatus.Pending, recovered.Status);
+            Assert.Equal(PublishJobStepStatus.Succeeded, recovered.StepStates["download"].Status);
+
+            var conflicting = new PublishJob { Id = personal.Id, Platform = PublishPlatform.WeixinChannel };
+            await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveAsync([conflicting], PublishJobScope.Weixin));
+            await store.SaveAsync([], PublishJobScope.Weixin);
+
+            using (var connection = database.Open(readOnly: true))
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT status FROM publish_jobs WHERE job_id=$id";
+                command.Parameters.AddWithValue("$id", personal.Id);
+                Assert.Equal((long)PublishJobStatus.Running, command.ExecuteScalar());
+            }
+            var kuaishou = await store.LoadAsync(PublishJobScope.Kuaishou);
+            Assert.Equal(2, kuaishou.Count);
+            Assert.Contains(kuaishou, job => job.Id == enterprise.Id);
+            await store.SaveAsync([recovered], PublishJobScope.Weixin);
+            await store.SaveAsync([], PublishJobScope.Kuaishou);
+            Assert.Equal(weixin.Id, Assert.Single(await store.LoadAsync()).Id);
+        }
+        finally
+        {
+            tempRoot.Delete(recursive: true);
         }
     }
 

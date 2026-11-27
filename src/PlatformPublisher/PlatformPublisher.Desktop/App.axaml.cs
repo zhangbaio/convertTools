@@ -148,8 +148,10 @@ public partial class App : Application
             mainWindow.StartYunfanLicenseVerifyTimer();
     }
 
-    internal static ServiceProvider BuildServices(bool embeddedInTikTok = false)
+    internal static ServiceProvider BuildServices(bool embeddedInTikTok = false, IServiceProvider? embeddedKuaishou = null)
     {
+        var jobScope = embeddedKuaishou is not null ? PublishJobScope.Weixin
+            : embeddedInTikTok ? PublishJobScope.Kuaishou : PublishJobScope.All;
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
         services.AddShortDramaServices();
@@ -170,7 +172,8 @@ public partial class App : Application
         services.AddSingleton<IDocumentRenderService, LibreOfficeDocumentRenderService>();
         services.AddSingleton(_ =>
         {
-            var database = new PlatformDatabase(PlatformPublisherPaths.MainDatabasePath);
+            var database = embeddedKuaishou?.GetRequiredService<PlatformDatabase>()
+                ?? new PlatformDatabase(PlatformPublisherPaths.MainDatabasePath);
             PlatformDatabaseInitializer.EnsureMainDatabase(database);
             return database;
         });
@@ -184,10 +187,12 @@ public partial class App : Application
         services.AddSingleton<LegacyDatabaseImporter>();
         services.AddSingleton<PublishItemEventStore>();
         services.AddSingleton<ProjectStateDocumentStore>();
-        services.AddSingleton<PublishJobStore>();
+        services.AddSingleton(provider => embeddedKuaishou?.GetRequiredService<PublishJobStore>()
+            ?? new PublishJobStore(provider.GetRequiredService<PlatformDatabase>()));
         services.AddSingleton<PublishAccountStore>();
-        services.AddSingleton(provider => new ChannelsPublisher.Core.Services.AccountStore(
-            provider.GetRequiredService<PlatformDatabase>(), ChannelsPublisher.Core.Services.AppPaths.AccountsFile));
+        services.AddSingleton(provider => embeddedKuaishou?.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>()
+            ?? new ChannelsPublisher.Core.Services.AccountStore(
+                provider.GetRequiredService<PlatformDatabase>(), ChannelsPublisher.Core.Services.AppPaths.AccountsFile));
         services.AddSingleton(_ => new AnalyticsRepository(PlatformPublisherPaths.MainDatabasePath));
         services.AddSingleton<AnalyticsQueryService>();
         services.AddSingleton<LocalPublishActivitySyncService>();
@@ -197,7 +202,8 @@ public partial class App : Application
         services.AddSingleton<WeixinAnalyticsCollector>();
         services.AddSingleton<KuaishouAnalyticsCollector>();
         services.AddSingleton<KuaishouWorksPlayCollector>();
-        services.AddSingleton<WeixinWorkflowSettingsStore>();
+        services.AddSingleton(provider => new WeixinWorkflowSettingsStore(
+            provider.GetRequiredService<IJsonSettingStore>(), jobScope == PublishJobScope.Kuaishou));
         services.AddSingleton<LegacyAccountSessionImportService>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinMaterialDownloadService>();
@@ -265,7 +271,7 @@ public partial class App : Application
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouEnterprisePublishAdapter>();
         services.AddSingleton<PlatformPublishCoordinator>();
-        services.AddSingleton<MainWindowViewModel>();
+        services.AddSingleton(provider => ActivatorUtilities.CreateInstance<MainWindowViewModel>(provider, jobScope));
         services.AddSingleton<AnalyticsViewModel>();
         services.AddSingleton<UnifiedPublishViewModel>();
         services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath, kuaishouPublishPrompts: true)

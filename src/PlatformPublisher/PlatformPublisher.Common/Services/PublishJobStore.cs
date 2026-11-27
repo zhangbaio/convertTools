@@ -5,6 +5,13 @@ using PlatformPublisher.Persistence;
 
 namespace PlatformPublisher.Common.Services;
 
+public enum PublishJobScope
+{
+    All,
+    Weixin,
+    Kuaishou,
+}
+
 public sealed class PublishJobStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -31,42 +38,82 @@ public sealed class PublishJobStore
 
     public string StorePath => _database.Path;
 
-    public async Task<IReadOnlyList<PublishJob>> LoadAsync(CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<PublishJob>> LoadAsync(CancellationToken cancellationToken = default) =>
+        LoadAsync(PublishJobScope.All, cancellationToken);
+
+    public async Task<IReadOnlyList<PublishJob>> LoadAsync(PublishJobScope scope, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             PlatformDatabaseInitializer.EnsureMainDatabase(_database);
-            RecoverInterruptedJobs();
-            var jobs = LoadDatabase();
-            if (jobs.Count > 0 || !File.Exists(_legacyPath)) return jobs;
+            RecoverInterruptedJobs(scope);
+            var jobs = LoadDatabase(scope);
+            if (jobs.Count > 0 || !File.Exists(_legacyPath) ||
+                (scope != PublishJobScope.All && LoadDatabase(PublishJobScope.All).Count > 0)) return jobs;
             var legacy = await LoadLegacyAsync(cancellationToken);
-            if (legacy.Count > 0) SaveDatabase(legacy);
-            return legacy;
+            if (legacy.Count > 0) SaveDatabase(legacy, PublishJobScope.All);
+            return legacy.Where(job => Includes(scope, job.Platform)).ToArray();
         }
         finally { _gate.Release(); }
     }
 
-    public async Task SaveAsync(IEnumerable<PublishJob> jobs, CancellationToken cancellationToken = default)
+    public Task SaveAsync(IEnumerable<PublishJob> jobs, CancellationToken cancellationToken = default) =>
+        SaveAsync(jobs, PublishJobScope.All, cancellationToken);
+
+    public async Task SaveAsync(IEnumerable<PublishJob> jobs, PublishJobScope scope, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
-        try { PlatformDatabaseInitializer.EnsureMainDatabase(_database); SaveDatabase(jobs.ToArray()); }
+        try
+        {
+            PlatformDatabaseInitializer.EnsureMainDatabase(_database);
+            var snapshot = jobs.ToArray();
+            if (snapshot.Any(job => !Includes(scope, job.Platform)))
+                throw new ArgumentException("任务平台不属于当前队列。", nameof(jobs));
+            SaveDatabase(snapshot, scope);
+        }
         finally { _gate.Release(); }
     }
 
-    private List<PublishJob> LoadDatabase()
+    public async Task SaveCheckedAsync(string jobId, bool isChecked, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await _database.WriteGate.WaitAsync(cancellationToken);
+            try
+            {
+                using var connection = _database.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    UPDATE publish_jobs
+                    SET payload_json = json_set(payload_json, '$.IsChecked', json($checked)),
+                        row_version = row_version + 1
+                    WHERE job_id = $id
+                    """;
+                command.Parameters.AddWithValue("$id", jobId);
+                command.Parameters.AddWithValue("$checked", isChecked ? "true" : "false");
+                command.ExecuteNonQuery();
+            }
+            finally { _database.WriteGate.Release(); }
+        }
+        finally { _gate.Release(); }
+    }
+
+    private List<PublishJob> LoadDatabase(PublishJobScope scope)
     {
         using var connection = _database.Open(readOnly: true);
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT job_id,payload_json,status,updated_at FROM publish_jobs ORDER BY created_at";
+        command.CommandText = $"SELECT job_id,platform,payload_json,status,updated_at FROM publish_jobs WHERE {PlatformCondition(scope)} ORDER BY created_at";
         using var reader = command.ExecuteReader();
         var jobs = new List<PublishJob>();
         while (reader.Read())
         {
-            var job = Deserialize(reader.GetString(1));
+            var job = Deserialize(reader.GetString(2));
             job.Id = reader.GetString(0);
-            job.Status = (PublishJobStatus)reader.GetInt32(2);
-            job.UpdatedAt = DateTimeOffset.Parse(reader.GetString(3));
+            job.Platform = (PublishPlatform)reader.GetInt32(1);
+            job.Status = (PublishJobStatus)reader.GetInt32(3);
+            job.UpdatedAt = DateTimeOffset.Parse(reader.GetString(4));
             jobs.Add(job);
         }
         reader.Close();
@@ -94,7 +141,7 @@ public sealed class PublishJobStore
         return result;
     }
 
-    private void SaveDatabase(IReadOnlyList<PublishJob> jobs)
+    private void SaveDatabase(IReadOnlyList<PublishJob> jobs, PublishJobScope scope)
     {
         _database.WriteGate.Wait();
         try
@@ -104,7 +151,7 @@ public sealed class PublishJobStore
             var ids = jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var job in jobs)
             {
-                SaveJob(connection, transaction, job);
+                SaveJob(connection, transaction, job, scope);
                 using var clear = connection.CreateCommand();
                 clear.Transaction = transaction;
                 clear.CommandText = "DELETE FROM publish_job_steps WHERE job_id=$id";
@@ -112,13 +159,13 @@ public sealed class PublishJobStore
                 clear.ExecuteNonQuery();
                 foreach (var step in job.StepStates.Values) SaveStep(connection, transaction, job.Id, step);
             }
-            DeleteMissing(connection, transaction, ids);
+            DeleteMissing(connection, transaction, ids, scope);
             transaction.Commit();
         }
         finally { _database.WriteGate.Release(); }
     }
 
-    private static void SaveJob(SqliteConnection connection, SqliteTransaction transaction, PublishJob job)
+    private static void SaveJob(SqliteConnection connection, SqliteTransaction transaction, PublishJob job, PublishJobScope scope)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -129,6 +176,7 @@ public sealed class PublishJobStore
             account_id=excluded.account_id,project_name=excluded.project_name,project_directory=excluded.project_directory,
             status=excluded.status,scheduled_at=excluded.scheduled_at,attempt_count=excluded.attempt_count,
             payload_json=excluded.payload_json,updated_at=excluded.updated_at,row_version=publish_jobs.row_version+1
+            WHERE $allPlatforms OR publish_jobs.platform=excluded.platform
             """;
         command.Parameters.AddWithValue("$id", job.Id); command.Parameters.AddWithValue("$p", (int)job.Platform);
         command.Parameters.AddWithValue("$k", (int)job.Kind); command.Parameters.AddWithValue("$a", job.AccountId);
@@ -136,7 +184,9 @@ public sealed class PublishJobStore
         command.Parameters.AddWithValue("$s", (int)job.Status); command.Parameters.AddWithValue("$schedule", job.ScheduledAt?.ToString("O") ?? (object)DBNull.Value);
         command.Parameters.AddWithValue("$attempt", job.AttemptCount); command.Parameters.AddWithValue("$json", JsonSerializer.Serialize(job, JsonOptions));
         command.Parameters.AddWithValue("$created", job.CreatedAt.ToString("O")); command.Parameters.AddWithValue("$updated", job.UpdatedAt.ToString("O"));
-        command.ExecuteNonQuery();
+        command.Parameters.AddWithValue("$allPlatforms", scope == PublishJobScope.All);
+        if (command.ExecuteNonQuery() == 0)
+            throw new InvalidOperationException($"任务 {job.Id} 已属于其他平台。");
     }
 
     private static void SaveStep(SqliteConnection connection, SqliteTransaction transaction, string jobId, PublishJobStepState step)
@@ -150,10 +200,10 @@ public sealed class PublishJobStore
         command.Parameters.AddWithValue("$updated", step.UpdatedAt.ToString("O")); command.ExecuteNonQuery();
     }
 
-    private static void DeleteMissing(SqliteConnection connection, SqliteTransaction transaction, HashSet<string> ids)
+    private static void DeleteMissing(SqliteConnection connection, SqliteTransaction transaction, HashSet<string> ids, PublishJobScope scope)
     {
         using var select = connection.CreateCommand(); select.Transaction = transaction;
-        select.CommandText = "SELECT job_id FROM publish_jobs";
+        select.CommandText = $"SELECT job_id FROM publish_jobs WHERE {PlatformCondition(scope)}";
         var existing = new List<string>(); using var reader = select.ExecuteReader(); while (reader.Read()) existing.Add(reader.GetString(0)); reader.Close();
         foreach (var id in existing.Where(id => !ids.Contains(id)))
         {
@@ -162,19 +212,33 @@ public sealed class PublishJobStore
         }
     }
 
-    private void RecoverInterruptedJobs()
+    private void RecoverInterruptedJobs(PublishJobScope scope)
     {
         _database.WriteGate.Wait();
         try
         {
             using var connection = _database.Open(); using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE publish_jobs SET status=$pending,updated_at=$at WHERE status=$running";
+            command.CommandText = $"UPDATE publish_jobs SET status=$pending,updated_at=$at WHERE status=$running AND {PlatformCondition(scope)}";
             command.Parameters.AddWithValue("$pending", (int)PublishJobStatus.Pending);
             command.Parameters.AddWithValue("$running", (int)PublishJobStatus.Running);
             command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O")); command.ExecuteNonQuery();
         }
         finally { _database.WriteGate.Release(); }
     }
+
+    private static string PlatformCondition(PublishJobScope scope) => scope switch
+    {
+        PublishJobScope.Weixin => $"platform = {(int)PublishPlatform.WeixinChannel}",
+        PublishJobScope.Kuaishou => $"platform IN ({(int)PublishPlatform.KuaishouPersonalRevenue}, {(int)PublishPlatform.KuaishouEnterpriseRevenue})",
+        _ => "1 = 1",
+    };
+
+    private static bool Includes(PublishJobScope scope, PublishPlatform platform) => scope switch
+    {
+        PublishJobScope.Weixin => platform == PublishPlatform.WeixinChannel,
+        PublishJobScope.Kuaishou => platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue,
+        _ => true,
+    };
 
     private async Task<List<PublishJob>> LoadLegacyAsync(CancellationToken cancellationToken)
     {

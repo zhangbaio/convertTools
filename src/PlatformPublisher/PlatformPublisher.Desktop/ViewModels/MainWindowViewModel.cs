@@ -114,6 +114,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _activeWeixinAccountId = string.Empty;
     private string _activeWeixinAccountSessionDirectory = string.Empty;
     private GlobalAccount? _activeGlobalAccount;
+    private readonly PublishJobScope _jobScope;
+    private PublishJobScope _persistJobScope;
+    private Func<bool>? _canStartEmbeddedWeixinWork;
+    private Func<string, CancellationToken, Task>? _prepareEmbeddedWeixinSession;
+    private Func<int, Task<bool>>? _confirmEmbeddedWeixinQueue;
 
     public MainWindowViewModel(
         PublishJobStore store,
@@ -137,9 +142,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouPersonalUploadService kuaishouUploadService,
         DramaSourceRouter dramaDownloader,
         YunfanDramaSettingsProvider dramaSettings,
-        KuaishouAccountAiStore accountAiStore)
+        KuaishouAccountAiStore accountAiStore,
+        PublishJobScope jobScope = PublishJobScope.All)
     {
         _store = store;
+        _jobScope = jobScope;
+        _persistJobScope = jobScope == PublishJobScope.Kuaishou ? PublishJobScope.All : jobScope;
         _accountStore = accountStore;
         _globalAccountStore = globalAccountStore;
         _coordinator = coordinator;
@@ -225,7 +233,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _interactionService.RequestChanged += OnInteractionRequestChanged;
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
-        _scheduleTimer.Start();
+        if (jobScope != PublishJobScope.Weixin)
+            _scheduleTimer.Start();
         Initialization = LoadAsync();
     }
 
@@ -507,6 +516,25 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _globalAccounts.Clear();
         _globalAccounts.AddRange(accounts);
         UseGlobalAccount(selectedAccount);
+    }
+
+    internal void BindEmbeddedWeixinWork(Func<bool> canStart, Func<string, CancellationToken, Task> prepareSession,
+        Func<int, Task<bool>> confirmQueue)
+    {
+        _canStartEmbeddedWeixinWork = canStart;
+        _prepareEmbeddedWeixinSession = prepareSession;
+        _confirmEmbeddedWeixinQueue = confirmQueue;
+    }
+
+    internal void UseEmbeddedWeixinAccount(IEnumerable<GlobalAccount> accounts, GlobalAccount? account)
+    {
+        var accountChanged = !string.Equals(_activeGlobalAccount?.Id, account?.Id, StringComparison.OrdinalIgnoreCase);
+        UseGlobalAccounts(accounts, account);
+        if (accountChanged || account is null)
+        {
+            DraftProjectDirectory = account?.WorkRootDirectory ?? string.Empty;
+            ArchiveRootDirectory = DraftProjectDirectory;
+        }
     }
 
     public bool SetActiveAccountWorkRootDirectory(string? directory)
@@ -1004,11 +1032,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         try
         {
-            _globalAccountStore.Load();
+            if (_jobScope != PublishJobScope.Weixin)
+                _globalAccountStore.Load();
             _globalAccounts.Clear();
             _globalAccounts.AddRange(_globalAccountStore.Accounts);
-            var loadJobs = _store.LoadAsync();
-            var loadAccounts = _accountStore.LoadAsync();
+            var loadJobs = _store.LoadAsync(_persistJobScope);
+            var loadAccounts = _jobScope == PublishJobScope.Weixin
+                ? Task.FromResult<IReadOnlyList<PublishAccount>>([])
+                : _accountStore.LoadAsync();
             var loadWorkflowSettings = _workflowSettingsStore.LoadAsync();
             await Task.WhenAll(loadJobs, loadAccounts, loadWorkflowSettings);
             _jobs.AddRange(await loadJobs);
@@ -1047,6 +1078,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ? $"已勾选今日分发和今日执行的 {restoredChecks} 部剧。"
                     : $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
             }
+            if (_jobScope == PublishJobScope.Kuaishou)
+            {
+                // Global legacy accounts and jobs are migrated before either embedded workspace opens.
+                _jobs.RemoveAll(job => job.Platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue));
+                _persistJobScope = _jobScope;
+            }
             RefreshVisibleJobs();
             RefreshVisibleAccounts(_activeGlobalAccount?.Id);
             RefreshDramaSourceStatus();
@@ -1054,6 +1091,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             StatusMessage = $"读取独立任务队列失败：{ex.Message}";
+            if (_jobScope != PublishJobScope.All)
+                throw;
         }
     }
 
@@ -1402,7 +1441,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
          PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
-         PipelineRemuxEnabled || PipelineUploadEpisodesEnabled);
+         PipelineRemuxEnabled || (IsKuaishouPlatform && PipelineUploadEpisodesEnabled));
 
     private bool CanScanWorkspace() =>
         AllowsKuaishouWork() &&
@@ -1440,6 +1479,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             var existing = _jobs
                 .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
+                .Where(job => _jobScope != PublishJobScope.Weixin ||
+                    string.Equals(job.AccountId, _activeWeixinAccountId, StringComparison.OrdinalIgnoreCase))
                 .Select(job => Path.GetFullPath(job.ProjectDirectory))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var added = 0;
@@ -1767,6 +1808,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var trackedJob = _jobs.FirstOrDefault(job =>
+                    (_jobScope != PublishJobScope.Weixin || (job.Platform == PublishPlatform.WeixinChannel &&
+                        job.Kind == PublishJobKind.Series &&
+                        string.Equals(job.AccountId, _activeWeixinAccountId, StringComparison.OrdinalIgnoreCase))) &&
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
                     string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
                 if (trackedJob is not null) EnsureStepStates(trackedJob);
@@ -1875,6 +1919,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", PipelineForceRerun, async () =>
                         {
                             var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
+                            if (_jobScope == PublishJobScope.Weixin && trackedJob is not null)
+                                trackedJob.ConfigPath = configPath;
                             var workflowDirectory = Path.GetDirectoryName(configPath)
                                                     ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
                             var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
@@ -3402,7 +3448,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             step.Message = message;
             step.UpdatedAt = DateTimeOffset.Now;
             job.UpdatedAt = DateTimeOffset.Now;
-            await _store.SaveAsync(_jobs).ConfigureAwait(false);
+            await _store.SaveAsync(_jobs, _persistJobScope).ConfigureAwait(false);
             if (key == "weixin-upload" && status == PublishJobStepStatus.Succeeded)
                 RefreshKuaishouTodayUploadCount();
         }
@@ -3506,11 +3552,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (SelectedJob is null) return;
         var row = SelectedJob;
         var job = row.Model;
+        if (!BindEmbeddedWeixinJobAccount(job))
+            return;
         await RunBusyAsync(async cancellationToken =>
         {
             await UpdateStepStateAsync(job, row, "shelf", "自动上架", PublishJobStepStatus.Running, "正在扫描未上架剧集");
             try
             {
+                if (_prepareEmbeddedWeixinSession is { } prepareSession)
+                    await prepareSession(job.AccountId, cancellationToken);
                 var progress = new Progress<string>(message =>
                 {
                     StatusMessage = $"[自动上架] {message}";
@@ -3623,6 +3673,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
         await RunRowsAsync(rows, clearSchedule: true);
+    }
+
+    internal async Task SaveQueueSelectionAsync(PublishJobRowViewModel row)
+    {
+        await _persistGate.WaitAsync();
+        try
+        {
+            await _store.SaveCheckedAsync(row.Id, row.IsChecked);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"保存任务勾选失败：{ex.Message}";
+        }
+        finally
+        {
+            _persistGate.Release();
+        }
     }
 
     private async Task SetVisibleCheckedAsync(Func<PublishJobRowViewModel, bool> selector)
@@ -3841,6 +3908,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunRowsAsync(IReadOnlyList<PublishJobRowViewModel> rows, bool clearSchedule)
     {
+        if (_jobScope == PublishJobScope.Weixin)
+        {
+            rows = rows.Where(row => row.Model.Status is PublishJobStatus.Pending or PublishJobStatus.Failed).ToArray();
+            if (rows.Count == 0)
+            {
+                StatusMessage = "没有待执行或失败的剧集任务。";
+                return;
+            }
+            if (rows.Any(row => !BindEmbeddedWeixinJobAccount(row.Model)))
+                return;
+        }
         if (rows.Count == 0)
             return;
 
@@ -3848,6 +3926,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             try
             {
+                if (_confirmEmbeddedWeixinQueue is { } confirmQueue &&
+                    !await confirmQueue(rows.Count))
+                {
+                    StatusMessage = "已取消剧集队列执行。";
+                    return;
+                }
                 for (var index = 0; index < rows.Count; index++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -3907,6 +3991,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
+            if (_prepareEmbeddedWeixinSession is { } prepareSession)
+            {
+                job.ConfigPath = await WeixinChannelPublishAdapter.RequireQueuedSeriesConfigAsync(job, cancellationToken);
+                await prepareSession(job.AccountId, cancellationToken);
+            }
             await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Running, "正在执行");
             string? apiStatus = null;
             if (adapter is WeixinChannelPublishAdapter weixin && job.Kind == PublishJobKind.Series &&
@@ -4194,6 +4283,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (IsBusy)
             return;
+        if (_canStartEmbeddedWeixinWork?.Invoke() == false)
+        {
+            StatusMessage = "有其他视频号任务正在运行，请等任务结束后再操作。";
+            return;
+        }
+        if (_jobScope == PublishJobScope.Weixin && !HasActiveWeixinAccount)
+        {
+            StatusMessage = "请先在左侧选择视频号账号。";
+            return;
+        }
 
         IsBusy = true;
         _operationCts = new CancellationTokenSource();
@@ -4361,6 +4460,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async void OnScheduleTimerTick(object? sender, EventArgs e)
     {
+        if (!Initialization.IsCompletedSuccessfully)
+            return;
         if (IsKuaishouPlatform)
             RefreshKuaishouTodayUploadCount();
         KickKuaishouScheduledShelf();
@@ -4395,19 +4496,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         await _persistGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _store.SaveAsync(_jobs, cancellationToken).ConfigureAwait(false);
+            await _store.SaveAsync(_jobs, _persistJobScope, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _persistGate.Release();
         }
     }
-
-    internal string[] ListWeixinJobSummaries() => _jobs
-        .Where(job => job.Platform == PublishPlatform.WeixinChannel)
-        .OrderByDescending(job => job.UpdatedAt)
-        .Select(job => $"{job.ProjectName} · {job.AccountName} · {job.StatusMessage}")
-        .ToArray();
 
     private async Task LoadSelectedProjectEpisodesAsync(PublishJobRowViewModel? row)
     {
@@ -5353,8 +5448,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                          .Where(job => !IsKuaishouPlatform || HasKuaishouEdition)
                          .Where(job => !IsKuaishouPlatform ||
                                        IsKuaishouJobListed(DraftProjectDirectory, job.ProjectDirectory))
-                         .Where(job => IsKuaishouPlatform || _activeGlobalAccount is null ||
-                                       string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
+                         .Where(job => IsKuaishouPlatform || IsVisibleWeixinJob(job))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
                                        (_materialWorkflowActive
                                            ? job.Kind != PublishJobKind.Series
@@ -5384,6 +5478,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Refresh();
         else
             Dispatcher.UIThread.Post(Refresh);
+    }
+
+    private bool IsVisibleWeixinJob(PublishJob job) =>
+        _activeGlobalAccount is { } account
+            ? string.Equals(job.AccountId, account.Id, StringComparison.OrdinalIgnoreCase) ||
+              (_jobScope == PublishJobScope.Weixin && string.IsNullOrWhiteSpace(job.AccountId))
+            : _jobScope != PublishJobScope.Weixin;
+
+    private bool BindEmbeddedWeixinJobAccount(PublishJob job)
+    {
+        if (_jobScope != PublishJobScope.Weixin)
+            return true;
+        if (_activeGlobalAccount is { } account && !string.IsNullOrWhiteSpace(account.ProfileDir) &&
+            string.Equals(job.AccountId, account.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            job.AccountId = account.Id;
+            job.AccountName = account.Name;
+            job.AccountSessionDirectory = account.ProfileDir;
+            return true;
+        }
+        StatusMessage = $"「{job.ProjectName}」缺少当前账号的会话目录，请确认任务已归属当前账号并检查账号配置。";
+        AppendActivityLog(StatusMessage);
+        return false;
     }
 
     private bool MatchesWorkflowFilter(PublishJobRowViewModel row)

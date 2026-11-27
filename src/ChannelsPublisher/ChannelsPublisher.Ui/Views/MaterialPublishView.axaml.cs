@@ -63,7 +63,7 @@ public partial class MaterialPublishView : UserControl
         RootLayout.ColumnSpacing = visible ? 12 : 0;
     }
 
-    public void UseUploadWorkspace(Panel sidebarHost, AccountStore store, string queuePath,
+    public void UseUploadWorkspace(Panel sidebarHost, AccountStore store, string queuePath, Control workflow,
         Func<bool> canStartPublish, Func<int, Task<bool>> confirmPublish,
         Func<string, Task<bool?>> confirmPendingOutcome,
         Func<string, int> allocatePort, Action<string> releasePort)
@@ -81,9 +81,11 @@ public partial class MaterialPublishView : UserControl
         AccountSidebar.HideAccountRemoval();
         sidebarHost.Children.Add(AccountSidebar);
         LegacySessionImportButton.IsVisible = LegacySessionImportRequested is not null;
+        SetWorkflowContent(workflow);
+        WorkflowTab.Header = "任务队列";
         foreach (var tab in WorkspaceTabs.Items.OfType<TabItem>())
             tab.IsVisible = tab == MaterialQueueTab || tab == AccountConfigTab ||
-                tab == SeriesUploadTab || tab == RuntimeLogTab;
+                tab == SeriesUploadTab || tab == WorkflowTab || tab == RuntimeLogTab;
         MaterialQueueTab.Header = "素材发布";
         AddMaterialDirectoryButton.IsVisible = true;
         ClearResumeButton.IsVisible = false;
@@ -106,7 +108,6 @@ public partial class MaterialPublishView : UserControl
         DataContext = new MainViewModel(store, loadAccounts: false, excludeNewAccountsFromKuaishou: true);
         AccountSidebar.DataContext = DataContext;
         var vm = _vm!;
-        RuntimeLogContentHost.Content = new ListBox { ItemsSource = vm.Logs };
         WorkspaceTabs.SelectionChanged += (_, args) =>
         {
             if (ReferenceEquals(args.Source, WorkspaceTabs))
@@ -124,6 +125,8 @@ public partial class MaterialPublishView : UserControl
     }
 
     public void SetWorkspaceAccountPanelVisible(bool visible) => AccountSidebar.IsVisible = visible;
+
+    public void SetWorkspaceAccountPanelEnabled(bool enabled) => AccountSidebar.IsEnabled = enabled;
 
     public void RefreshWorkspaceAccounts() => _vm?.RefreshAccountList();
 
@@ -263,7 +266,7 @@ public partial class MaterialPublishView : UserControl
         MaterialWorkflowContentHost.Content = content;
     }
 
-    public void SetWorkspaceRunHistory(Control history)
+    public void SetWorkspaceRunLogs(Control queueLog)
     {
         if (_vm is not { } vm)
             return;
@@ -272,7 +275,7 @@ public partial class MaterialPublishView : UserControl
             ItemsSource = new[]
             {
                 new TabItem { Header = "素材运行日志", Content = new ListBox { ItemsSource = vm.Logs } },
-                new TabItem { Header = "原项目队列", Content = history },
+                new TabItem { Header = "任务队列日志", Content = queueLog },
             },
         };
     }
@@ -762,7 +765,7 @@ public partial class MaterialPublishView : UserControl
 
         if (_canStartPublish?.Invoke() == false)
         {
-            vm.StatusMessage = "视频号剧集上传正在运行，请等任务结束后再开始素材发布。";
+            vm.StatusMessage = "有其他视频号任务正在运行，请等任务结束后再开始素材发布。";
             return;
         }
         if (!SaveWorkspaceQueue(vm))

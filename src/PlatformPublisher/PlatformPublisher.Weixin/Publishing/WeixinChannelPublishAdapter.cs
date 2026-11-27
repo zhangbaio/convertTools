@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using ShortDrama.Core.Interfaces;
@@ -120,6 +121,18 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         var config = WeixinSeriesConfigOverrideService.ResolveSourceConfigPath(job)
             ?? throw new InvalidOperationException("未找到可用的视频号剧集配置。");
         return _seriesApi.RunAsync(job, config, WeixinPublishOptions.FromJob(job), progress, confirm, cancellationToken);
+    }
+
+    public static async Task<string> RequireQueuedSeriesConfigAsync(PublishJob job, CancellationToken cancellationToken)
+    {
+        var path = WeixinSeriesConfigOverrideService.ResolveSourceConfigPath(job)
+            ?? throw new InvalidOperationException("未找到剧集配置，请先执行「素材校验」准备配置。");
+        await using var stream = File.OpenRead(path);
+        using var config = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (config.RootElement.TryGetProperty("task_type", out var taskType) &&
+            string.Equals(taskType.GetString(), "publish_videos", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("当前项目配置用于素材发表，请选择视频号剧集项目。");
+        return path;
     }
 
     public bool ResolveSeriesReview(string accountId, string projectDirectory, bool submitted) =>

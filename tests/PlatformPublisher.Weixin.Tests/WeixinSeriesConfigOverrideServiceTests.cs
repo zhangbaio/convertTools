@@ -9,6 +9,30 @@ namespace PlatformPublisher.Weixin.Tests;
 public sealed class WeixinSeriesConfigOverrideServiceTests
 {
     [Fact]
+    public async Task QueuedSeriesRequiresAProjectConfigAndRejectsMaterialPublishing()
+    {
+        var project = Directory.CreateTempSubdirectory("weixin-series-queue-");
+        try
+        {
+            var job = new PublishJob { ProjectDirectory = project.FullName };
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                WeixinChannelPublishAdapter.RequireQueuedSeriesConfigAsync(job, CancellationToken.None));
+
+            var configPath = Path.Combine(project.FullName, "weixin-channel-submit.json");
+            await File.WriteAllTextAsync(configPath, """{"task_type":"publish_videos"}""");
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                WeixinChannelPublishAdapter.RequireQueuedSeriesConfigAsync(job, CancellationToken.None));
+
+            await File.WriteAllTextAsync(configPath, """{"task_type":"series_submission"}""");
+            Assert.Equal(configPath, await WeixinChannelPublishAdapter.RequireQueuedSeriesConfigAsync(job, CancellationToken.None));
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void PrepareSelectsEpisodesInjectsAiAndPreservesSourceConfig()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "weixin-series-override-tests", Guid.NewGuid().ToString("N"));
