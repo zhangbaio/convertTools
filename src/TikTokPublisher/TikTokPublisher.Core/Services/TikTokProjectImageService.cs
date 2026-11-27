@@ -119,7 +119,7 @@ public static class TikTokProjectImageService
         string? configPath = null;
         try
         {
-            configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
+            configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings, projectImageTemplateId: settings.TiktokProjectImageTemplateId);
             log?.Invoke(
                 $"开始生成工程图：模板={settings.TiktokProjectImageTemplateId}，" +
                 $"数量={count}，视频={sourceVideos.Length}。");
@@ -418,7 +418,7 @@ public static class TikTokProjectImageService
     private static ClientSettings NormalizeProjectImageSettings(ClientSettings settings)
     {
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
-        settings.TiktokProjectImageTemplateId = TikTokProjectImageTemplateCatalog.NormalizeId(
+        settings.TiktokProjectImageTemplateId = TikTokProjectImageTemplateCatalog.RuntimeId(
             settings.TiktokProjectImageTemplateId);
         settings.TiktokProjectImageCount = ResolveCount(settings);
         settings.TiktokProjectImageRenderEpisodeLimit = ResolveRenderEpisodeLimit(settings);

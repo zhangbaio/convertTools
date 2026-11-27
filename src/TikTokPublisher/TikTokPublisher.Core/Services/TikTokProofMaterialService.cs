@@ -108,6 +108,7 @@ public sealed class TikTokProofMaterialService
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(settings);
         cancellationToken.ThrowIfCancellationRequested();
+        settings = TikTokProjectImageOptions.Apply(settings, account);
 
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         ProjectWorkspaceService.ValidateContextOwnership(context);
@@ -658,6 +659,7 @@ public sealed class TikTokProofMaterialService
         {
             ArgumentNullException.ThrowIfNull(item);
             ArgumentNullException.ThrowIfNull(settings);
+            settings = TikTokProjectImageOptions.Apply(settings, account);
             var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
             var state = LoadState(context);
             var request = CreateQueueRequest(
@@ -699,6 +701,7 @@ public sealed class TikTokProofMaterialService
         {
             ArgumentNullException.ThrowIfNull(item);
             ArgumentNullException.ThrowIfNull(settings);
+            settings = TikTokProjectImageOptions.Apply(settings, account);
             var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
             var state = LoadState(context);
             var request = CreateQueueRequest(

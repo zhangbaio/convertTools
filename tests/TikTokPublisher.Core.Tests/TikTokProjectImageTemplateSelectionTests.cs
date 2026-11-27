@@ -56,6 +56,51 @@ public sealed class TikTokProjectImageTemplateSelectionTests
     }
 
     [Fact]
+    public void Account_options_override_generation_without_changing_shared_settings()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            var templateDir = CreateTemplate(root, "custom", 99);
+            var settings = new ClientSettings
+            {
+                TiktokProjectImageTemplateRoot = root,
+                TiktokProjectImageTemplateId = "image-template-project-image-10",
+                TiktokProjectImageCount = 4,
+            };
+            var account = new TikTokAccountProfile
+            {
+                ProjectImageOptions = new("image-template-project-image-99", "accurate", 7, 12),
+            };
+
+            TikTokProjectImageOptions.Apply(settings, new TikTokAccountProfile()).Should().BeSameAs(settings);
+            var effective = TikTokProjectImageOptions.Apply(settings, account);
+            effective.TiktokProjectImageCount.Should().Be(7);
+            effective.TiktokProjectImageRenderEpisodeLimit.Should().Be(12);
+            effective.TiktokProjectImageSubtitleAiMode.Should().Be("accurate");
+            settings.TiktokProjectImageCount.Should().Be(4);
+            TikTokProjectImageTemplateCatalog.ListOptions(root)
+                .Should().Contain(option => option.Id == account.ProjectImageOptions.TemplateId);
+            TikTokProjectImageService.ResolveTemplateDirectoryFromRoots(effective, "")
+                .Should().Be(templateDir);
+            effective.TiktokProjectImageTemplateRoot = "";
+            TikTokProjectImageService.ResolveTemplateDirectoryFromRoots(effective, "")
+                .Should().BeEmpty();
+
+            var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings, account);
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                document.RootElement.GetProperty("ProjectImageTemplateId").GetString()
+                    .Should().Be("image-template-project-image-99");
+            }
+            finally
+            {
+                TryDelete(path);
+            }
+        });
+    }
+
+    [Fact]
     public void Settings_store_migrates_a_removed_template_to_template_10()
     {
         WithTemporaryDirectory(tempDirectory =>

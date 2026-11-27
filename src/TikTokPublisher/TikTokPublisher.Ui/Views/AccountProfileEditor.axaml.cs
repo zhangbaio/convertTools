@@ -23,6 +23,7 @@ public partial class AccountProfileEditor : UserControl
     private MainViewModel? _vm;
     private bool _isReloadingFromSelectedAccount;
     private string _cleanDraft = "";
+    private TikTokProjectImageOptions? _projectImageOptions;
     private int _contractLookupGeneration;
     private int _profileReloadSuppressions;
 
@@ -113,6 +114,7 @@ public partial class AccountProfileEditor : UserControl
             Materials = CopyrightMaterials.GetSelectedMaterialTypes(),
             publishAccounts.TiktokCustomPublishAccountsEnabled,
             publishAccounts.TiktokSelectedPublishAccountKeys,
+            ProjectImage = _projectImageOptions,
             Ai = AccountAi.CaptureDraftState(),
         });
     }
@@ -253,7 +255,6 @@ public partial class AccountProfileEditor : UserControl
             ? "embedded"
             : profile.TiktokPlaywrightUploadHeadless ? "playwright_headless" : "playwright";
         SelectByTag(UploadBrowserModeCombo, browserOption, "playwright_headless");
-        SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         LocalDramaEnglishPublishTextBox.IsChecked = profile.TiktokLocalDramaEnglishPublishText;
@@ -311,10 +312,8 @@ public partial class AccountProfileEditor : UserControl
             (int)(CopyrightMaterials.RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
-        ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
-        AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
         PublishAccounts.Load(profile);
         ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes > 0 ? profile.TiktokFreePreviewEpisodes : 3;
@@ -334,7 +333,34 @@ public partial class AccountProfileEditor : UserControl
         ProxyPasswordBox.Text = profile.TiktokProxyPassword;
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
-        AccountAi.Load(profile, ClientSettingsStore.Load());
+        var settings = ClientSettingsStore.Load();
+        AccountAi.Load(profile, settings);
+        _projectImageOptions = profile.ProjectImageOptions ?? TikTokProjectImageOptions.FromSettings(settings);
+        RefreshProjectImageTemplates(_projectImageOptions.TemplateId, settings.TiktokProjectImageTemplateRoot);
+    }
+
+    private void RefreshProjectImageTemplates(string templateId, string? legacyRoot)
+    {
+        var selectedId = TikTokProjectImageTemplateCatalog.RuntimeId(templateId);
+        ProjectImageTemplateBox.Items.Clear();
+        foreach (var option in TikTokProjectImageTemplateCatalog.ListOptions(legacyRoot))
+            ProjectImageTemplateBox.Items.Add(new ComboBoxItem { Content = option.SelectionLabel, Tag = option.Id });
+        if (!ProjectImageTemplateBox.Items.OfType<ComboBoxItem>().Any(item =>
+                string.Equals(item.Tag as string, selectedId, StringComparison.OrdinalIgnoreCase)))
+        {
+            ProjectImageTemplateBox.Items.Add(new ComboBoxItem { Content = $"模板缺失（{selectedId}）", Tag = selectedId });
+        }
+        SelectByTag(ProjectImageTemplateBox, selectedId, ClientSettingsDefaults.TiktokProjectImageTemplateId);
+    }
+
+    private async void OnProjectImageOptionsClick(object? sender, RoutedEventArgs e)
+    {
+        if (_projectImageOptions is not { } options || TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+
+        var edited = await new ProjectImageOptionsDialog(options).ShowDialog<TikTokProjectImageOptions?>(owner);
+        if (edited is not null && ReferenceEquals(_projectImageOptions, options))
+            _projectImageOptions = edited;
     }
 
     private void SyncWorkspaceBoxFromSelectedAccount()
@@ -393,7 +419,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBrowserMode = browserOption == "embedded" ? "embedded" : "playwright";
             if (browserOption != "embedded")
                 profile.TiktokPlaywrightUploadHeadless = browserOption == "playwright_headless";
-            profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
             profile.TiktokLocalDramaEnglishPublishText = LocalDramaEnglishPublishTextBox.IsChecked == true;
@@ -440,11 +465,9 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokRewriteFollowsSourceLanguage =
                 TikTokAccountProfile.RewriteFollowsImportedLanguage(profile.TiktokDramaMarket);
             profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
-            profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
             profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
                 (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
-            profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
             PublishAccounts.WriteTo(profile);
             profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
             profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
@@ -467,6 +490,13 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
             profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
             AccountAi.Save(profile);
+            if (_projectImageOptions is { } options)
+            {
+                profile.ProjectImageOptions = options with
+                {
+                    TemplateId = TagOf(ProjectImageTemplateBox, options.TemplateId),
+                };
+            }
 
             _vm.SaveAccountProfile(profile);
             _vm.SelectedAccount?.RefreshFromModel();
@@ -1057,6 +1087,8 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(SubmitActionCombo, "submit", "submit");
         ExpectedPriceValueBox.Text = "";
         AccountAi.Clear();
+        _projectImageOptions = null;
+        ProjectImageTemplateBox.Items.Clear();
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";
         ProxyPasswordBox.Text = "";

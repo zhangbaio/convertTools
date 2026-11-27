@@ -8,8 +8,13 @@ namespace TikTokPublisher.Core.Queue;
 /// <summary>将 <see cref="ClientSettings"/> 写入临时 JSON，供 ShortDrama AI/海报步骤读取。</summary>
 public static class ClientSettingsWorkflowConfigWriter
 {
-    public static string WriteTempConfig(ClientSettings settings, TikTokAccountProfile? account = null)
+    public static string WriteTempConfig(
+        ClientSettings settings, TikTokAccountProfile? account = null, string? projectImageTemplateId = null)
     {
+        settings = TikTokProjectImageOptions.Apply(settings, account);
+        var templateId = projectImageTemplateId ?? (account?.ProjectImageOptions is null
+            ? TikTokProjectImageTemplateCatalog.NormalizeId(settings.TiktokProjectImageTemplateId)
+            : TikTokProjectImageTemplateCatalog.RuntimeId(settings.TiktokProjectImageTemplateId));
         var dir = Path.Combine(AppPaths.DataRoot, "queue-workflow");
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"workflow-config-{Guid.NewGuid():N}.json");
@@ -69,9 +74,8 @@ public static class ClientSettingsWorkflowConfigWriter
             ["FrameExtractFallbackPercents"] = settings.FrameExtractFallbackPercents,
             ["FrameCoverPrompt"] = settings.FrameCoverPrompt,
             ["ProjectImageTemplateRoot"] = settings.TiktokProjectImageTemplateRoot,
-            ["ProjectImageTemplateId"] = TikTokProjectImageTemplateCatalog.NormalizeId(settings.TiktokProjectImageTemplateId),
-            ["ProjectImageTemplateName"] = TikTokProjectImageTemplateCatalog.ResolveName(
-                settings.TiktokProjectImageTemplateId),
+            ["ProjectImageTemplateId"] = templateId,
+            ["ProjectImageTemplateName"] = TikTokProjectImageTemplateCatalog.ResolveName(templateId),
             ["ProjectImageCount"] = settings.TiktokProjectImageCount,
             ["ProjectImageRenderEpisodeLimit"] = settings.TiktokProjectImageRenderEpisodeLimit,
             ["ProjectImageSubtitleAiMode"] = settings.TiktokProjectImageSubtitleAiMode,

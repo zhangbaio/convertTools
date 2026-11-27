@@ -2140,24 +2140,27 @@ public sealed class QueueWorkerRunner
                     materialVideoFallback).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProjectImages:
+            {
+                var imageSettings = TikTokProjectImageOptions.Apply(settings, account);
                 _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
                         item,
-                        settings,
+                        imageSettings,
                         TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
                             generateAiScreenshots: false,
                             generateEditingProjectFiles: true,
-                            settings),
+                            imageSettings),
                         log,
                         ct,
                         materialVideoFallback)
                     .ConfigureAwait(false);
                 await TikTokProjectImageService.GenerateAsync(
                     item,
-                    settings,
+                    imageSettings,
                     options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
                     log,
                     ct).ConfigureAwait(false);
                 break;
+            }
             case QueueStepRegistry.GenerateProofMaterial:
                 await TikTokProofMaterialService.GenerateAsync(
                     item,
@@ -2325,7 +2328,8 @@ public sealed class QueueWorkerRunner
         }
         if (stepKey == QueueStepRegistry.GenerateProjectImages &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            TikTokProjectImageService.NeedsGenerateProjectImages(item, LoadSettings()))
+            TikTokProjectImageService.NeedsGenerateProjectImages(
+                item, TikTokProjectImageOptions.Apply(LoadSettings(), account)))
         {
             return true;
         }

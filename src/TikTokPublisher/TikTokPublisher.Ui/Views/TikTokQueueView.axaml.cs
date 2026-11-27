@@ -4458,6 +4458,7 @@ public partial class TikTokQueueView : UserControl
         CancellationToken ct)
     {
         // 与 EnsureAccountBrowserReadyAsync 保持一致：接口上传不占浏览器；其余为外部浏览器 > 外部浏览器(CDP 可达) > 内置浏览器。
+        var publishSettings = options.IsCopyrightProofOnlyRun() ? null : ClientSettingsStore.Load();
         IEmbeddedBrowser? browser;
         var usingEmbeddedBrowser = false;
         if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
@@ -4550,7 +4551,7 @@ public partial class TikTokQueueView : UserControl
                 .UpdateAsync(account, item, browser, effectiveAction, log, ct, options.IsAiOutlineSupplementRun())
                 .ConfigureAwait(false)
             : await _automation
-                .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
+                .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct, publishSettings)
                 .ConfigureAwait(false);
         if (!result.Ok && IsUploadLoginFailure(result.Message))
         {
@@ -4582,7 +4583,7 @@ public partial class TikTokQueueView : UserControl
                         .UpdateAsync(account, item, browser, effectiveAction, log, ct, options.IsAiOutlineSupplementRun())
                         .ConfigureAwait(false)
                     : await _automation
-                        .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
+                        .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct, publishSettings)
                         .ConfigureAwait(false);
             }
             else
@@ -4615,7 +4616,7 @@ public partial class TikTokQueueView : UserControl
                         .UpdateAsync(account, item, browser, effectiveAction, log, ct, options.IsAiOutlineSupplementRun())
                         .ConfigureAwait(false)
                     : await _automation
-                        .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct)
+                        .PublishPreflightedAsync(account, item, browser, effectiveAction, log, ct, publishSettings)
                         .ConfigureAwait(false);
             }
         }

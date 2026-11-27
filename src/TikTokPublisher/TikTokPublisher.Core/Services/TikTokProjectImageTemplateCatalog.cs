@@ -50,6 +50,31 @@ public static class TikTokProjectImageTemplateCatalog
             : templateId.Trim();
     }
 
+    public static IReadOnlyList<TikTokProjectImageTemplateOption> ListOptions(string? root) =>
+        DiscoverExternal(root)
+            .Select(item => new TikTokProjectImageTemplateOption(item.Id, item.Name))
+            .Concat(BuiltInOptions)
+            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    internal static IReadOnlyList<ProjectImageTemplateDescriptor> DiscoverExternal(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+            return [];
+
+        try
+        {
+            var path = Path.GetFullPath(root.Trim());
+            if (File.Exists(path) && Path.GetFileName(path).Equals("template.json", StringComparison.OrdinalIgnoreCase))
+                path = Path.GetDirectoryName(path)!;
+            return Directory.Exists(path) ? ProjectImageTemplateCatalog.Discover(path) : [];
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            return [];
+        }
+    }
+
     public static string NormalizeId(string? templateId) =>
         TryGet(templateId, out var option)
             ? option.Id

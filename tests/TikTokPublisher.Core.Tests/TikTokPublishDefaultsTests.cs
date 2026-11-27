@@ -9,6 +9,82 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokPublishDefaultsTests
 {
     [Fact]
+    public void Publish_modes_round_trip_through_local_settings_without_inheriting_legacy_account_keys()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-publish-defaults-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        try
+        {
+            AppSettingStore.SaveJson(ClientSettingsStore.SettingsKey, new Dictionary<string, object?>
+            {
+                ["tiktok_publish_mode"] = "manual",
+                ["tiktok_consignment_enabled"] = false,
+                ["tiktok_anchor_promotion_enabled"] = false,
+            }, databasePath);
+
+            var settings = ClientSettingsStore.Load(databasePath);
+            settings.TiktokDefaultPublishMode.Should().Be("auto_after_review");
+            settings.TiktokDefaultConsignmentEnabled.Should().BeTrue();
+            settings.TiktokDefaultAnchorPromotionEnabled.Should().BeTrue();
+
+            settings.TiktokDefaultPublishMode = " Scheduled ";
+            settings.TiktokDefaultConsignmentEnabled = false;
+            settings.TiktokDefaultAnchorPromotionEnabled = false;
+            ClientSettingsStore.Save(settings, databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath).Clone();
+            loaded.TiktokDefaultPublishMode.Should().Be("scheduled");
+            loaded.TiktokDefaultConsignmentEnabled.Should().BeFalse();
+            loaded.TiktokDefaultAnchorPromotionEnabled.Should().BeFalse();
+            TikTokPublishConstants.NormalizePublishMode("unsupported").Should().Be("auto_after_review");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Shared_publish_settings_apply_to_all_accounts_and_manifest_and_are_snapshotted_for_an_upload()
+    {
+        var local = new ClientSettings
+        {
+            TiktokDefaultPublishMode = "manual",
+            TiktokDefaultConsignmentEnabled = false,
+            TiktokDefaultAnchorPromotionEnabled = false,
+        };
+        using var settings = ClientSettingsStore.UseSettingsForTests(() => local);
+        var firstAccount = new TikTokAccountProfile { TiktokPublishMode = "scheduled" };
+        var secondAccount = new TikTokAccountProfile
+        {
+            TiktokPublishMode = "auto_after_review",
+            TiktokConsignmentEnabled = false,
+            TiktokAnchorPromotionEnabled = false,
+        };
+
+        var first = TikTokPublishOptionsBuilder.FromAccount(firstAccount);
+        var second = TikTokPublishOptionsBuilder.FromAccount(secondAccount);
+        var manifest = TikTokUploadManifestService.BuildPublishConfigSnapshot(firstAccount);
+
+        first.PublishMode.Should().Be("manual");
+        first.ConsignmentEnabled.Should().BeFalse();
+        first.AnchorPromotionEnabled.Should().BeFalse();
+        second.PublishMode.Should().Be(first.PublishMode);
+        second.ConsignmentEnabled.Should().Be(first.ConsignmentEnabled);
+        second.AnchorPromotionEnabled.Should().Be(first.AnchorPromotionEnabled);
+        manifest["publish_mode"].Should().Be("manual");
+        manifest["consignment_enabled"].Should().Be(false);
+        manifest["anchor_promotion_enabled"].Should().Be(false);
+        firstAccount.TiktokPublishMode.Should().Be("scheduled");
+
+        local = new ClientSettings();
+        TikTokPublishOptionsBuilder.FromAccount(secondAccount).PublishMode.Should().Be("auto_after_review");
+        first.PublishMode.Should().Be("manual");
+    }
+
+    [Fact]
     public void Client_settings_ai_defaults_include_non_key_values_only()
     {
         var settings = new ClientSettings();
@@ -1046,6 +1122,7 @@ public sealed class TikTokPublishDefaultsTests
     [Fact]
     public void Publish_options_builder_uses_python_fallbacks_for_missing_values()
     {
+        using var settings = ClientSettingsStore.UseSettingsForTests(() => new ClientSettings());
         var account = new TikTokAccountProfile
         {
             TiktokTargetAudienceMode = "",

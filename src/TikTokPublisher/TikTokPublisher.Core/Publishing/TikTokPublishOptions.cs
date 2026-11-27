@@ -185,10 +185,16 @@ public static class TikTokPublishConstants
 
     public static readonly IReadOnlyDictionary<string, string> PublishModeLabels = new Dictionary<string, string>
     {
-        ["auto_after_review"] = "过审后自动发布",
+        [ClientSettingsDefaults.TiktokDefaultPublishMode] = "过审后自动发布",
         ["manual"] = "手动发布",
         ["scheduled"] = "定时发布",
     };
+
+    public static string NormalizePublishMode(string? value)
+    {
+        var mode = (value ?? "").Trim().ToLowerInvariant();
+        return PublishModeLabels.ContainsKey(mode) ? mode : ClientSettingsDefaults.TiktokDefaultPublishMode;
+    }
 
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> TargetAudienceAliases = new Dictionary<string, IReadOnlyList<string>>
     {
@@ -456,7 +462,7 @@ public sealed class TikTokPublishOptions
 
     public string ContractId { get; set; } = "";
     public string ContractIdMode { get; set; } = TikTokPublishConstants.ContractIdModeManual;
-    public bool AnchorPromotionEnabled { get; set; } = true;
+    public bool AnchorPromotionEnabled { get; set; } = ClientSettingsDefaults.TiktokDefaultAnchorPromotionEnabled;
     public string TargetAudienceMode { get; set; } = "ai_recommend";
     public int GenreCount { get; set; } = DefaultGenreCount;
     public string SourceLanguage { get; set; } = "zh";
@@ -475,8 +481,8 @@ public sealed class TikTokPublishOptions
     public string AiScriptOutlineFilePath { get; set; } = "";
     /// <summary>旧版单文件字段，仅兼容合作协议；其他材料不得复用此路径。</summary>
     public string CopyrightMaterialFilePath { get; set; } = "";
-    public string PublishMode { get; set; } = "auto_after_review";
-    public bool ConsignmentEnabled { get; set; } = true;
+    public string PublishMode { get; set; } = ClientSettingsDefaults.TiktokDefaultPublishMode;
+    public bool ConsignmentEnabled { get; set; } = ClientSettingsDefaults.TiktokDefaultConsignmentEnabled;
     public bool ZeroCostAdsEnabled { get; set; }
     public double DayZeroRoi { get; set; } = DefaultDayZeroRoi;
     public bool PaidEnabled { get; set; }
@@ -560,7 +566,7 @@ public sealed class TikTokPublishOptions
     public string PublishModeLabel =>
         TikTokPublishConstants.PublishModeLabels.TryGetValue(PublishMode, out var label)
             ? label
-            : TikTokPublishConstants.PublishModeLabels["auto_after_review"];
+            : TikTokPublishConstants.PublishModeLabels[ClientSettingsDefaults.TiktokDefaultPublishMode];
 
     public IReadOnlyList<string> SourceLanguageLabels
     {
@@ -575,11 +581,23 @@ public sealed class TikTokPublishOptions
         }
     }
 
-    public static TikTokPublishOptions FromAccount(TikTokAccountProfile account) => new()
+    public static TikTokPublishOptions FromAccount(TikTokAccountProfile? account, ClientSettings? settings = null)
+    {
+        var options = account is null ? new TikTokPublishOptions() : FromProfile(account);
+        if (settings is not null)
+        {
+            options.PublishMode = TikTokPublishConstants.NormalizePublishMode(settings.TiktokDefaultPublishMode);
+            options.ConsignmentEnabled = settings.TiktokDefaultConsignmentEnabled;
+            options.AnchorPromotionEnabled = settings.TiktokDefaultAnchorPromotionEnabled;
+        }
+
+        return options;
+    }
+
+    private static TikTokPublishOptions FromProfile(TikTokAccountProfile account) => new()
     {
         ContractId = account.TiktokContractId,
         ContractIdMode = TikTokPublishConstants.ContractIdModeManual,
-        AnchorPromotionEnabled = account.TiktokAnchorPromotionEnabled,
         TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "ai_recommend" : account.TiktokTargetAudienceMode,
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
         SourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
@@ -604,8 +622,6 @@ public sealed class TikTokPublishOptions
             account.TiktokUploadSourceInfoRoleSceneScreenshot),
         // 账号级测试文件不再参与正式上传。合作协议只能由当前项目生成的证明材料提供。
         CopyrightMaterialFilePath = "",
-        PublishMode = string.IsNullOrWhiteSpace(account.TiktokPublishMode) ? "auto_after_review" : account.TiktokPublishMode,
-        ConsignmentEnabled = account.TiktokConsignmentEnabled,
         ZeroCostAdsEnabled = account.TiktokZeroCostAdsEnabled,
         DayZeroRoi = NormalizeDayZeroRoi(account.TiktokDayZeroRoi),
         PaidEnabled = account.TiktokPaidEnabled,

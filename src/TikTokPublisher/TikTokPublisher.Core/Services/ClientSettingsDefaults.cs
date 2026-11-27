@@ -89,6 +89,9 @@ public static class ClientSettingsDefaults
     public const int TiktokProjectImageRenderEpisodeLimit = 6;
     public const string TiktokProjectImageSubtitleAiMode = "fast";
     // Empty means use the DOCX embedded in TikTokPublisher.Core.
+    public const string TiktokDefaultPublishMode = "auto_after_review";
+    public const bool TiktokDefaultConsignmentEnabled = true;
+    public const bool TiktokDefaultAnchorPromotionEnabled = true;
     public const string TiktokProofTemplateDocxPath = "";
     public const string TiktokProofTemplateLanguage = "zh";
     public const string TiktokProofWpsPath = "";

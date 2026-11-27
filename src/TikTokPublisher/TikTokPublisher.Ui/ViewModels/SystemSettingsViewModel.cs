@@ -250,6 +250,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokProjectImageCount = ClientSettingsDefaults.TiktokProjectImageCount;
     [ObservableProperty] private int _tiktokProjectImageRenderEpisodeLimit = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     [ObservableProperty] private string _tiktokProjectImageSubtitleAiMode = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
+    [ObservableProperty] private string _tiktokDefaultPublishMode = ClientSettingsDefaults.TiktokDefaultPublishMode;
+    [ObservableProperty] private bool _tiktokDefaultConsignmentEnabled = ClientSettingsDefaults.TiktokDefaultConsignmentEnabled;
+    [ObservableProperty] private bool _tiktokDefaultAnchorPromotionEnabled = ClientSettingsDefaults.TiktokDefaultAnchorPromotionEnabled;
     [ObservableProperty] private string _tiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
     [ObservableProperty] private string _tiktokProofTemplateLanguage = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
@@ -461,6 +464,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokProjectImageCount = TiktokProjectImageCount;
         settings.TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit;
         settings.TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode;
+        if (ShowsTikTokPublishPrompt)
+        {
+            settings.TiktokDefaultPublishMode = TiktokDefaultPublishMode;
+            settings.TiktokDefaultConsignmentEnabled = TiktokDefaultConsignmentEnabled;
+            settings.TiktokDefaultAnchorPromotionEnabled = TiktokDefaultAnchorPromotionEnabled;
+        }
         settings.TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim();
         settings.TiktokProofTemplateLanguage = TiktokProofTemplateLanguage.Trim();
         settings.TiktokProofWpsPath = TiktokProofWpsPath.Trim();
@@ -1356,6 +1365,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageCount = settings.TiktokProjectImageCount;
         TiktokProjectImageRenderEpisodeLimit = settings.TiktokProjectImageRenderEpisodeLimit;
         TiktokProjectImageSubtitleAiMode = settings.TiktokProjectImageSubtitleAiMode;
+        TiktokDefaultPublishMode = settings.TiktokDefaultPublishMode;
+        TiktokDefaultConsignmentEnabled = settings.TiktokDefaultConsignmentEnabled;
+        TiktokDefaultAnchorPromotionEnabled = settings.TiktokDefaultAnchorPromotionEnabled;
         TiktokProofTemplateDocxPath = settings.TiktokProofTemplateDocxPath;
         TiktokProofTemplateLanguage = settings.TiktokProofTemplateLanguage;
         TiktokProofWpsPath = settings.TiktokProofWpsPath;

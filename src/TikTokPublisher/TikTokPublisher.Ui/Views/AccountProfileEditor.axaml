@@ -134,6 +134,18 @@
                             </Grid>
                             <views:CopyrightMaterialSelector x:Name="CopyrightMaterials" />
 
+                            <Border Height="1" Background="#E4E9F0" Margin="0,8,0,0" />
+                            <TextBlock Classes="configurationHeading" Text="工程图" />
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="截图模板" />
+                                    <ComboBox Classes="configurationInput" x:Name="ProjectImageTemplateBox"
+                                              HorizontalAlignment="Stretch" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="生成参数…" VerticalAlignment="Bottom"
+                                        Click="OnProjectImageOptionsClick" />
+                            </Grid>
+
                             <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
                             <TextBlock Text="剧集与版权" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
 
@@ -212,14 +224,6 @@
 
                             <UniformGrid Classes="publishRow" Columns="2">
                                 <StackPanel Classes="publishField" Spacing="5">
-                                    <TextBlock Classes="formLabel" Text="发布模式" TextWrapping="Wrap" />
-                                    <ComboBox Classes="configurationInput" x:Name="PublishModeCombo" HorizontalAlignment="Stretch">
-                                        <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
-                                        <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
-                                        <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
-                                    </ComboBox>
-                                </StackPanel>
-                                <StackPanel Classes="publishField" Spacing="5">
                                     <ToggleSwitch x:Name="PaidEnabledBox" OnContent="付费模式" OffContent="付费模式" AutomationProperties.Name="付费模式" />
                                     <StackPanel Spacing="5" IsVisible="{Binding IsChecked, ElementName=PaidEnabledBox}">
                                         <WrapPanel>
@@ -254,8 +258,6 @@
                             </UniformGrid>
 
                             <WrapPanel Orientation="Horizontal">
-                                <ToggleSwitch x:Name="ConsignmentBox" OnContent="寄售模式" OffContent="寄售模式" AutomationProperties.Name="寄售模式" Margin="0,0,24,4" />
-                                <ToggleSwitch x:Name="AnchorPromotionBox" OnContent="锚点推广" OffContent="锚点推广" AutomationProperties.Name="锚点推广" Margin="0,0,24,4" />
                                 <ToggleSwitch x:Name="ZeroCostAdsBox" OnContent="0 元投放" OffContent="0 元投放" AutomationProperties.Name="0 元投放" Margin="0,0,24,4" />
                             </WrapPanel>
                             <StackPanel Classes="publishField" IsVisible="{Binding IsChecked, ElementName=ZeroCostAdsBox}" Spacing="5">

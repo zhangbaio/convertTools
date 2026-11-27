@@ -61,7 +61,6 @@ public partial class AccountSettingsDialog : Window
             ? "embedded"
             : p.TiktokPlaywrightUploadHeadless ? "playwright_headless" : "playwright";
         SelectByTag(UploadBrowserModeCombo, browserOption, "playwright_headless");
-        SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         LocalDramaEnglishPublishTextBox.IsChecked = p.TiktokLocalDramaEnglishPublishText;
@@ -119,10 +118,8 @@ public partial class AccountSettingsDialog : Window
             (int)(CopyrightMaterials.RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
-        ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
-        AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
         PublishAccounts.Load(p);
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = p.TiktokFreePreviewEpisodes > 0 ? p.TiktokFreePreviewEpisodes : 3;
@@ -222,7 +219,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadBrowserMode = browserOption == "embedded" ? "embedded" : "playwright";
         if (browserOption != "embedded")
             p.TiktokPlaywrightUploadHeadless = browserOption == "playwright_headless";
-        p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
         p.TiktokLocalDramaEnglishPublishText = LocalDramaEnglishPublishTextBox.IsChecked == true;
@@ -269,11 +265,9 @@ public partial class AccountSettingsDialog : Window
         p.TiktokRewriteFollowsSourceLanguage =
             TikTokAccountProfile.RewriteFollowsImportedLanguage(p.TiktokDramaMarket);
         p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
-        p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
         p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
             (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
-        p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
         PublishAccounts.WriteTo(p);
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
         p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);

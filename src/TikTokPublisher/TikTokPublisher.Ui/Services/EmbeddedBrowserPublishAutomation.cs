@@ -31,8 +31,9 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         IEmbeddedBrowser browser,
         FinalAction finalAction,
         Action<string>? log,
-        CancellationToken ct) =>
-        PublishCoreAsync(account, item, browser, finalAction, log, uploadFilesPreflighted: true, ct);
+        CancellationToken ct,
+        ClientSettings? settings) =>
+        PublishCoreAsync(account, item, browser, finalAction, log, uploadFilesPreflighted: true, ct, settings);
 
     private async Task<PublishResult> PublishCoreAsync(
         TikTokAccountProfile account,
@@ -41,7 +42,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         FinalAction finalAction,
         Action<string>? log,
         bool uploadFilesPreflighted,
-        CancellationToken ct)
+        CancellationToken ct,
+        ClientSettings? settings = null)
     {
         void L(string m) => log?.Invoke(m);
 
@@ -49,6 +51,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         if (!consistency.Ok)
             return PublishResult.FailAndSkipManualIntervention(consistency.Message);
 
+        settings ??= ClientSettingsStore.Load();
         if (!uploadFilesPreflighted)
         {
             var preflight = await TikTokUploadFilePreflightService
@@ -106,7 +109,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 account,
                 workflowDir,
                 L,
-                item.EnabledQueueSteps);
+                item.EnabledQueueSteps,
+                settings);
             await TikTokNewTitleLanguageService.ApplyAsync(
                 options,
                 account,
@@ -126,7 +130,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         var projectPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(item);
         var payload = TikTokPublishPayload.FromPublishItem(item);
-        var settings = ClientSettingsStore.Load();
         var recommendation = await TikTokPublishRecommendationService.BuildRecommendationAsync(
             projectPayload,
             settings,

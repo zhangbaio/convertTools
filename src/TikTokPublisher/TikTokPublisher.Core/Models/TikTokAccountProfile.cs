@@ -190,6 +190,7 @@ public sealed class TikTokAccountProfile
     /// <summary>开启后，标题和简介按导入短剧的语言生成，不再固定写成中文。</summary>
     public bool TiktokRewriteFollowsSourceLanguage { get; set; }
     public string TiktokAiNewTitleRandomness { get; set; } = ClientSettingsDefaults.AiNewTitleRandomness;
+    public TikTokProjectImageOptions? ProjectImageOptions { get; set; }
     public string TiktokAiSynopsisRandomness { get; set; } = ClientSettingsDefaults.AiNewTitleRandomness;
     public string TiktokPublishMode { get; set; } = "auto_after_review";
     public bool TiktokConsignmentEnabled { get; set; } = true;

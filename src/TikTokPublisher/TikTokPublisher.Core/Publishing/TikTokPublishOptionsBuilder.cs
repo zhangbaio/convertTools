@@ -9,19 +9,14 @@ public static class TikTokPublishOptionsBuilder
         TikTokAccountProfile? account,
         string? workflowProjectDir = null,
         Action<string>? log = null,
-        IEnumerable<string>? enabledQueueSteps = null)
+        IEnumerable<string>? enabledQueueSteps = null,
+        ClientSettings? settings = null)
     {
+        var options = TikTokPublishOptions.FromAccount(account, settings ?? ClientSettingsStore.Load());
         if (account is null)
-        {
-            return new TikTokPublishOptions
-            {
-                TargetAudienceMode = "ai_recommend",
-                GenreCount = 3,
-            };
-        }
+            return options;
 
         TikTokPublishConstants.ValidatePublishConfiguration(account);
-        var options = TikTokPublishOptions.FromAccount(account);
         options.SourceInfoPackageSelection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
             enabledQueueSteps,
             account.TiktokUploadSourceInfoRoleVector,
