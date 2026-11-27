@@ -81,7 +81,7 @@ public static class WeixinSeriesFields
         new(Producer, "制作方 / 报审机构", CostReport),
         new(Cost, "制作成本（万元）", CostReport),
         new(Report, "已有成本报表文件", CostReport, WeixinSeriesFieldKind.Attachment),
-        new(GenerateCost, "按方案生成成本报表", CostReport, WeixinSeriesFieldKind.Choice, ["启用", "关闭"]),
+        new(GenerateCost, GenerateCost, CostReport, WeixinSeriesFieldKind.Choice, ["启用", "关闭"]),
         new(Ratio, "演员总片酬占比（%）", CostReport),
         new(Seal, Seal, CostReport, WeixinSeriesFieldKind.Attachment),
         new(Signature, Signature, CostReport, WeixinSeriesFieldKind.Attachment),

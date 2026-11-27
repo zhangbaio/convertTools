@@ -82,7 +82,7 @@ public partial class WeixinSeriesUploadView : UserControl
         _openSeriesForm = openForm;
         LegacySeriesOptionsButton.IsVisible = false;
         SeriesFormButton.IsVisible = true;
-        OptionsSummary.Text = "按账号方案和项目表单上传";
+        OptionsSummary.Text = "使用账号发布配置和项目表单";
     }
 
     private void OnSeriesFormClick(object? sender, RoutedEventArgs e) =>

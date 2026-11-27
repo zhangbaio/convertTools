@@ -32,26 +32,24 @@ public sealed class WeixinSeriesFormService(
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public async Task<WeixinSeriesFormPreview> PreviewAsync(PublishJob job, WeixinSeriesPreset? preset,
-        WeixinSeriesProjectForm? form, CancellationToken cancellationToken) =>
-        (await BuildAsync(job, preset, form, preview: true, cancellationToken)).Preview;
+    public async Task<WeixinSeriesFormPreview> PreviewAsync(PublishJob job, WeixinSeriesProjectForm? form,
+        CancellationToken cancellationToken) =>
+        (await BuildAsync(job, store.LoadAccountForm(job.AccountId), form, preview: true, cancellationToken)).Preview;
 
     internal async Task<string?> PrepareUploadAsync(PublishJob job, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(job.AccountId))
             return null;
 
-        var presets = store.Load(job.AccountId);
         var form = store.LoadProject(job.AccountId, job.ProjectDirectory);
-        var presetId = form?.PresetId ?? presets.DefaultId;
-        var preset = form?.PresetSnapshot ?? presets.Presets.FirstOrDefault(item => item.Id == presetId);
-        if (preset is null && !string.IsNullOrEmpty(presetId))
-            throw new InvalidOperationException("该项目所选的视频号上传方案已不存在，请在发布配置重新选择。");
-        if (preset is null && (form is null || (form.Values.Count == 0 && string.IsNullOrEmpty(form.ConfigPath))))
+        if (!string.IsNullOrEmpty(form?.PresetId))
+            throw new InvalidOperationException("旧项目配置缺少关联数据，请打开项目表单检查并重新保存。");
+        var accountValues = store.LoadAccountForm(job.AccountId);
+        if (accountValues.Count == 0 && (form is null || (form.Values.Count == 0 && string.IsNullOrEmpty(form.ConfigPath))))
             return null;
 
-        progress?.Report($"生成剧集上传表单 · {preset?.Name ?? "项目配置"}");
-        var (root, preview, reportInputs) = await BuildAsync(job, preset, form, preview: false, cancellationToken);
+        progress?.Report("正在合并账号发布配置和项目表单");
+        var (root, preview, reportInputs) = await BuildAsync(job, accountValues, form, preview: false, cancellationToken);
         if (preview.Errors.Count != 0)
             throw new InvalidOperationException("剧集上传表单校验失败：" + string.Join("；", preview.Errors.Take(6)));
 
@@ -78,7 +76,7 @@ public sealed class WeixinSeriesFormService(
     }
 
     private async Task<(JsonObject Root, WeixinSeriesFormPreview Preview, WeixinSeriesFormReportInputs? Report)>
-        BuildAsync(PublishJob job, WeixinSeriesPreset? preset, WeixinSeriesProjectForm? projectForm,
+        BuildAsync(PublishJob job, IReadOnlyDictionary<string, string> accountValues, WeixinSeriesProjectForm? projectForm,
             bool preview, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -106,8 +104,8 @@ public sealed class WeixinSeriesFormService(
             throw new InvalidOperationException("剧集配置缺少分集上传表单。");
         var errors = new List<string>();
         var fields = All.ToDictionary(field => field.Key, field => ReadValue(field.Key, actions, first));
-        foreach (var (key, value) in preset?.Values ?? [])
-            Set(key, value, "方案");
+        foreach (var (key, value) in accountValues)
+            Set(key, value, "账号配置");
         foreach (var (key, value) in projectForm?.Values ?? [])
             Set(key, value, "本项目覆盖");
 
@@ -273,7 +271,7 @@ public sealed class WeixinSeriesFormService(
                      .Where(action => Text(action["type"]) == "fill" && unusedLabels.Contains(Label(action))).ToArray())
             actions.Remove(action);
         if (report is not null)
-            fields[Report] = fields[Report] with { Value = "执行时按方案生成成本报表.png", Source = "方案" };
+            fields[Report] = fields[Report] with { Value = "执行时生成成本报表.png", Source = "自动生成" };
         WeixinSeriesFormEpisodes.Apply(second, selected);
         root[ResolvedFormKey] = true;
         var selectedNumbers = selected.Select(item => item.Number).ToHashSet();

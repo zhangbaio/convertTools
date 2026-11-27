@@ -1,5 +1,7 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
@@ -15,25 +17,20 @@ public partial class WeixinSeriesPresetView : UserControl
 {
     private readonly Dictionary<string, Func<string>> _editors = [];
     private readonly Dictionary<string, Func<string>> _projectEditors = [];
+    private readonly List<UniformGrid> _fieldRows = [];
     private WeixinSeriesPresetStore? _store;
     private WeixinSeriesFormService? _forms;
     private Account? _account;
-    private WeixinSeriesPresetCollection _library = new();
-    private WeixinSeriesPreset? _selected;
     private CancellationTokenSource? _previewCancellation;
-    private bool _loading;
     private string? _loadedProject;
-    private string _configuredDirectory = "";
+    private string _workDirectory = "";
 
     public WeixinSeriesPresetView()
     {
         InitializeComponent();
         ProjectDirectoryBox.TextChanged += (_, _) => ResetPreview();
-        Sections.SelectionChanged += (_, args) =>
-        {
-            if (ReferenceEquals(args.Source, Sections)) UpdateActions();
-        };
-        DetachedFromVisualTree += (_, _) => _previewCancellation?.Cancel();
+        AccountFields.SizeChanged += (_, _) => UpdateFieldColumns();
+        DetachedFromVisualTree += (_, _) => ShowAccountForm();
         UpdateActions();
     }
 
@@ -45,24 +42,30 @@ public partial class WeixinSeriesPresetView : UserControl
 
     internal void SetAccount(Account? account, string workDirectory)
     {
-        if (account is not null && account.Id == _account?.Id)
-        {
-            AccountSummary.Text = WeixinWorkspaceAccounts.DisplayName(account);
-            if (ProjectDirectoryBox.Text == _configuredDirectory && _configuredDirectory != workDirectory)
-                LoadProject(workDirectory);
-            _configuredDirectory = workDirectory;
-            return;
-        }
+        var changed = account?.Id != _account?.Id;
         _account = account;
-        _configuredDirectory = workDirectory;
-        ResetPreview();
-        ConfigPathBox.Text = "";
-        ProjectDirectoryBox.Text = workDirectory;
-        PreviewModePicker.SelectedIndex = 0;
-        AccountSummary.Text = account is null ? "请先在左侧选择视频号账号。" : WeixinWorkspaceAccounts.DisplayName(account);
-        _library = account is null || _store is null ? new() : _store.Load(account.Id);
-        RenderPresetList(_library.DefaultId);
-        StatusText.Text = "";
+        _workDirectory = workDirectory;
+        AccountSummary.Text = account is null
+            ? "请先在左侧选择视频号账号。"
+            : $"当前账号 · {WeixinWorkspaceAccounts.DisplayName(account)}";
+        if (!changed) return;
+
+        ShowAccountForm();
+        _editors.Clear();
+        _fieldRows.Clear();
+        AccountFields.Children.Clear();
+        if (account is not null && _store is not null)
+        {
+            try
+            {
+                RenderAccountEditor(_store.LoadAccountForm(account.Id));
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"读取发布配置失败：{ex.Message}";
+            }
+        }
+        UpdateActions();
     }
 
     internal void OpenProject(string directory, string config, WeixinSeriesUploadMode mode)
@@ -73,8 +76,11 @@ public partial class WeixinSeriesPresetView : UserControl
             WeixinSeriesUploadMode.ApiSubmit => 2,
             _ => 0,
         };
-        LoadProject(directory, config);
-        Sections.SelectedItem = ProjectTab;
+        AccountEditor.IsVisible = false;
+        ProjectEditor.IsVisible = true;
+        LoadProject(string.IsNullOrWhiteSpace(directory) ? _workDirectory : directory, config);
+        StatusText.Text = "";
+        UpdateActions();
     }
 
     private void LoadProject(string directory, string config = "")
@@ -83,140 +89,86 @@ public partial class WeixinSeriesPresetView : UserControl
         ResetPreview();
         var form = _account is not null && Directory.Exists(directory) ? _store?.LoadProject(_account.Id, directory) : null;
         ConfigPathBox.Text = string.IsNullOrWhiteSpace(config) ? form?.ConfigPath ?? "" : config;
-        RenderPresetList(form?.PresetId ?? _library.DefaultId);
+        PreviewNotes.Text = "生成后可检查字段来源，并保存当前项目的覆盖值。";
     }
 
-    private void RenderPresetList(string selectedId, WeixinSeriesPreset? newPreset = null)
+    private void ShowAccountForm()
     {
-        _loading = true;
-        try
-        {
-            var choices = new List<ComboBoxItem> { new() { Content = "使用项目原配置", Tag = "" } };
-            foreach (var preset in _library.Presets)
-                choices.Add(new ComboBoxItem { Content = preset.Name + (preset.Id == _library.DefaultId ? " · 默认" : ""), Tag = preset });
-            if (newPreset is not null)
-                choices.Add(new ComboBoxItem { Content = "新方案", Tag = newPreset });
-            PresetPicker.ItemsSource = choices;
-            PresetPicker.SelectedItem = choices.FirstOrDefault(item => item.Tag is WeixinSeriesPreset preset && preset.Id == selectedId)
-                ?? choices[0];
-        }
-        finally { _loading = false; }
-        LoadPresetEditor();
-    }
-
-    private void OnPresetChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (!_loading) LoadPresetEditor();
-    }
-
-    private void LoadPresetEditor()
-    {
-        _selected = (PresetPicker.SelectedItem as ComboBoxItem)?.Tag as WeixinSeriesPreset;
-        _editors.Clear();
-        PresetFields.Children.Clear();
-        NameBox.Text = _selected?.Name ?? "";
-        if (_selected is { } preset)
-        {
-            foreach (var group in WeixinSeriesFields.All.GroupBy(field => field.Group))
-            {
-                var section = new StackPanel { Spacing = 8 };
-                section.Children.Add(new TextBlock { Text = group.Key, FontWeight = FontWeight.SemiBold, FontSize = 15 });
-                foreach (var field in group)
-                {
-                    var row = new Grid { ColumnDefinitions = new ColumnDefinitions("220,*"), ColumnSpacing = 12 };
-                    row.Children.Add(new TextBlock { Text = field.Label, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
-                    var input = CreateInput(field, preset.Values.GetValueOrDefault(field.Key), "跟随项目", _editors);
-                    Grid.SetColumn(input, 1);
-                    row.Children.Add(input);
-                    section.Children.Add(row);
-                }
-                PresetFields.Children.Add(new Border
-                {
-                    Padding = new Thickness(12), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1),
-                    BorderBrush = Brush.Parse("#D9E2EC"), Background = Brushes.White, Child = section,
-                });
-            }
-        }
+        ProjectEditor.IsVisible = false;
+        AccountEditor.IsVisible = true;
         ResetPreview();
-        PreviewNotes.Text = "生成后可核对取值来源，并保存当前项目的覆盖值。";
-        UpdateActions();
+        StatusText.Text = "";
+    }
+
+    private void OnReturnToAccountClick(object? sender, RoutedEventArgs e) => ShowAccountForm();
+
+    private void RenderAccountEditor(IReadOnlyDictionary<string, string> values)
+    {
+        foreach (var group in WeixinSeriesFields.All.GroupBy(field => field.Group))
+        {
+            if (AccountFields.Children.Count > 0)
+                AccountFields.Children.Add(new Border { Height = 1, Margin = new Thickness(0, 2, 0, 0), Background = Brush.Parse("#E4E9F0") });
+
+            var section = new StackPanel { Spacing = 10 };
+            section.Children.Add(new TextBlock { Text = group.Key, Classes = { "configurationHeading" } });
+            UniformGrid? pair = null;
+            foreach (var field in group)
+            {
+                var editor = new StackPanel { Spacing = 5 };
+                editor.Children.Add(new TextBlock { Text = field.Label, Classes = { "configurationLabel" } });
+                editor.Children.Add(CreateInput(field, values.GetValueOrDefault(field.Key), "跟随项目", _editors));
+                if (field.Kind is WeixinSeriesFieldKind.Multiline or WeixinSeriesFieldKind.Attachment or WeixinSeriesFieldKind.Attachments)
+                {
+                    section.Children.Add(editor);
+                    pair = null;
+                    continue;
+                }
+
+                if (pair is null || pair.Children.Count == 2)
+                {
+                    pair = new UniformGrid { Columns = 2 };
+                    _fieldRows.Add(pair);
+                    section.Children.Add(pair);
+                }
+                editor.Classes.Add("configurationField");
+                pair.Children.Add(editor);
+            }
+            AccountFields.Children.Add(section);
+        }
+        UpdateFieldColumns();
+    }
+
+    private void UpdateFieldColumns()
+    {
+        var columns = AccountFields.Bounds.Width >= 620 ? 2 : 1;
+        foreach (var row in _fieldRows)
+            row.Columns = columns;
     }
 
     private void UpdateActions()
     {
         var hasAccount = _account is not null;
         var busy = _previewCancellation is not null;
+        var projectMode = ProjectEditor.IsVisible;
         Editor.IsEnabled = hasAccount && !busy;
-        NewButton.IsEnabled = hasAccount && !busy;
-        NameBox.IsEnabled = _selected is not null;
-        SaveButton.IsEnabled = hasAccount && _selected is not null && !busy;
-        DefaultButton.IsEnabled = SaveButton.IsEnabled;
-        CancelButton.IsVisible = busy;
-        ApplyButton.IsEnabled = hasAccount && !busy && Sections.SelectedItem == ProjectTab && _projectEditors.Count > 0;
+        SaveButton.IsVisible = !projectMode;
+        SaveButton.IsEnabled = hasAccount && _editors.Count > 0 && !busy;
+        CancelButton.IsVisible = busy && projectMode;
+        ApplyButton.IsVisible = projectMode;
+        ApplyButton.IsEnabled = hasAccount && !busy && projectMode && _projectEditors.Count > 0;
     }
 
-    private void OnNewClick(object? sender, RoutedEventArgs e)
+    private void OnSaveClick(object? sender, RoutedEventArgs e)
     {
-        if (_account is not { } account) return;
-        var defaults = new Dictionary<string, string>
-        {
-            [WeixinSeriesFields.Producer] = account.CostReportCompanyName,
-            [WeixinSeriesFields.Ratio] = account.CostReportActorPayRatio,
-            [WeixinSeriesFields.Seal] = account.CostReportSealPath,
-            [WeixinSeriesFields.Signature] = account.CostReportSignPath,
-            [WeixinSeriesFields.Representative] = account.CostReportLegalRepresentative,
-        };
-        var preset = new WeixinSeriesPreset
-        {
-            Values = defaults.Where(item => !string.IsNullOrWhiteSpace(item.Value)).ToDictionary(item => item.Key, item => item.Value),
-        };
-        RenderPresetList(preset.Id, preset);
-        Sections.SelectedIndex = 0;
-        NameBox.Focus();
-    }
-
-    private void OnSaveClick(object? sender, RoutedEventArgs e) => SavePreset(makeDefault: false);
-    private void OnDefaultClick(object? sender, RoutedEventArgs e) => SavePreset(makeDefault: true);
-
-    private void SavePreset(bool makeDefault)
-    {
-        if (_account is null || _store is null || _selected is null) return;
-        var name = NameBox.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            StatusText.Text = "请输入方案名称。";
-            return;
-        }
-        if (_library.Presets.Any(preset => preset.Id != _selected.Id && preset.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-        {
-            StatusText.Text = "已有同名方案，请换一个名称。";
-            return;
-        }
-        var next = _selected with { Name = name, Values = ReadInputs(_editors) };
-        var presets = _library.Presets.ToList();
-        var index = presets.FindIndex(preset => preset.Id == next.Id);
-        if (index >= 0) presets[index] = next;
-        else presets.Add(next);
-        var updated = _library with { Presets = presets, DefaultId = makeDefault ? next.Id : _library.DefaultId };
-        SaveLibrary(updated, next.Id, makeDefault ? "已保存并设为账号默认方案。" : "方案已保存。");
-    }
-
-    private void OnClearDefaultClick(object? sender, RoutedEventArgs e) =>
-        SaveLibrary(_library with { DefaultId = "" }, _selected?.Id ?? "", "已关闭账号默认方案。");
-
-    private void SaveLibrary(WeixinSeriesPresetCollection library, string selectedId, string status)
-    {
-        if (_account is null || _store is null) return;
+        if (_account is null || _store is null || _editors.Count == 0) return;
         try
         {
-            _store.Save(_account.Id, library);
-            _library = library;
-            RenderPresetList(selectedId);
-            StatusText.Text = status;
+            _store.SaveAccountForm(_account.Id, ReadInputs(_editors));
+            StatusText.Text = "已保存当前账号的发布配置。";
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"保存方案失败：{ex.Message}";
+            StatusText.Text = $"保存发布配置失败：{ex.Message}";
         }
     }
 
@@ -225,7 +177,7 @@ public partial class WeixinSeriesPresetView : UserControl
         if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
         var account = _account?.Id;
         var result = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择剧集项目目录" });
-        if (result.Count > 0 && account == _account?.Id)
+        if (result.Count > 0 && account == _account?.Id && ProjectEditor.IsVisible)
             LoadProject(result[0].Path.LocalPath);
     }
 
@@ -238,7 +190,7 @@ public partial class WeixinSeriesPresetView : UserControl
             Title = "选择视频号剧集配置",
             FileTypeFilter = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }],
         });
-        if (result.Count > 0 && account == _account?.Id)
+        if (result.Count > 0 && account == _account?.Id && ProjectEditor.IsVisible)
             ConfigPathBox.Text = result[0].Path.LocalPath;
     }
 
@@ -255,20 +207,11 @@ public partial class WeixinSeriesPresetView : UserControl
             StatusText.Text = "请选择存在的剧集项目目录。";
             return;
         }
-        var preset = _selected;
-        var presetId = preset?.Id ?? "";
-        if (preset is not null && (!_library.Presets.Any(item => item.Id == preset.Id) ||
-            NameBox.Text?.Trim() != preset.Name ||
-            !ReadInputs(_editors).OrderBy(item => item.Key).SequenceEqual(preset.Values.OrderBy(item => item.Key))))
-        {
-            StatusText.Text = "请先保存方案，再生成项目表单。";
-            return;
-        }
         var path = ConfigPathBox.Text?.Trim() ?? "";
         var overrides = _loadedProject == directory
             ? ReadInputs(_projectEditors)
             : _store.LoadProject(account.Id, directory)?.Values ?? [];
-        var draft = new WeixinSeriesProjectForm(presetId, overrides, path);
+        var draft = new WeixinSeriesProjectForm("", overrides, path);
         var job = new PublishJob
         {
             AccountId = account.Id, AccountName = WeixinWorkspaceAccounts.DisplayName(account), ProjectDirectory = directory,
@@ -289,14 +232,14 @@ public partial class WeixinSeriesPresetView : UserControl
         StatusText.Text = "正在生成并校验表单…";
         try
         {
-            var preview = await _forms.PreviewAsync(job, preset, draft, cancellation.Token);
+            var preview = await _forms.PreviewAsync(job, draft, cancellation.Token);
             if (cancellation.IsCancellationRequested || account.Id != _account?.Id) return;
             _loadedProject = directory;
             if (save && preview.Errors.Count == 0)
             {
                 foreach (var field in preview.Fields.Where(field => field.Source is "剧集类型 Agent" or "发布信息 Agent"))
                     overrides[field.Key] = field.Value;
-                _store.SaveProject(account.Id, directory, draft with { PresetSnapshot = preset });
+                _store.SaveProject(account.Id, directory, draft);
             }
             RenderPreview(preview, overrides);
             StatusText.Text = preview.Errors.Count > 0 ? $"发现 {preview.Errors.Count} 项需要处理。"
@@ -304,11 +247,11 @@ public partial class WeixinSeriesPresetView : UserControl
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            if (account.Id == _account?.Id) StatusText.Text = "已取消生成。";
+            if (account.Id == _account?.Id && ProjectEditor.IsVisible) StatusText.Text = "已取消生成。";
         }
         catch (Exception ex)
         {
-            if (account.Id == _account?.Id) StatusText.Text = $"生成表单失败：{ex.Message}";
+            if (account.Id == _account?.Id && ProjectEditor.IsVisible) StatusText.Text = $"生成表单失败：{ex.Message}";
         }
         finally
         {
@@ -321,14 +264,14 @@ public partial class WeixinSeriesPresetView : UserControl
     {
         PreviewFields.Children.Clear();
         _projectEditors.Clear();
-        PreviewNotes.Text = preview.TrialSummary.Length > 0 ? preview.TrialSummary : "覆盖值留空时使用方案或项目值。";
+        PreviewNotes.Text = preview.TrialSummary.Length > 0 ? preview.TrialSummary : "覆盖值留空时使用账号配置或项目原值。";
         foreach (var error in preview.Errors)
             PreviewFields.Children.Add(new TextBlock { Text = error, Foreground = Brush.Parse("#9A3412"), TextWrapping = TextWrapping.Wrap });
         foreach (var field in preview.Fields)
         {
             var definition = WeixinSeriesFields.All.First(item => item.Key == field.Key);
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("220,*,*"), ColumnSpacing = 12 };
-            row.Children.Add(new TextBlock { Text = field.Label, TextWrapping = TextWrapping.Wrap });
+            row.Children.Add(new TextBlock { Text = field.Label, Classes = { "configurationLabel" } });
             var current = new TextBlock
             {
                 Text = field.Value.Length == 0 ? "未填写" : $"{field.Value}  ·  {field.Source}",
@@ -361,7 +304,8 @@ public partial class WeixinSeriesPresetView : UserControl
     {
         if (field.Choices is { } choices)
         {
-            var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+            var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Classes = { "configurationInput" } };
+            AutomationProperties.SetName(combo, field.Label);
             var items = new[] { placeholder }.Concat(choices).ToList();
             if (!string.IsNullOrWhiteSpace(value) && !items.Contains(value)) items.Add(value);
             combo.ItemsSource = items;
@@ -369,12 +313,18 @@ public partial class WeixinSeriesPresetView : UserControl
             editors[field.Key] = () => combo.SelectedIndex > 0 ? (string)combo.SelectedItem! : "";
             return combo;
         }
-        var text = new TextBox { Watermark = placeholder, Text = value,
+        var text = new TextBox { Watermark = placeholder, Text = value, Classes = { "configurationInput" },
             AcceptsReturn = field.Kind is WeixinSeriesFieldKind.Multiline or WeixinSeriesFieldKind.Attachments };
+        AutomationProperties.SetName(text, field.Label);
+        if (text.AcceptsReturn)
+        {
+            text.TextWrapping = TextWrapping.Wrap;
+            text.MinHeight = field.Kind == WeixinSeriesFieldKind.Multiline ? 74 : 48;
+        }
         editors[field.Key] = () => text.Text?.Trim() ?? "";
         if (field.Kind is not (WeixinSeriesFieldKind.Attachment or WeixinSeriesFieldKind.Attachments)) return text;
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 6 };
-        var browse = new Button { Content = "选择文件", VerticalAlignment = VerticalAlignment.Top };
+        var browse = new Button { Content = "浏览…", VerticalAlignment = VerticalAlignment.Top };
         browse.Click += async (_, _) =>
         {
             if (TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;

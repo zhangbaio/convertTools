@@ -27,7 +27,7 @@ public sealed class WeixinSeriesFormServiceTests
         Assert.Empty(fixture.Store.Load("second").Presets);
 
         var job = fixture.NewJob();
-        var preview = await fixture.Service.PreviewAsync(job, preset, form, CancellationToken.None);
+        var preview = await fixture.Service.PreviewAsync(job, form, CancellationToken.None);
         Assert.Empty(preview.Errors);
         Assert.Equal("当前项目制作方", PreviewValue(preview, Producer).Value);
         Assert.Equal("本项目覆盖", PreviewValue(preview, Producer).Source);
@@ -37,7 +37,7 @@ public sealed class WeixinSeriesFormServiceTests
         Assert.All(preview.Episodes, item => Assert.True(item.Selected));
 
         var source = await File.ReadAllTextAsync(fixture.Config);
-        fixture.Store.Save("first", new() { DefaultId = preset.Id, Presets = [preset with { Values = new() { [FreeEpisodes] = "3" } }] });
+        fixture.Store.SaveAccountForm("first", new() { [FreeEpisodes] = "3", [Producer] = "新的账号制作方" });
         var effective = await fixture.Service.PrepareUploadAsync(job, null, CancellationToken.None);
         Assert.NotNull(effective);
         var browser = new WeixinSeriesConfigOverrideService(fixture.Directory).Prepare(job, effective);
@@ -58,15 +58,12 @@ public sealed class WeixinSeriesFormServiceTests
     public async Task PreviewReportsMissingMaterialsAndExplicitEpisodes()
     {
         using var fixture = new Fixture();
-        var preset = new WeixinSeriesPreset
+        fixture.Store.SaveAccountForm("first", new()
         {
-            Values = new()
-            {
-                [EpisodeMode] = "指定集数", [EpisodeIndexes] = "2,6-7", [Identity] = "剧目发行方",
-                [Qualification] = "普通微短剧", [AiOwnershipMode] = "启用",
-            },
-        };
-        var preview = await fixture.Service.PreviewAsync(fixture.NewJob(), preset, null, CancellationToken.None);
+            [EpisodeMode] = "指定集数", [EpisodeIndexes] = "2,6-7", [Identity] = "剧目发行方",
+            [Qualification] = "普通微短剧", [AiOwnershipMode] = "启用",
+        });
+        var preview = await fixture.Service.PreviewAsync(fixture.NewJob(), null, CancellationToken.None);
         Assert.Contains(preview.Errors, error => error.Contains("6、7"));
         Assert.Contains(preview.Errors, error => error.Contains("备案号"));
         Assert.Contains(preview.Errors, error => error.Contains("授权证明"));
@@ -81,8 +78,54 @@ public sealed class WeixinSeriesFormServiceTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            fixture.Service.PreviewAsync(fixture.NewJob(), null, null, cancellation.Token));
+            fixture.Service.PreviewAsync(fixture.NewJob(), null, cancellation.Token));
         Assert.Null(fixture.Store.LoadProject("first", fixture.Directory));
+    }
+
+    [Fact]
+    public void AccountFormReadsThePriorDefaultAndAnExplicitClearDoesNotRestoreIt()
+    {
+        using var fixture = new Fixture();
+        var legacyDefault = new WeixinSeriesPreset { Values = new() { [Producer] = "原账号默认制作方" } };
+        var unusedPreset = new WeixinSeriesPreset { Values = new() { [Producer] = "未启用的制作方" } };
+        fixture.Store.Save("first", new() { DefaultId = legacyDefault.Id, Presets = [unusedPreset, legacyDefault] });
+        fixture.Store.Save("second", new() { Presets = [unusedPreset] });
+
+        Assert.Equal("原账号默认制作方", fixture.Store.LoadAccountForm("first")[Producer]);
+        Assert.Empty(fixture.Store.LoadAccountForm("second"));
+        fixture.Store.SaveAccountForm("first", []);
+        Assert.Empty(fixture.Store.LoadAccountForm("first"));
+        Assert.Equal(legacyDefault.Id, fixture.Store.Load("first").DefaultId);
+    }
+
+    [Fact]
+    public async Task AccountFormsAreIsolatedAndNewProjectFormsInheritTheLatestSavedValues()
+    {
+        using var fixture = new Fixture();
+        fixture.Store.SaveAccountForm("first", new() { [Producer] = "账号甲", [DramaType] = "漫剧" });
+        fixture.Store.SaveAccountForm("second", new() { [Producer] = "账号乙", [DramaType] = "真人" });
+        var first = fixture.NewJob();
+        var second = fixture.NewJob();
+        second.AccountId = "second";
+        var project = new WeixinSeriesProjectForm("", new() { [Title] = "项目剧名" });
+        fixture.Store.SaveProject(first.AccountId, first.ProjectDirectory, project);
+
+        var firstPreview = await fixture.Service.PreviewAsync(first, project, CancellationToken.None);
+        var secondPreview = await fixture.Service.PreviewAsync(second, null, CancellationToken.None);
+        Assert.Equal("账号甲", PreviewValue(firstPreview, Producer).Value);
+        Assert.Equal("账号配置", PreviewValue(firstPreview, Producer).Source);
+        Assert.Equal("项目剧名", PreviewValue(firstPreview, Title).Value);
+        Assert.Equal("账号乙", PreviewValue(secondPreview, Producer).Value);
+        Assert.Equal("测试剧", PreviewValue(secondPreview, Title).Value);
+
+        fixture.Store.SaveAccountForm("first", new() { [Producer] = "账号甲更新", [DramaType] = "漫剧" });
+        var effective = await fixture.Service.PrepareUploadAsync(first, null, CancellationToken.None);
+        Assert.NotNull(effective);
+        var api = await WeixinSeriesApiProject.LoadAsync(effective!, first.ProjectName,
+            new WeixinPublishOptions { SeriesUploadMode = WeixinSeriesUploadMode.ApiSubmit },
+            1, CancellationToken.None);
+        Assert.Equal("账号甲更新", api.Form!.Producer);
+        Assert.Equal("账号乙", fixture.Store.LoadAccountForm("second")[Producer]);
     }
 
     private static WeixinSeriesFormValue PreviewValue(WeixinSeriesFormPreview preview, string key) =>
