@@ -141,6 +141,80 @@ public sealed class ProjectInfoRewriterUnifiedPublishPromptTests
             .Contain($"原简介: {sourceSynopsis}").And.Contain($"\n简介: {translatedSynopsis}");
     }
 
+    [Fact]
+    public async Task Long_english_synopsis_is_repaired_without_regenerating_the_title()
+    {
+        const string title = "Secrets in the Ledger";
+        const string corrected = "Two siblings uncover a secret ledger and bring it to court.";
+        using var fixture = new RewriteFixture(false, false,
+            [Reply(title, new string('a', 1028)), JsonSerializer.Serialize(new { description = corrected })],
+            useEnglish: true);
+
+        var result = await fixture.RunAsync();
+
+        fixture.Requests.Should().HaveCount(2);
+        var repair = ReadRequestInput(fixture.Requests[1]);
+        repair.GetProperty("repair_fields").EnumerateObject().Select(field => field.Name).Should().Equal("description");
+        repair.GetProperty("repair_fields").GetProperty("description").GetString().Should().Contain("1028").And.Contain("900");
+        repair.GetProperty("original_request").GetProperty("occupied_exact_titles")[0].GetString().Should().Be("Occupied title");
+        repair.GetProperty("original_request").GetProperty("synopsis").GetString().Should().Be(OriginalSynopsis);
+        result.Title.Should().Be(title);
+        result.Synopsis.Should().Be(corrected);
+        (await File.ReadAllTextAsync(fixture.InfoPath)).Should().Contain("题材类型: 都市").And.Contain("目标观众: 女");
+    }
+
+    [Fact]
+    public async Task Short_english_title_is_repaired_and_other_returned_fields_are_ignored()
+    {
+        const string validSynopsis = "Two siblings bring a secret ledger to court.";
+        const string correctedTitle = "The Lost Ledger";
+        using var fixture = new RewriteFixture(true, false,
+            [Reply("Ledger", validSynopsis), Reply(correctedTitle, "Different synopsis.", "zh")],
+            useEnglish: true);
+
+        var result = await fixture.RunAsync();
+
+        fixture.Requests.Should().HaveCount(2);
+        var fields = ReadRequestInput(fixture.Requests[1]).GetProperty("repair_fields");
+        fields.EnumerateObject().Select(field => field.Name).Should().Equal("title");
+        fields.GetProperty("title").GetString().Should().Contain("6 个字符").And.Contain("8–80");
+        result.Title.Should().Be(correctedTitle);
+        result.Synopsis.Should().Be(validSynopsis);
+    }
+
+    [Fact]
+    public async Task Invalid_length_after_repair_reports_each_field_and_keeps_existing_output()
+    {
+        using var fixture = new RewriteFixture(true, false,
+            [Reply("Ledger", new string('a', 1028)), Reply(new string('b', 81), new string('a', 951))], useEnglish: true);
+        var previous = await File.ReadAllBytesAsync(fixture.InfoPath);
+        var run = () => fixture.RunAsync();
+
+        await run.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*修正不合规字段一次后仍然失败*英文新剧名 81 个字符*8–80*英文简介 951 个字符*900 个字符*");
+
+        fixture.Requests.Should().HaveCount(2);
+        var fields = ReadRequestInput(fixture.Requests[1]).GetProperty("repair_fields");
+        fields.EnumerateObject().Select(field => field.Name).Should().BeEquivalentTo(new[] { "title", "description" });
+        (await File.ReadAllBytesAsync(fixture.InfoPath)).Should().Equal(previous);
+    }
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(80)]
+    public async Task English_title_and_synopsis_at_the_length_limits_are_accepted(int titleLength)
+    {
+        var title = new string('a', titleLength);
+        var synopsis = new string('b', 900);
+        using var fixture = new RewriteFixture(false, false, [Reply(title, synopsis)], useEnglish: true);
+
+        var result = await fixture.RunAsync();
+
+        fixture.Requests.Should().ContainSingle();
+        result.Title.Should().Be(title);
+        result.Synopsis.Should().Be(synopsis);
+    }
+
     [Theory]
     [InlineData("Secrets in the Ledger", "兄妹找到账簿。", "en")]
     [InlineData("寻找失落的账簿", "They find the missing ledger.", "en")]
@@ -180,6 +254,13 @@ public sealed class ProjectInfoRewriterUnifiedPublishPromptTests
 
         result.Synopsis.Should().Be(sourceSynopsis);
         (await File.ReadAllTextAsync(fixture.InfoPath)).Should().Contain($"\n简介: {sourceSynopsis}");
+    }
+
+    private static JsonElement ReadRequestInput(byte[] request)
+    {
+        using var envelope = JsonDocument.Parse(request);
+        using var input = JsonDocument.Parse(envelope.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        return input.RootElement.Clone();
     }
 
     private static string Reply(string title, string description, string language = "en") =>

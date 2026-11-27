@@ -94,6 +94,7 @@ public sealed partial class ProjectInfoRewriter
             title 生成有区别的英文新剧名，使用 {limits.TitleMin}–{limits.TitleMax} 个字符。
             {synopsisInstruction}
             人名和地名使用已有英文写法或罗马字转写。英文简介按自然译文长度撰写，最多 {limits.SynopsisMax} 个字符，忽略前文按原文字数或词数计算的比例。
+            原简介较长时，压缩次要细节，为字符上限留出余量。返回前检查 title 和 description 的长度。
             """;
     }
 
@@ -101,52 +102,96 @@ public sealed partial class ProjectInfoRewriter
         PublishInfoContext context, string prompt, string input, bool generateSynopsis, bool useEnglish, CancellationToken ct)
     {
         const int maxAttempts = 2;
+        EnglishPublishRepair? repair = null;
         for (var attempt = 1; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             try
             {
+                var requestPrompt = repair is null ? prompt : prompt + "\n\n" + """
+                    【英文文案修正】
+                    本段优先于前面的返回字段要求。repair_fields 包含本次要修正的 JSON 字段及原因。只返回这些字段，合格字段由程序保留。
+                    用 original_request 核对原剧情和剧名限制，根据 previous_candidate 修正对应字段。
+                    简介超长时，用简洁的英文完整句子压缩次要细节，保留人物、主要情节和事实，并为上限留出余量。
+                    """;
+                var requestInput = repair is null ? input : JsonSerializer.Serialize(new
+                {
+                    original_request = JsonSerializer.Deserialize<JsonElement>(input),
+                    previous_candidate = new { title = repair.Draft.Title, description = repair.Draft.Description },
+                    repair_fields = repair.Fields,
+                }, PublishPromptJsonOptions);
                 var payload = await RequestRewritePayloadAsync(
-                    context.Endpoint, context.ModelId, context.ApiKey, prompt, input,
+                    context.Endpoint, context.ModelId, context.ApiKey, requestPrompt, requestInput,
                     context.TimeoutSeconds, context.Temperature, ct, requireJsonObject: true);
                 if (!useEnglish && string.Equals(payload.Language?.Trim(), "unsupported", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("模型报告原文语种不受支持。");
 
-                var title = FirstNonEmpty(payload.Title, payload.NewTitle, payload.New_Title, payload.新剧名, payload.剧名)
-                    ?? throw new InvalidOperationException("改写结果缺少新剧名。");
-                title = AsSingleLine(title);
-                var description = FirstNonEmpty(payload.Description, payload.Synopsis, payload.简介) ?? string.Empty;
-                if (generateSynopsis && description.Length == 0)
+                var title = AsSingleLine(FirstNonEmpty(payload.Title, payload.NewTitle, payload.New_Title,
+                    payload.新剧名, payload.剧名) ?? string.Empty);
+                var description = AsSingleLine(FirstNonEmpty(payload.Description, payload.Synopsis, payload.简介) ?? string.Empty);
+                if (!useEnglish && title.Length == 0)
+                    throw new InvalidOperationException("改写结果缺少新剧名。");
+                if (!useEnglish && generateSynopsis && description.Length == 0)
                     throw new InvalidOperationException("改写结果缺少简介。");
-                if (useEnglish)
-                    ValidateEnglishPublishText(title, AsSingleLine(description), payload.Language);
 
-                return new UnifiedPublishInfo(title, description,
-                    ReadUnifiedThemes(payload.Themes ?? payload.Genres),
-                    FirstNonEmpty(payload.Audience, payload.Target_Audience) ?? string.Empty, payload.Language);
+                var result = repair is null
+                    ? new UnifiedPublishInfo(title, description, ReadUnifiedThemes(payload.Themes ?? payload.Genres),
+                        FirstNonEmpty(payload.Audience, payload.Target_Audience) ?? string.Empty, payload.Language)
+                    : repair.Draft with
+                    {
+                        Title = repair.Fields.ContainsKey("title") ? title : repair.Draft.Title,
+                        Description = repair.Fields.ContainsKey("description") ? description : repair.Draft.Description,
+                        Language = repair.Fields.ContainsKey("language") ? payload.Language : repair.Draft.Language,
+                    };
+                if (!useEnglish)
+                    return result;
+
+                var fields = GetEnglishPublishErrors(result);
+                if (fields.Count == 0)
+                    return result;
+
+                var failure = string.Join("。", fields.Values);
+                if (attempt == maxAttempts)
+                    throw new InvalidOperationException(failure);
+
+                repair = new EnglishPublishRepair(result, fields);
+                _logger.LogWarning("英文发布文案校验失败，将修正未通过的字段。{Reason}", failure);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested &&
                 ex is InvalidOperationException or JsonException or HttpRequestException or IOException or OperationCanceledException)
             {
                 var reason = ex is OperationCanceledException ? "改写请求超时。" : ex.Message;
                 if (attempt == maxAttempts)
-                    throw new InvalidOperationException($"使用同一提示词重试一次后仍然失败：{reason}", ex);
+                {
+                    var retryLabel = repair is null ? "使用同一提示词重试" : "修正不合规字段";
+                    throw new InvalidOperationException($"{retryLabel}一次后仍然失败：{reason}", ex);
+                }
 
                 _logger.LogWarning("Publish info request failed. Retrying with the same prompt and input: {Reason}", reason);
             }
         }
     }
 
-    private static void ValidateEnglishPublishText(string title, string description, string? language)
+    private static Dictionary<string, string> GetEnglishPublishErrors(UnifiedPublishInfo candidate)
     {
         var limits = RewriteSourceLanguage.GetLimits(RewriteSourceLanguage.English);
-        if (!string.Equals(language?.Trim(), RewriteSourceLanguage.English, StringComparison.OrdinalIgnoreCase) ||
-            !HasOnlyLatinLetters(title) || !HasOnlyLatinLetters(description))
-        {
-            throw new InvalidOperationException("改写结果需要同时提供英文新剧名和英文简介。");
-        }
-        if (title.Length < limits.TitleMin || title.Length > limits.TitleMax || description.Length > limits.SynopsisMax)
-            throw new InvalidOperationException($"英文新剧名须为 {limits.TitleMin}–{limits.TitleMax} 个字符，英文简介最多 {limits.SynopsisMax} 个字符。");
+        var fields = new Dictionary<string, string>();
+        if (candidate.Title.Length < limits.TitleMin || candidate.Title.Length > limits.TitleMax)
+            fields["title"] = $"英文新剧名 {candidate.Title.Length} 个字符，要求 {limits.TitleMin}–{limits.TitleMax} 个字符";
+        else if (!HasOnlyLatinLetters(candidate.Title))
+            fields["title"] = "英文新剧名须使用英文";
+
+        if (candidate.Description.Length > limits.SynopsisMax)
+            fields["description"] = $"英文简介 {candidate.Description.Length} 个字符，上限 {limits.SynopsisMax} 个字符";
+        else if (candidate.Description.Length == 0)
+            fields["description"] = "英文简介为空，请根据原简介生成英文简介";
+        else if (!HasOnlyLatinLetters(candidate.Description))
+            fields["description"] = "英文简介须使用英文";
+
+        if (!string.Equals(candidate.Language?.Trim(), RewriteSourceLanguage.English, StringComparison.OrdinalIgnoreCase))
+            fields["language"] = "文案语种字段 language 须返回 en";
+
+        return fields;
     }
 
     private static bool HasOnlyLatinLetters(string text) =>
@@ -171,4 +216,5 @@ public sealed partial class ProjectInfoRewriter
         text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
     private sealed record UnifiedPublishInfo(string Title, string Description, IReadOnlyList<string> Themes, string Audience, string? Language);
+    private sealed record EnglishPublishRepair(UnifiedPublishInfo Draft, IReadOnlyDictionary<string, string> Fields);
 }
