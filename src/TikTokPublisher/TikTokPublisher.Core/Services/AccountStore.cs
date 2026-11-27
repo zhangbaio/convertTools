@@ -306,6 +306,12 @@ public sealed class AccountStore
             TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokArchiveRootConfigMigrated = true,
             TiktokProofAccountConfigMigrated = true,
+            TiktokCopyrightMaterialTypes =
+            [
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
+            ],
             TiktokQueueEnabledSteps = QueueStepRegistry.DefaultEnabledSteps.ToList(),
         };
     }

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
@@ -68,7 +69,7 @@ public sealed class AccountArchiveConfigurationTests
     }
 
     [Fact]
-    public void New_account_is_marked_as_archive_config_migrated()
+    public void New_account_has_default_archive_and_copyright_material_settings()
     {
         var method = typeof(AccountStore).GetMethod(
             "CreateProfileSkeleton",
@@ -81,5 +82,10 @@ public sealed class AccountArchiveConfigurationTests
 
         account.TiktokArchiveRootConfigMigrated.Should().BeTrue();
         account.TiktokArchiveRootDir.Should().BeEmpty();
+        TikTokPublishConstants.NormalizeAccountCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
+            .Should().Equal(
+                TikTokPublishConstants.ProductionAgreementMaterialType,
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                TikTokPublishConstants.EditingProjectFilesMaterialType);
     }
 }
