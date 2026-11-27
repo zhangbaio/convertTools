@@ -2362,7 +2362,7 @@ public static partial class TikTokApiUploadService
 
         internal string Site { get; }
 
-        private PartnerSession(string cookie, TikTokPublishOptions options)
+        private PartnerSession(string cookie, TikTokPublishOptions options, bool allowAutoRedirect)
         {
             _cookie = cookie;
             Site = TikTokApiSites.Normalize(options.ApiSite);
@@ -2370,6 +2370,7 @@ public static partial class TikTokApiUploadService
             var handler = new HttpClientHandler
             {
                 UseCookies = false,
+                AllowAutoRedirect = allowAutoRedirect,
                 AutomaticDecompression = DecompressionMethods.All,
                 UseProxy = false,
             };
@@ -2387,12 +2388,12 @@ public static partial class TikTokApiUploadService
             _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(2) };
         }
 
-        public static PartnerSession Open(string storageStatePath, TikTokPublishOptions options)
+        public static PartnerSession Open(string storageStatePath, TikTokPublishOptions options, bool allowAutoRedirect = true)
         {
             var cookie = TikTokAccountAnalyticsClient.ReadCookieHeader(storageStatePath);
             if (string.IsNullOrWhiteSpace(cookie))
                 throw new InvalidOperationException("接口上传：保存的登录状态里没有剧集中心 Cookie，请先在浏览器页重新登录该账号。");
-            return new PartnerSession(cookie, options);
+            return new PartnerSession(cookie, options, allowAutoRedirect);
         }
 
         public async Task<FetchReply> SendAsync(

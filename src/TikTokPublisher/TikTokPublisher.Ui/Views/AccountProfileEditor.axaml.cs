@@ -604,7 +604,7 @@ public partial class AccountProfileEditor : UserControl
         e.Handled = true;
         if (!SaveToProfile()) return;
         if (_vm is not null)
-            _vm.StatusMessage = "已保存账号配置，正在打开内置浏览器…";
+            _vm.StatusMessage = "已保存账号配置，正在检查 TikTok 登录状态…";
         LoginRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -613,7 +613,7 @@ public partial class AccountProfileEditor : UserControl
         e.Handled = true;
         if (!SaveToProfile()) return;
         if (_vm is not null)
-            _vm.StatusMessage = "已保存账号配置，正在重新打开内置浏览器…";
+            _vm.StatusMessage = "已保存账号配置，正在重新登录 TikTok…";
         ReloginRequested?.Invoke(this, EventArgs.Empty);
     }
 

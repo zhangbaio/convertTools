@@ -15,6 +15,19 @@ public sealed class TikTokApiUploadServiceTests
     private static readonly TikTokVodSigner.Credentials FakeCredentials = new("AKFAKE", "SKFAKE", "TOKENFAKE");
 
     [Theory]
+    [InlineData(200, """{"code":0,"data":{"seriesList":[],"total":0}}""", true)]
+    [InlineData(200, """{"code":"0","data":[]}""", true)]
+    [InlineData(200, """{"code":0,"data":null}""", false)]
+    [InlineData(200, """{"code":403,"data":{}}""", false)]
+    [InlineData(200, "<html>Login</html>", false)]
+    [InlineData(302, """{"code":0,"data":{}}""", false)]
+    [InlineData(401, """{"code":0,"data":{}}""", false)]
+    public void Saved_login_requires_a_successful_partner_api_response(int httpStatus, string body, bool expected)
+    {
+        TikTokApiUploadService.IsVerifiedLoginReply(httpStatus, body).Should().Be(expected);
+    }
+
+    [Theory]
     [InlineData("7", 7)]
     [InlineData("0", 0)]
     [InlineData("Sat, 21 Nov 2026 10:00:12 GMT", 12)]

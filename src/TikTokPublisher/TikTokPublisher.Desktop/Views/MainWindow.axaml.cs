@@ -8,6 +8,7 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using PlatformPublisher.Common.Services;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Desktop;
@@ -26,6 +27,7 @@ public partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly TikTokAccountInventorySyncCoordinator _accountInventorySync;
     private readonly HashSet<string> _externalLoginsInProgress = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CancellationTokenSource> _apiLoginChecks = new(StringComparer.Ordinal);
     private string _activeNavTag = "queue";
     private string _tikTokSubPage = "queue";
     private bool _navigationPending;
@@ -358,6 +360,9 @@ public partial class MainWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        foreach (var check in _apiLoginChecks.Values.ToArray())
+            check.Cancel();
+        _apiLoginChecks.Clear();
         SavePlacement();
         StopResourceMonitor();
         _licenseVerifyTimer?.Stop();
@@ -516,6 +521,36 @@ public partial class MainWindow : Window
 
     private async void OnAccountLoginRequested(AccountItemViewModel account, bool forceRelogin)
     {
+        if (_apiLoginChecks.TryGetValue(account.Id, out var pending))
+        {
+            if (!forceRelogin) return;
+            _apiLoginChecks.Remove(account.Id);
+            pending.Cancel();
+        }
+
+        if (!forceRelogin && TikTokUploadChannels.IsApi(account.Model.TiktokUploadStrategy))
+        {
+            using var check = new CancellationTokenSource();
+            _apiLoginChecks.Add(account.Id, check);
+            try
+            {
+                var valid = await TikTokApiUploadService.VerifySavedLoginAsync(account.Model, check.Token);
+                if (check.IsCancellationRequested) return;
+                if (valid)
+                {
+                    _viewModel.HandleApiLoginVerified(account);
+                    return;
+                }
+                _viewModel.StatusMessage = $"[{account.DisplayName}] 接口未确认已有会话，正在打开浏览器登录";
+            }
+            catch (OperationCanceledException) when (check.IsCancellationRequested) { return; }
+            finally
+            {
+                if (_apiLoginChecks.TryGetValue(account.Id, out var current) && ReferenceEquals(current, check))
+                    _apiLoginChecks.Remove(account.Id);
+            }
+        }
+
         if (string.Equals(
                 account.Model.TiktokUploadBrowserMode,
                 "playwright",
@@ -586,6 +621,8 @@ public partial class MainWindow : Window
         if (!confirmed)
             return;
 
+        if (_apiLoginChecks.Remove(account.Id, out var pendingLogin))
+            pendingLogin.Cancel();
         var warning = await _browserHost.ResetAccountAsync(account);
         account.Model.TiktokLastLoginEmail = "";
         account.Model.TiktokLastLoginAt = "";

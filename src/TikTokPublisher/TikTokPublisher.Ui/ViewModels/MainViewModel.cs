@@ -1373,6 +1373,13 @@ public sealed partial class MainViewModel : ViewModelBase
         var browserLabel = usesExternalBrowser ? "外部浏览器" : "内置浏览器";
         SelectedAccount.Status = AccountStatus.LoggingIn;
         SaveAccountProfile(SelectedAccount.Model);
+        if (!forceRelogin && TikTokUploadChannels.IsApi(SelectedAccount.Model.TiktokUploadStrategy))
+        {
+            BrowserAuthStatus = "正在校验 TikTok 登录状态";
+            StatusMessage = $"[{SelectedAccount.DisplayName}] 正在通过接口校验已有登录状态";
+            AccountLoginRequested?.Invoke(SelectedAccount, false);
+            return;
+        }
         BrowserAuthStatus = forceRelogin
             ? $"请在{browserLabel}中重新完成 TikTok 登录"
             : $"请在{browserLabel}中完成 TikTok 登录";
@@ -1405,6 +1412,15 @@ public sealed partial class MainViewModel : ViewModelBase
         account.RefreshFromModel();
         BrowserAuthStatus = "外部浏览器授权已保存";
         StatusMessage = $"[{account.DisplayName}] TikTok 登录成功，外部浏览器授权已保存";
+        AppendLog(StatusMessage);
+    }
+
+    public void HandleApiLoginVerified(AccountItemViewModel account)
+    {
+        account.Status = AccountStatus.Online;
+        if (ReferenceEquals(SelectedAccount, account))
+            BrowserAuthStatus = "已有登录状态已通过接口校验";
+        StatusMessage = $"[{account.DisplayName}] TikTok 已登录，接口会话可用";
         AppendLog(StatusMessage);
     }
 

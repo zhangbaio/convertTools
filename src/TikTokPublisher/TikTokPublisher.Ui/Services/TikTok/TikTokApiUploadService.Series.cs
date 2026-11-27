@@ -10,6 +10,51 @@ namespace TikTokPublisher.Ui.Services.TikTok;
 
 public static partial class TikTokApiUploadService
 {
+    public static async Task<bool> VerifySavedLoginAsync(TikTokAccountProfile account, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var path = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+        if (!File.Exists(path))
+            return false;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        try
+        {
+            using var session = PartnerSession.Open(path, TikTokPublishOptions.FromAccount(account), allowAutoRedirect: false);
+            var reply = await session.SendAsync("POST", "/api/content-partner/series/v2/list",
+                """{"pageIndex":1,"pageSize":1}""", timeout.Token);
+            return IsVerifiedLoginReply(reply.Status, reply.Text);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or
+                                   HttpRequestException or InvalidOperationException or ArgumentException or UriFormatException)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return false;
+        }
+    }
+
+    internal static bool IsVerifiedLoginReply(int status, string body)
+    {
+        if (status is < 200 or >= 300)
+            return false;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object && ReadId(root, "code") == "0" &&
+                   root.TryGetProperty("data", out var data) &&
+                   data.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     public static async Task<PublishResult> PublishWithSavedLoginAsync(
         string storageStatePath,
         PublishItem item,
