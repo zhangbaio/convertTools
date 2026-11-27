@@ -1,7 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.VideoDedup;
 using Xunit;
@@ -92,22 +91,6 @@ public sealed class VideoDedupTemplateCatalogTests
         Assert.Equal(3d, presets["first"]!.TrimEndSeconds);
         Assert.Null(presets["second"]);
         Assert.Equal(path, Assert.Single(Directory.GetFiles(fixture.Path)));
-    }
-
-    [Fact]
-    public void PerRunOverrideIsClonedAndExcludedFromPersistentOptions()
-    {
-        var preset = new VideoDedupPreset { TrimEndSeconds = 1 };
-        var options = new QueueRunOptions { VideoDedupTemplateOverride = new("chosen", "本批方案", preset) };
-        var snapshot = options.Clone();
-        preset.TrimEndSeconds = 7;
-        Assert.Equal(1d, snapshot.VideoDedupTemplateOverride!.Preset!.TrimEndSeconds);
-        Assert.Null(options.ClonePersistent().VideoDedupTemplateOverride);
-
-        options.VideoDedupTemplateOverride = new(VideoDedupTemplateCatalog.SystemId, "系统默认", null);
-        var system = options.Clone().VideoDedupTemplateOverride;
-        Assert.NotNull(system);
-        Assert.Null(system.Preset);
     }
 
     [Fact]

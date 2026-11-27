@@ -238,7 +238,7 @@
                                         <CheckBox Content="视频去重"
                                                   IsChecked="{Binding QueueVideoDedupEnabled}"
                                                   Margin="0,0,12,2"
-                                                  ToolTip.Tip="按项目所属账号的默认模板处理，或在下方为本批任务选一个模板。" />
+                                                  ToolTip.Tip="按项目所属账号的默认去重模板处理。" />
                                         <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                         <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
                                         <CheckBox Content="剧本"
@@ -362,10 +362,6 @@
                                         <CheckBox Content="翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
                                         <CheckBox Content="校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
                                         <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
-                                    </WrapPanel>
-                                    <WrapPanel Orientation="Horizontal" IsVisible="{Binding QueueVideoDedupEnabled}">
-                                        <TextBlock x:Name="DedupTemplateSummary" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,10,0" />
-                                        <Button Content="选择本批模板" Click="OnChooseDedupTemplateClick" Classes="selectionAction compactAction" />
                                     </WrapPanel>
                                     <WrapPanel Orientation="Horizontal">
                                         <CheckBox Content="同步管理"

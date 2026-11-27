@@ -156,7 +156,6 @@ public partial class VideoDedupTemplatesView : UserControl
             var saved = VideoDedupTemplateCatalog.OpenDefault().Save(_selected?.Id, TemplateName.Text ?? "", PresetEditor.Read());
             ReloadTemplates(saved.Id);
             FeedbackText.Text = $"模板「{saved.Name}」已保存。";
-            _vm.NotifyVideoDedupTemplatesChanged();
             return true;
         }
         catch (Exception ex)
@@ -180,7 +179,6 @@ public partial class VideoDedupTemplatesView : UserControl
             VideoDedupTemplateCatalog.OpenDefault().SetDefault(account.Id, template.Id);
             ReloadTemplates(template.Id);
             FeedbackText.Text = $"「{account.DisplayName}」默认使用「{template.Name}」。";
-            vm.NotifyVideoDedupTemplatesChanged();
         }
         catch (Exception ex) { FeedbackText.Text = $"设置默认模板失败：{ex.Message}"; }
     }
@@ -207,7 +205,6 @@ public partial class VideoDedupTemplatesView : UserControl
             VideoDedupTemplateCatalog.OpenDefault().Delete(entry.Id, replacement);
             ReloadTemplates();
             FeedbackText.Text = "去重模板已删除。";
-            vm.NotifyVideoDedupTemplatesChanged();
         }
         catch (Exception ex) { FeedbackText.Text = $"删除模板失败：{ex.Message}"; }
     }

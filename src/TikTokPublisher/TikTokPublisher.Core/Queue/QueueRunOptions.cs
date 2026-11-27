@@ -1,7 +1,5 @@
 using System.Collections;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Queue;
 
@@ -96,8 +94,6 @@ public sealed class QueueRunOptions
     public Dictionary<string, string> ReplaceDraftTargets { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
 
-    [JsonIgnore]
-    public VideoDedupTemplateEntry? VideoDedupTemplateOverride { get; set; }
 
     public bool IsStepEnabled(string stepKey)
     {
@@ -121,8 +117,6 @@ public sealed class QueueRunOptions
         UploadEntryMode = UploadEntryMode,
         ReplaceDraftTarget = ReplaceDraftTarget,
         ReplaceDraftTargets = new Dictionary<string, string>(ReplaceDraftTargets, StringComparer.OrdinalIgnoreCase),
-        VideoDedupTemplateOverride = VideoDedupTemplateOverride is { } template
-            ? template with { Preset = template.Preset?.Clone() } : null,
     };
 
     public QueueRunOptions ClonePersistent()
@@ -138,7 +132,6 @@ public sealed class QueueRunOptions
         UploadEntryMode = "";
         ReplaceDraftTarget = "";
         ReplaceDraftTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        VideoDedupTemplateOverride = null;
     }
 
     public Dictionary<string, object?> ToDictionary() => new()
