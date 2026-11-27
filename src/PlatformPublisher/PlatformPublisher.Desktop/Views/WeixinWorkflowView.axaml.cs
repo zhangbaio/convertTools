@@ -1,7 +1,9 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using ChannelsPublisher.Core.Models;
 using PlatformPublisher.Desktop.ViewModels;
@@ -55,6 +57,14 @@ public partial class WeixinWorkflowView : UserControl
             if (args.Property == IsVisibleProperty && IsVisible)
                 ViewModel?.ActivateSeriesWorkflow();
         };
+    }
+
+    private void OnToggleWeixinStepsClick(object? sender, RoutedEventArgs e)
+    {
+        var expanded = !WeixinStepsBody.IsVisible;
+        WeixinStepsBody.IsVisible = expanded;
+        WeixinStepsIndicator.RenderTransform = expanded ? new RotateTransform(180) : null;
+        AutomationProperties.SetName(WeixinStepsToggle, expanded ? "收起执行步骤" : "展开执行步骤");
     }
 
     internal void UseEmbeddedUploadLayout()
