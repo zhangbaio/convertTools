@@ -38,7 +38,7 @@ public static class CopyrightProofLocalHistoryDiscoveryService
 
         foreach (var root in workspaceRoots)
         {
-            ReadWorkspaceDatabase(Path.Combine(root, WorkspaceQueuePaths.QueueDatabaseFileName), candidates);
+            ReadWorkspaceDatabase(root, candidates);
             ReadJsonFile(Path.Combine(root, WorkspaceQueuePaths.LegacyQueueJsonFileName), "旧队列 JSON", candidates);
             ReadArchiveMetadata(Path.Combine(root, "archive", "meta"), candidates);
             ReadProjectInfoFiles(Path.Combine(root, "workflow"), candidates);
@@ -272,13 +272,13 @@ public static class CopyrightProofLocalHistoryDiscoveryService
         }
     }
 
-    private static void ReadWorkspaceDatabase(string path, ICollection<HistoryCandidate> output)
+    private static void ReadWorkspaceDatabase(string workspaceRoot, ICollection<HistoryCandidate> output)
     {
-        if (!File.Exists(path)) return;
         try
         {
-            using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
-            conn.Open();
+            var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+            if (!File.Exists(location.Path)) return;
+            using var conn = WorkspaceQueueDatabase.OpenConnection(location.Path, readOnly: true);
             if (TableExists(conn, "upload_projects"))
             {
                 using var cmd = conn.CreateCommand();
@@ -286,6 +286,11 @@ public static class CopyrightProofLocalHistoryDiscoveryService
                     SELECT payload_json, workspace_path, project_dir, updated_at
                     FROM upload_projects
                     """;
+                if (location.IsInMainDatabase)
+                {
+                    cmd.CommandText += " WHERE workspace_path = $workspace";
+                    cmd.Parameters.AddWithValue("$workspace", location.WorkspaceId);
+                }
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -294,7 +299,7 @@ public static class CopyrightProofLocalHistoryDiscoveryService
                         "工作目录队列数据库",
                         output,
                         priority: 15,
-                        workspace: ReadString(reader, 1),
+                        workspace: location.IsInMainDatabase ? workspaceRoot : ReadString(reader, 1),
                         projectDir: ReadString(reader, 2),
                         timestamp: ReadString(reader, 3),
                         workspaceScoped: true);
@@ -308,6 +313,11 @@ public static class CopyrightProofLocalHistoryDiscoveryService
                     SELECT payload_json, archived_workflow_dir, updated_at
                     FROM archive_projects
                     """;
+                if (location.IsInMainDatabase)
+                {
+                    cmd.CommandText += " WHERE workspace_id = $workspace";
+                    cmd.Parameters.AddWithValue("$workspace", location.WorkspaceId);
+                }
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
@@ -316,6 +326,7 @@ public static class CopyrightProofLocalHistoryDiscoveryService
                         "工作目录归档数据库",
                         output,
                         priority: 12,
+                        workspace: workspaceRoot,
                         projectDir: ReadString(reader, 1),
                         timestamp: ReadString(reader, 2),
                         workspaceScoped: true);

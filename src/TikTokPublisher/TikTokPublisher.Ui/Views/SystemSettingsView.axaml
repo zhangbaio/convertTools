@@ -643,7 +643,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="数据库位置" FontWeight="Bold" />
-                        <TextBlock Text="主数据库保存账号、共享设置、执行历史和 AI 改写历史；工作区数据库保存当前上传队列和归档记录。"
+                        <TextBlock Text="主数据库保存账号、共享设置和执行历史。已迁移工作区的队列、归档和上传断点也保存在主库。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="主数据库" VerticalAlignment="Center" />
@@ -658,7 +658,7 @@
                             <Button Content="打开主库目录" Command="{Binding OpenMainDatabaseFolderCommand}" />
                             <Button Content="打开工作区库目录" Command="{Binding OpenWorkspaceDatabaseFolderCommand}" />
                             <Button Content="备份主库" Command="{Binding BackupMainDatabaseCommand}" />
-                            <Button Content="备份工作区库" Command="{Binding BackupWorkspaceDatabaseCommand}" />
+                            <Button Content="备份当前工作区" Command="{Binding BackupWorkspaceDatabaseCommand}" />
                             <Button Content="压缩主库" Command="{Binding CompactMainDatabaseCommand}" />
                         </StackPanel>
 

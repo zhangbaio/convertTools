@@ -28,7 +28,10 @@ public static class ProjectStateDocumentStore
         string projectDir,
         string documentType)
     {
-        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return new Dictionary<string, JsonElement>();
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var databasePath = location.Path;
         if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
             return new Dictionary<string, JsonElement>();
 
@@ -48,7 +51,7 @@ public static class ProjectStateDocumentStore
                   AND document_type = $document_type
                 LIMIT 1
                 """;
-            command.Parameters.AddWithValue("$workspace_path", NormalizePath(workspaceRoot));
+            command.Parameters.AddWithValue("$workspace_path", location.IsInMainDatabase ? location.WorkspaceId : NormalizePath(workspaceRoot));
             command.Parameters.AddWithValue("$project_dir", NormalizePath(projectDir));
             command.Parameters.AddWithValue("$document_type", docType);
 
@@ -63,7 +66,7 @@ public static class ProjectStateDocumentStore
             return doc.RootElement.EnumerateObject()
                 .ToDictionary(p => p.Name, p => p.Value.Clone(), StringComparer.Ordinal);
         }
-        catch
+        catch when (!location.IsInMainDatabase)
         {
             return new Dictionary<string, JsonElement>();
         }
@@ -73,11 +76,14 @@ public static class ProjectStateDocumentStore
         string workspaceRoot,
         string projectDir)
     {
-        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var databasePath = location.Path;
         if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
             return new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
 
-        var workspaceAliases = WorkspaceAliases(workspaceRoot);
+        IReadOnlyList<string> workspaceAliases = location.IsInMainDatabase ? [location.WorkspaceId] : WorkspaceAliases(workspaceRoot);
         var projectKey = NormalizePath(projectDir);
         var result = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
 
@@ -123,7 +129,10 @@ public static class ProjectStateDocumentStore
         Dictionary<string, object?> payload,
         string? workflowProjectDir = null)
     {
-        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return;
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var databasePath = location.Path;
         if (string.IsNullOrWhiteSpace(databasePath))
             return;
 
@@ -134,7 +143,7 @@ public static class ProjectStateDocumentStore
         lock (WorkspaceQueueDatabase.WriteSyncRoot)
         {
             WorkspaceQueueDatabase.EnsureDatabase(databasePath);
-            var workspaceKey = NormalizePath(workspaceRoot);
+            var workspaceKey = location.IsInMainDatabase ? location.WorkspaceId : NormalizePath(workspaceRoot);
             var projectKey = NormalizePath(projectDir);
             var workflowKey = string.IsNullOrWhiteSpace(workflowProjectDir) ? "" : NormalizePath(workflowProjectDir);
             var documentId = StableDocumentId(workspaceKey, projectKey, docType);
@@ -185,11 +194,14 @@ public static class ProjectStateDocumentStore
 
     public static void DeleteProjectDocuments(string workspaceRoot, string projectDir)
     {
-        var databasePath = ClientSettingsStore.WorkspaceDatabasePath(workspaceRoot);
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return;
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var databasePath = location.Path;
         if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
             return;
 
-        var workspaceAliases = WorkspaceAliases(workspaceRoot);
+        IReadOnlyList<string> workspaceAliases = location.IsInMainDatabase ? [location.WorkspaceId] : WorkspaceAliases(workspaceRoot);
         try
         {
             lock (WorkspaceQueueDatabase.WriteSyncRoot)
@@ -277,7 +289,7 @@ public static class ProjectStateDocumentStore
         _ => null,
     };
 
-    private static string StableDocumentId(string workspaceKey, string projectKey, string documentType)
+    internal static string StableDocumentId(string workspaceKey, string projectKey, string documentType)
     {
         var payload = string.Join('\n', workspaceKey, projectKey, documentType);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"document\n{payload}"))).ToLowerInvariant();

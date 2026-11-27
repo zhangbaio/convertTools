@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -942,16 +941,17 @@ public static partial class TikTokArchivedProjectService
 
     private static Dictionary<string, object?> FindArchivePayloadForReference(string workspaceRoot, string archiveRef)
     {
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         if (!File.Exists(dbPath)) return new Dictionary<string, object?>(StringComparer.Ordinal);
-        EnsureArchiveDatabase(dbPath);
+        WorkspaceQueueDatabase.EnsureDatabase(dbPath);
         var referenceKey = PathKey(archiveRef);
         var referenceStem = Path.GetFileNameWithoutExtension(archiveRef);
 
-        using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
-        conn.Open();
+        using var conn = WorkspaceQueueDatabase.OpenConnection(dbPath, readOnly: true);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT archive_id, metadata_path, payload_json FROM archive_projects";
+        cmd.CommandText = "SELECT archive_id, metadata_path, payload_json FROM archive_projects WHERE workspace_id = $workspace";
+        cmd.Parameters.AddWithValue("$workspace", location.WorkspaceId);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
@@ -962,7 +962,7 @@ public static partial class TikTokArchivedProjectService
             if (!string.IsNullOrWhiteSpace(metadataPath) && PathKey(metadataPath) == referenceKey)
                 return payload;
             if (!string.IsNullOrWhiteSpace(referenceStem) &&
-                (string.Equals(referenceStem, archiveId, StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(location.ArchiveKey(referenceStem), archiveId, StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(referenceStem, projectKey, StringComparison.OrdinalIgnoreCase)))
                 return payload;
         }
@@ -1763,26 +1763,26 @@ public static partial class TikTokArchivedProjectService
 
     private static void SaveArchiveProjectsToDatabase(string workspaceRoot, IReadOnlyList<ArchivedProjectItem> items)
     {
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
-        EnsureArchiveDatabase(dbPath);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
+        WorkspaceQueueDatabase.EnsureDatabase(dbPath);
         var now = DateTimeOffset.Now.ToString("o");
-        using var conn = new SqliteConnection($"Data Source={dbPath}");
-        conn.Open();
+        using var conn = WorkspaceQueueDatabase.OpenConnection(dbPath);
         using var tx = conn.BeginTransaction();
         var seen = new List<string>();
         foreach (var item in items)
         {
-            var archiveId = StableArchiveId(item);
+            var archiveId = location.ArchiveKey(StableArchiveId(item));
             seen.Add(archiveId);
             using var cmd = conn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO archive_projects (
-                    archive_id, account_profile_id, original_title, new_title, archive_source,
+                    archive_id, workspace_id, account_profile_id, original_title, new_title, archive_source,
                     archived_at, archived_source_dir, archived_workflow_dir, metadata_path,
                     payload_json, created_at, updated_at
                 ) VALUES (
-                    $archive_id, $account_profile_id, $original_title, $new_title, $archive_source,
+                    $archive_id, $workspace_id, $account_profile_id, $original_title, $new_title, $archive_source,
                     $archived_at, $archived_source_dir, $archived_workflow_dir, $metadata_path,
                     $payload_json, $created_at, $updated_at
                 )
@@ -1799,6 +1799,7 @@ public static partial class TikTokArchivedProjectService
                     updated_at = excluded.updated_at
                 """;
             cmd.Parameters.AddWithValue("$archive_id", archiveId);
+            cmd.Parameters.AddWithValue("$workspace_id", location.WorkspaceId);
             cmd.Parameters.AddWithValue("$account_profile_id", item.AccountProfileId);
             cmd.Parameters.AddWithValue("$original_title", item.OriginalTitle);
             cmd.Parameters.AddWithValue("$new_title", item.NewTitle);
@@ -1813,37 +1814,41 @@ public static partial class TikTokArchivedProjectService
             cmd.ExecuteNonQuery();
         }
 
-        using var deleteCmd = conn.CreateCommand();
-        deleteCmd.Transaction = tx;
-        if (seen.Count == 0)
+        // A shared workspace can expose several account archive roots. Listing one
+        // root is only an upsert. Restore and delete remove specific records.
+        if (!location.IsInMainDatabase)
         {
-            deleteCmd.CommandText = "DELETE FROM archive_projects";
+            using var deleteCmd = conn.CreateCommand();
+            deleteCmd.Transaction = tx;
+            deleteCmd.CommandText = "DELETE FROM archive_projects WHERE workspace_id = ''";
+            if (seen.Count > 0)
+            {
+                var placeholders = string.Join(", ", seen.Select((_, i) => $"$id{i}"));
+                deleteCmd.CommandText += $" AND archive_id NOT IN ({placeholders})";
+                for (var i = 0; i < seen.Count; i++)
+                    deleteCmd.Parameters.AddWithValue($"$id{i}", seen[i]);
+            }
+            deleteCmd.ExecuteNonQuery();
         }
-        else
-        {
-            var placeholders = string.Join(", ", seen.Select((_, i) => $"$id{i}"));
-            deleteCmd.CommandText = $"DELETE FROM archive_projects WHERE archive_id NOT IN ({placeholders})";
-            for (var i = 0; i < seen.Count; i++)
-                deleteCmd.Parameters.AddWithValue($"$id{i}", seen[i]);
-        }
-        deleteCmd.ExecuteNonQuery();
         tx.Commit();
     }
 
     private static IReadOnlyList<ArchivedProjectItem> LoadArchiveProjectsFromDatabase(string workspaceRoot)
     {
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         if (!File.Exists(dbPath)) return Array.Empty<ArchivedProjectItem>();
-        EnsureArchiveDatabase(dbPath);
+        WorkspaceQueueDatabase.EnsureDatabase(dbPath);
         var items = new List<ArchivedProjectItem>();
-        using var conn = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
-        conn.Open();
+        using var conn = WorkspaceQueueDatabase.OpenConnection(dbPath, readOnly: true);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT payload_json
             FROM archive_projects
+            WHERE workspace_id = $workspace
             ORDER BY archived_at DESC, created_at DESC, archive_id ASC
             """;
+        cmd.Parameters.AddWithValue("$workspace", location.WorkspaceId);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
@@ -1861,15 +1866,16 @@ public static partial class TikTokArchivedProjectService
 
     private static void RemoveArchiveFromDatabase(string workspaceRoot, string metadataPath)
     {
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         if (!File.Exists(dbPath)) return;
-        EnsureArchiveDatabase(dbPath);
-        using var conn = new SqliteConnection($"Data Source={dbPath}");
-        conn.Open();
+        WorkspaceQueueDatabase.EnsureDatabase(dbPath);
+        using var conn = WorkspaceQueueDatabase.OpenConnection(dbPath);
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM archive_projects WHERE metadata_path = $path OR archive_id = $id";
+        cmd.CommandText = "DELETE FROM archive_projects WHERE workspace_id = $workspace AND (metadata_path = $path OR archive_id = $id)";
+        cmd.Parameters.AddWithValue("$workspace", location.WorkspaceId);
         cmd.Parameters.AddWithValue("$path", Path.GetFullPath(metadataPath));
-        cmd.Parameters.AddWithValue("$id", StableArchiveId(Path.GetFullPath(metadataPath)));
+        cmd.Parameters.AddWithValue("$id", location.ArchiveKey(StableArchiveId(Path.GetFullPath(metadataPath))));
         cmd.ExecuteNonQuery();
     }
 
@@ -1906,33 +1912,6 @@ public static partial class TikTokArchivedProjectService
         ["source_project_dir"] = item.SourceProjectDir,
         ["workflow_project_dir"] = item.WorkflowProjectDir,
     };
-
-    private static void EnsureArchiveDatabase(string dbPath)
-    {
-        WorkspaceQueueDatabase.EnsureDatabase(dbPath);
-        using var conn = new SqliteConnection($"Data Source={dbPath}");
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS archive_projects (
-                archive_id TEXT PRIMARY KEY,
-                account_profile_id TEXT NOT NULL DEFAULT '',
-                original_title TEXT NOT NULL DEFAULT '',
-                new_title TEXT NOT NULL DEFAULT '',
-                archive_source TEXT NOT NULL DEFAULT '',
-                archived_at TEXT NOT NULL DEFAULT '',
-                archived_source_dir TEXT NOT NULL DEFAULT '',
-                archived_workflow_dir TEXT NOT NULL DEFAULT '',
-                metadata_path TEXT NOT NULL DEFAULT '',
-                payload_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_archive_projects_archived_at
-                ON archive_projects(archived_at DESC, created_at DESC);
-            """;
-        cmd.ExecuteNonQuery();
-    }
 
     private static string StableArchiveId(ArchivedProjectItem item) =>
         StableArchiveId(FirstNonEmpty(item.MetadataPath, item.ProjectKey, item.ArchivedSourceDir, item.ArchivedWorkflowDir));

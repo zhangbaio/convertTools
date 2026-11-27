@@ -11,6 +11,7 @@ public static class WorkspaceQueueDatabase
     private const string QueueOptionsKey = "queue_run_options";
     private const string QueueAccountOptionsKey = "queue_run_options_by_account";
     private const string DeletedProjectDirsKey = "deleted_project_dirs";
+    private const string RemovedProjectDirsKey = "removed_project_dirs";
     internal static object WriteSyncRoot { get; } = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -21,11 +22,12 @@ public static class WorkspaceQueueDatabase
 
     public static WorkspaceQueueState Load(string workspaceRoot)
     {
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         if (File.Exists(dbPath))
         {
             EnsureDatabase(dbPath);
-            return LoadFromDatabase(dbPath, workspaceRoot);
+            return LoadFromDatabase(location, workspaceRoot);
         }
 
         var legacyPath = WorkspaceQueuePaths.LegacyQueueJsonPath(workspaceRoot);
@@ -41,7 +43,8 @@ public static class WorkspaceQueueDatabase
         if (string.IsNullOrWhiteSpace(workspaceRoot))
             return deleted;
 
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         if (!File.Exists(dbPath))
             return deleted;
 
@@ -49,37 +52,36 @@ public static class WorkspaceQueueDatabase
         {
             EnsureDatabaseCore(dbPath);
             using var conn = Open(dbPath);
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT value_json FROM app_settings WHERE key = $key LIMIT 1";
-            cmd.Parameters.AddWithValue("$key", DeletedProjectDirsKey);
-            var json = cmd.ExecuteScalar()?.ToString();
-            if (string.IsNullOrWhiteSpace(json))
-                return deleted;
-
-            try
-            {
-                var paths = JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [];
-                foreach (var path in paths)
-                {
-                    if (string.IsNullOrWhiteSpace(path))
-                        continue;
-                    try
-                    {
-                        deleted.Add(Path.GetFullPath(path));
-                    }
-                    catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-                    {
-                        deleted.Add(path.Trim());
-                    }
-                }
-            }
-            catch (JsonException)
-            {
-                return deleted;
-            }
+            deleted = ReadDeletionPaths(conn, location.SettingKey(DeletedProjectDirsKey));
+            if (location.IsInMainDatabase)
+                deleted.UnionWith(ReadDeletionPaths(conn, location.SettingKey(RemovedProjectDirsKey)));
         }
 
         return deleted;
+    }
+
+    private static HashSet<string> ReadDeletionPaths(SqliteConnection connection, string key, SqliteTransaction? transaction = null)
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT value_json FROM app_settings WHERE key = $key LIMIT 1";
+        command.Parameters.AddWithValue("$key", key);
+        if (command.ExecuteScalar() is not string json || string.IsNullOrWhiteSpace(json))
+            return paths;
+
+        try
+        {
+            foreach (var path in JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [])
+            {
+                if (TryNormalizePath(path, out var full))
+                    paths.Add(full);
+                else if (!string.IsNullOrWhiteSpace(path))
+                    paths.Add(path.Trim());
+            }
+        }
+        catch (JsonException) { }
+        return paths;
     }
 
     public static void SaveDeletedProjectDirs(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
@@ -87,7 +89,8 @@ public static class WorkspaceQueueDatabase
         if (string.IsNullOrWhiteSpace(workspaceRoot))
             return;
 
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         var paths = projectDirs
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -96,7 +99,7 @@ public static class WorkspaceQueueDatabase
         {
             EnsureDatabaseCore(dbPath);
             using var conn = Open(dbPath);
-            UpsertRawSetting(conn, DeletedProjectDirsKey, JsonSerializer.Serialize(paths, JsonOptions), DateTimeOffset.Now.ToString("o"));
+            UpsertRawSetting(conn, location.SettingKey(DeletedProjectDirsKey), JsonSerializer.Serialize(paths, JsonOptions), DateTimeOffset.Now.ToString("o"));
         }
     }
 
@@ -116,27 +119,26 @@ public static class WorkspaceQueueDatabase
         if (owned.Count == 0 && items.Count > 0)
             return;
 
-        owned.RemoveAll(item => WorkspaceQueueService.IsDeletedProjectDir(workspaceRoot, item.ProjectDir));
-
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         lock (WriteSyncRoot)
         {
             EnsureDatabaseCore(dbPath);
-            SaveToDatabase(dbPath, workspaceRoot, owned, options ?? new Dictionary<string, object?>());
+            SaveToDatabase(location, workspaceRoot, owned, options ?? new Dictionary<string, object?>());
         }
     }
 
-    private static WorkspaceQueueState LoadFromDatabase(string dbPath, string workspaceRoot)
+    private static WorkspaceQueueState LoadFromDatabase(WorkspaceDatabaseLocation location, string workspaceRoot)
     {
-        var workspaceKey = WorkspaceKey(workspaceRoot);
-        var workspaceAliases = WorkspaceKeyAliases(workspaceRoot);
+        var workspaceKey = WorkspaceKey(location, workspaceRoot);
+        var workspaceAliases = WorkspaceKeyAliases(location, workspaceRoot);
         var state = new WorkspaceQueueState();
 
-        using var conn = Open(dbPath);
+        using var conn = OpenConnection(location.Path, readOnly: true);
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = "SELECT value_json FROM app_settings WHERE key = $key LIMIT 1";
-            cmd.Parameters.AddWithValue("$key", QueueOptionsKey);
+            cmd.Parameters.AddWithValue("$key", location.SettingKey(QueueOptionsKey));
             var json = cmd.ExecuteScalar()?.ToString();
             if (!string.IsNullOrWhiteSpace(json))
                 state.Options = DeserializeObject(json);
@@ -194,26 +196,48 @@ public static class WorkspaceQueueDatabase
     }
 
     private static void SaveToDatabase(
-        string dbPath,
+        WorkspaceDatabaseLocation location,
         string workspaceRoot,
         IReadOnlyList<QueueProjectItem> items,
         Dictionary<string, object?> options)
     {
-        var workspaceKey = WorkspaceKey(workspaceRoot);
-        var workspaceAliases = WorkspaceKeyAliases(workspaceRoot);
+        using var conn = Open(location.Path);
+        using var tx = conn.BeginTransaction();
+        SaveQueueRows(conn, tx, location, workspaceRoot, items, options);
+        tx.Commit();
+    }
+
+    internal static void ImportLegacyQueueJson(
+        SqliteConnection connection, SqliteTransaction transaction, WorkspaceDatabaseLocation location,
+        string workspaceRoot, string jsonPath)
+    {
+        var state = LoadFromLegacyJson(jsonPath);
+        if (state.Items.Any(item => !WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, item.ProjectDir)))
+            throw new InvalidDataException("旧队列备份包含工作区外的项目。");
+        SaveQueueRows(connection, transaction, location, workspaceRoot, state.Items, state.Options);
+    }
+
+    private static void SaveQueueRows(
+        SqliteConnection conn, SqliteTransaction tx, WorkspaceDatabaseLocation location, string workspaceRoot,
+        IReadOnlyList<QueueProjectItem> items, Dictionary<string, object?> options)
+    {
+        var workspaceKey = WorkspaceKey(location, workspaceRoot);
+        var workspaceAliases = WorkspaceKeyAliases(location, workspaceRoot);
         var now = DateTimeOffset.Now.ToString("o");
 
-        using var conn = Open(dbPath);
-        using var tx = conn.BeginTransaction();
+        var deleted = ReadDeletionPaths(conn, location.SettingKey(DeletedProjectDirsKey), tx);
+        if (location.IsInMainDatabase)
+            deleted.UnionWith(ReadDeletionPaths(conn, location.SettingKey(RemovedProjectDirsKey), tx));
 
-        UpsertAppSetting(conn, QueueOptionsKey, options, now);
-        UpsertAppSetting(conn, QueueAccountOptionsKey, new Dictionary<string, object?>(), now);
+        UpsertAppSetting(conn, tx, location.SettingKey(QueueOptionsKey), options, now);
+        UpsertAppSetting(conn, tx, location.SettingKey(QueueAccountOptionsKey), new Dictionary<string, object?>(), now);
 
         var seenIds = new List<string>();
         foreach (var item in items)
         {
             if (string.IsNullOrWhiteSpace(item.ProjectDir)) continue;
             var projectDir = Path.GetFullPath(item.ProjectDir);
+            if (deleted.Contains(projectDir)) continue;
             var projectId = StableProjectId(workspaceKey, projectDir);
             seenIds.Add(projectId);
             var payload = item.ToPayload();
@@ -222,6 +246,7 @@ public static class WorkspaceQueueDatabase
             var queuedAt = string.IsNullOrWhiteSpace(item.QueuedAt) ? now : item.QueuedAt;
 
             using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO upload_projects (
                     project_id, account_profile_id, workspace_path, project_dir,
@@ -280,8 +305,6 @@ public static class WorkspaceQueueDatabase
                 deleteCmd.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
             deleteCmd.ExecuteNonQuery();
         }
-
-        tx.Commit();
     }
 
     private static WorkspaceQueueState LoadFromLegacyJson(string jsonPath)
@@ -310,19 +333,21 @@ public static class WorkspaceQueueDatabase
         if (targets.Count == 0)
             return;
 
-        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
         if (!File.Exists(dbPath))
             return;
 
         lock (WriteSyncRoot)
         {
             EnsureDatabaseCore(dbPath);
-            var aliases = WorkspaceKeyAliases(workspaceRoot);
+            var aliases = WorkspaceKeyAliases(location, workspaceRoot);
             using var conn = Open(dbPath);
             using var tx = conn.BeginTransaction();
             var ids = new List<string>();
             using (var select = conn.CreateCommand())
             {
+                select.Transaction = tx;
                 var placeholders = string.Join(", ", aliases.Select((_, index) => $"$workspace{index}"));
                 select.CommandText = $"""
                     SELECT project_id, project_dir
@@ -350,6 +375,7 @@ public static class WorkspaceQueueDatabase
 
             using (var delete = conn.CreateCommand())
             {
+                delete.Transaction = tx;
                 var placeholders = string.Join(", ", ids.Select((_, index) => $"$id{index}"));
                 delete.CommandText = $"DELETE FROM upload_projects WHERE project_id IN ({placeholders})";
                 for (var i = 0; i < ids.Count; i++)
@@ -448,6 +474,11 @@ public static class WorkspaceQueueDatabase
                 updated_at TEXT NOT NULL
             )
             """);
+        EnsureColumn(conn, "archive_projects", "workspace_id", "TEXT NOT NULL DEFAULT ''");
+        ExecuteNonQuery(conn, """
+            CREATE INDEX IF NOT EXISTS idx_archive_projects_workspace
+                ON archive_projects(workspace_id, archived_at DESC);
+            """);
         ExecuteNonQuery(conn, """
             CREATE INDEX IF NOT EXISTS idx_archive_projects_archived_at
                 ON archive_projects(archived_at DESC, created_at DESC)
@@ -497,12 +528,14 @@ public static class WorkspaceQueueDatabase
 
     private static SqliteConnection Open(string dbPath) => OpenConnection(dbPath);
 
-    private static void UpsertAppSetting(SqliteConnection conn, string key, Dictionary<string, object?> payload, string updatedAt) =>
-        UpsertRawSetting(conn, key, JsonSerializer.Serialize(payload, JsonOptions), updatedAt);
+    private static void UpsertAppSetting(SqliteConnection conn, SqliteTransaction transaction, string key,
+        Dictionary<string, object?> payload, string updatedAt) =>
+        UpsertRawSetting(conn, key, JsonSerializer.Serialize(payload, JsonOptions), updatedAt, transaction);
 
-    private static void UpsertRawSetting(SqliteConnection conn, string key, string json, string updatedAt)
+    private static void UpsertRawSetting(SqliteConnection conn, string key, string json, string updatedAt, SqliteTransaction? transaction = null)
     {
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             INSERT INTO app_settings (key, value_json, updated_at)
             VALUES ($key, $json, $updated_at)
@@ -526,6 +559,12 @@ public static class WorkspaceQueueDatabase
 
         return fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
+
+    private static string WorkspaceKey(WorkspaceDatabaseLocation location, string workspaceRoot) =>
+        location.IsInMainDatabase ? location.WorkspaceId : WorkspaceKey(workspaceRoot);
+
+    private static IReadOnlyList<string> WorkspaceKeyAliases(WorkspaceDatabaseLocation location, string workspaceRoot) =>
+        location.IsInMainDatabase ? [location.WorkspaceId] : WorkspaceKeyAliases(workspaceRoot);
 
     private static IReadOnlyList<string> WorkspaceKeyAliases(string workspaceRoot)
     {
@@ -593,7 +632,7 @@ public static class WorkspaceQueueDatabase
         string UpdatedAt,
         string WorkspacePath);
 
-    private static string StableProjectId(string workspaceKey, string projectDir)
+    internal static string StableProjectId(string workspaceKey, string projectDir)
     {
         var bytes = Encoding.UTF8.GetBytes($"{workspaceKey}\n{projectDir}");
         return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

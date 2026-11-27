@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
@@ -969,16 +968,13 @@ public static class WorkspaceMergeService
 
     private static string BackupTargetDatabase(string targetRoot, string stateRoot)
     {
-        var databasePath = WorkspaceQueuePaths.QueueDatabasePath(targetRoot);
-        if (!File.Exists(databasePath))
+        var location = WorkspaceDatabaseLocation.Resolve(targetRoot);
+        if (!File.Exists(location.Path))
             return "";
-        CheckpointDatabase(databasePath);
         var backupRoot = Path.Combine(stateRoot, "backups");
         Directory.CreateDirectory(backupRoot);
-        var backupPath = Path.Combine(
-            backupRoot,
-            $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{Path.GetFileName(databasePath)}");
-        File.Copy(databasePath, backupPath, overwrite: false);
+        var backupPath = Path.Combine(backupRoot, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-queue.db");
+        WorkspaceDatabaseMigration.BackupWorkspace(targetRoot, backupPath);
         return backupPath;
     }
 
@@ -986,33 +982,24 @@ public static class WorkspaceMergeService
     {
         try
         {
-            var databasePath = WorkspaceQueuePaths.QueueDatabasePath(targetRoot);
-            DeleteIfExists(databasePath + "-wal");
-            DeleteIfExists(databasePath + "-shm");
+            var location = WorkspaceDatabaseLocation.Resolve(targetRoot);
             if (!string.IsNullOrWhiteSpace(backupPath) && File.Exists(backupPath))
-                File.Copy(backupPath, databasePath, overwrite: true);
-            else
-                DeleteIfExists(databasePath);
+            {
+                if (location.IsInMainDatabase)
+                    WorkspaceDatabaseMigration.RestoreWorkspace(targetRoot, location, backupPath);
+                else
+                    WorkspaceDatabaseMigration.BackupDatabase(backupPath, location.Path);
+            }
+            else if (!location.IsInMainDatabase)
+            {
+                DeleteIfExists(location.Path + "-wal");
+                DeleteIfExists(location.Path + "-shm");
+                DeleteIfExists(location.Path);
+            }
         }
         catch
         {
             // Keep the original merge error. The backup path is retained for manual recovery.
-        }
-    }
-
-    private static void CheckpointDatabase(string databasePath)
-    {
-        try
-        {
-            using var connection = new SqliteConnection($"Data Source={databasePath}");
-            connection.Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = "PRAGMA wal_checkpoint(FULL);";
-            command.ExecuteNonQuery();
-        }
-        catch
-        {
-            // A best-effort backup is still preferable to skipping the merge entirely.
         }
     }
 

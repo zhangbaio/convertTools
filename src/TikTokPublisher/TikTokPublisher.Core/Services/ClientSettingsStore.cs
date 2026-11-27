@@ -229,7 +229,7 @@ public static class ClientSettingsStore
             return "";
         }
 
-        return WorkspaceQueuePaths.QueueDatabasePath(workspacePath);
+        return WorkspaceDatabaseLocation.Resolve(workspacePath).Path;
     }
 
     internal static void RemoveRetiredCommandSettings(JsonObject settings)

@@ -50,6 +50,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _databaseStatsText = "";
     [ObservableProperty] private string _mainDatabasePath = ClientSettingsStore.MainDatabasePath;
     [ObservableProperty] private string _workspaceDatabasePath = "";
+    private string? _databaseWorkspaceRoot;
 
     [ObservableProperty] private string _dramaSourceChain = VisibleDramaSource.DefaultChain;
     [ObservableProperty] private string _overseasDramaSourceChain = VisibleDramaSource.DefaultOverseasChain;
@@ -286,8 +287,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ApplyFromSettings(ClientSettingsStore.Load(_settingsDatabasePath));
         ProjectConcurrencySettings.Load();
         MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
-        WorkspaceDatabasePath = ClientSettingsStore.WorkspaceDatabasePath(workspacePath);
-        RefreshDatabaseStats();
+        UpdateWorkspacePath(workspacePath);
     }
 
     private int _hongguoPlaybackIdentityStarted;
@@ -1148,7 +1148,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
             Directory.CreateDirectory(backupDir);
             var target = Path.Combine(backupDir, $"tiktok_publisher_{DateTime.Now:yyyyMMdd_HHmmss}.db");
-            File.Copy(source, target, overwrite: false);
+            WorkspaceDatabaseMigration.BackupDatabase(source, target);
             StatusRequested?.Invoke($"已备份到 {target}");
         }
         catch (Exception ex)
@@ -1163,7 +1163,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         try
         {
             var source = WorkspaceDatabasePath;
-            if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
+            if (string.IsNullOrWhiteSpace(_databaseWorkspaceRoot) || string.IsNullOrWhiteSpace(source) || !File.Exists(source))
             {
                 StatusRequested?.Invoke("工作区数据库不存在");
                 return;
@@ -1172,7 +1172,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
             Directory.CreateDirectory(backupDir);
             var target = Path.Combine(backupDir, $".tiktok-task-queue_{DateTime.Now:yyyyMMdd_HHmmss}.db");
-            File.Copy(source, target, overwrite: false);
+            WorkspaceDatabaseMigration.BackupWorkspace(_databaseWorkspaceRoot!, target);
             StatusRequested?.Invoke($"已备份到 {target}");
         }
         catch (Exception ex)
@@ -1211,7 +1211,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         var lines = new List<string>();
         AppendDatabaseStats(lines, "主数据库", MainDatabasePath);
-        if (!string.IsNullOrWhiteSpace(WorkspaceDatabasePath))
+        if (!string.IsNullOrWhiteSpace(WorkspaceDatabasePath) &&
+            string.Equals(WorkspaceDatabasePath, MainDatabasePath, StringComparison.OrdinalIgnoreCase))
+        {
+            lines.Add("当前工作区数据已纳入主数据库");
+        }
+        else if (!string.IsNullOrWhiteSpace(WorkspaceDatabasePath))
         {
             AppendDatabaseStats(lines, "工作区数据库", WorkspaceDatabasePath);
         }
@@ -1237,6 +1242,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public void UpdateWorkspacePath(string? workspacePath)
     {
+        _databaseWorkspaceRoot = workspacePath;
         WorkspaceDatabasePath = ClientSettingsStore.WorkspaceDatabasePath(workspacePath);
         RefreshDatabaseStats();
     }

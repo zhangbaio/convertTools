@@ -89,13 +89,11 @@ public static class PublisherConfigTransfer
                 {
                     CopyFile(entry.Excel, Path.Combine(tempRoot, "excel", account.Id, Path.GetFileName(entry.Excel)), out var hasExcel);
                     entry.HasExcel = hasExcel;
-                    var queueDb = string.IsNullOrWhiteSpace(entry.Workspace)
-                        ? ""
-                        : WorkspaceQueuePaths.QueueDatabasePath(entry.Workspace);
-                    if (!string.IsNullOrWhiteSpace(queueDb) && File.Exists(queueDb))
+                    if (!string.IsNullOrWhiteSpace(entry.Workspace) &&
+                        File.Exists(WorkspaceDatabaseLocation.Resolve(entry.Workspace).Path))
                     {
                         var exported = Path.Combine(tempRoot, "queues", account.Id, "queue.db");
-                        BackupSqlite(queueDb, exported);
+                        WorkspaceDatabaseMigration.BackupWorkspace(entry.Workspace, exported);
                         entry.HasQueueDatabase = true;
                         manifest.QueueProjectCount += CountRows(exported, "SELECT COUNT(*) FROM upload_projects");
                         manifest.ArchiveRecordCount += CountRows(exported, "SELECT COUNT(*) FROM archive_projects");
@@ -349,10 +347,15 @@ public static class PublisherConfigTransfer
         var workspace = ConfiguredWorkspace(account);
         if (!string.IsNullOrWhiteSpace(workspace) && Directory.Exists(workspace))
         {
-            var dest = WorkspaceQueuePaths.QueueDatabasePath(workspace);
-            if (File.Exists(dest))
-                BackupSqlite(dest, dest + ".bak");
-            BackupSqlite(source, dest);
+            var location = WorkspaceDatabaseLocation.Resolve(workspace);
+            if (location.IsInMainDatabase)
+            {
+                WorkspaceDatabaseMigration.RestoreWorkspace(workspace, location, source);
+                return;
+            }
+            if (File.Exists(location.Path))
+                BackupSqlite(location.Path, location.Path + ".bak");
+            BackupSqlite(source, location.Path);
             return;
         }
 
@@ -524,10 +527,13 @@ public static class PublisherConfigTransfer
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
+            var key = reader.GetString(0);
+            if (key.StartsWith(WorkspaceDatabaseLocation.SettingsPrefix, StringComparison.Ordinal))
+                continue;
             rows.Add(new AppSettingRow
             {
-                Key = reader.GetString(0),
-                ValueJson = SanitizeSettingsRow(reader.GetString(0), reader.GetString(1)),
+                Key = key,
+                ValueJson = SanitizeSettingsRow(key, reader.GetString(1)),
                 UpdatedAt = reader.GetString(2),
             });
         }
@@ -544,6 +550,8 @@ public static class PublisherConfigTransfer
         using var tx = connection.BeginTransaction();
         foreach (var row in rows)
         {
+            if (row.Key.StartsWith(WorkspaceDatabaseLocation.SettingsPrefix, StringComparison.Ordinal))
+                continue;
             using var command = connection.CreateCommand();
             command.Transaction = tx;
             var json = SanitizeSettingsRow(row.Key, row.ValueJson);

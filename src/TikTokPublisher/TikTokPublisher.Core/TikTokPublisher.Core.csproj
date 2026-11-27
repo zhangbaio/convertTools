@@ -75,5 +75,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
+    <InternalsVisibleTo Include="TikTokWorkspaceDatabasePilot" />
   </ItemGroup>
 </Project>

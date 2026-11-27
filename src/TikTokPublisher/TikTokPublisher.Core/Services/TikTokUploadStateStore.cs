@@ -21,18 +21,19 @@ public static class TikTokUploadStateStore
 
     public static Dictionary<string, JsonElement> LoadState(string workflowProjectDir)
     {
+        var context = ProjectWorkspaceService.LoadContext(workflowProjectDir);
+        var mainDatabase = WorkspaceDatabaseLocation.Resolve(context.WorkspaceRoot).IsInMainDatabase;
         try
         {
-            var context = ProjectWorkspaceService.LoadContext(workflowProjectDir);
             var databaseState = ProjectStateDocumentStore.LoadUploadState(
                 context.WorkspaceRoot,
                 context.SourceProjectDir);
             if (databaseState.Count > 0)
                 return databaseState;
         }
-        catch
+        catch when (!mainDatabase)
         {
-            // Fall back to the legacy json file below.
+            // The legacy JSON remains a fallback for the legacy storage format.
         }
 
         var path = StateFilePath(workflowProjectDir);
@@ -53,13 +54,20 @@ public static class TikTokUploadStateStore
 
     public static void SaveState(string workflowProjectDir, Dictionary<string, object?> state)
     {
+        var context = ProjectWorkspaceService.LoadContext(workflowProjectDir);
+        if (WorkspaceDatabaseLocation.Resolve(context.WorkspaceRoot).IsInMainDatabase)
+        {
+            ProjectStateDocumentStore.SaveUploadState(
+                context.WorkspaceRoot, context.SourceProjectDir, state, context.WorkflowProjectDir);
+            return;
+        }
+
         var path = StateFilePath(workflowProjectDir);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
 
         try
         {
-            var context = ProjectWorkspaceService.LoadContext(workflowProjectDir);
             ProjectStateDocumentStore.SaveUploadState(
                 context.WorkspaceRoot,
                 context.SourceProjectDir,
