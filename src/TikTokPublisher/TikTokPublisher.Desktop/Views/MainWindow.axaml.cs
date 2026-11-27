@@ -263,7 +263,7 @@ public partial class MainWindow : Window
         _moduleRailCollapsed = !_moduleRailCollapsed;
         ModuleRail.Width = _moduleRailCollapsed ? CollapsedRailWidth : 148;
         ModuleRail.Classes.Set("moduleRailCollapsed", _moduleRailCollapsed);
-        var label = _moduleRailCollapsed ? "展开全局导航" : "收起全局导航";
+        var label = _moduleRailCollapsed ? "展开左侧菜单" : "收起左侧菜单";
         ToolTip.SetTip(ModuleRailToggleButton, label);
         Avalonia.Automation.AutomationProperties.SetName(ModuleRailToggleButton, label);
     }

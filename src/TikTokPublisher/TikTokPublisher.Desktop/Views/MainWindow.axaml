@@ -7,6 +7,9 @@
         MinWidth="800" MinHeight="560"
         Title="TikTok 短剧上传助手"
         Icon="/Assets/tiktok-shortdrama-logo.ico"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="PreferSystemChrome"
+        ExtendClientAreaTitleBarHeightHint="36"
         Background="{StaticResource PythonPageBgBrush}">
 
     <Window.Styles>
@@ -63,6 +66,15 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <Style Selector="Button.titleBarMenuToggle">
+            <Setter Property="Width" Value="36" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.titleBarMenuToggle:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#E5EFFA" />
+        </Style>
         <Style Selector="TextBlock.moduleRailLabel, Panel#AccountPanelHost">
             <Setter Property="Transitions">
                 <Transitions>
@@ -79,7 +91,7 @@
             <Setter Property="Opacity" Value="0" />
             <Setter Property="RenderTransform" Value="translateX(-20px)" />
         </Style>
-        <Style Selector="Grid.moduleRailCollapsed PathIcon#ModuleRailToggleArrow, Grid.accountRailExpanded PathIcon#AccountRailToggleArrow">
+        <Style Selector="Grid.accountRailExpanded PathIcon#AccountRailToggleArrow">
             <Setter Property="RenderTransform" Value="scaleX(-1)" />
         </Style>
         <Style Selector="Grid#AccountRail TextBlock.accountSidebarHeading">
@@ -88,21 +100,26 @@
         </Style>
     </Window.Styles>
 
-    <Grid RowDefinitions="*,Auto" ColumnDefinitions="Auto,Auto,*">
-        <Grid x:Name="ModuleRail" Classes="sidebarRail" Width="148" RowDefinitions="Auto,*" Background="#EEF4FC">
-            <Grid MinHeight="44" Margin="0,6">
-                <TextBlock Text="TikTok 短剧助手" Classes="topBrandLabel moduleRailLabel"
-                           Width="90" Margin="12,0,0,0" HorizontalAlignment="Left"
-                           VerticalAlignment="Center" TextWrapping="Wrap" />
-                <Button x:Name="ModuleRailToggleButton" Classes="sidebarToggle"
-                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,0,12,0"
-                        ToolTip.Tip="收起全局导航" AutomationProperties.Name="收起全局导航"
-                        Click="OnModuleRailToggleClick">
-                    <PathIcon x:Name="ModuleRailToggleArrow" Width="12" Height="12"
-                              Data="M5,2 L11,8 L5,14 L3.5,12.5 L8,8 L3.5,3.5 Z" />
-                </Button>
-            </Grid>
-            <StackPanel Grid.Row="1" x:Name="ModuleNav" Margin="7,5,7,8" Spacing="4" VerticalAlignment="Top">
+    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="Auto,Auto,*"
+          Margin="{Binding OffScreenMargin, RelativeSource={RelativeSource AncestorType=Window}}">
+        <Grid Grid.ColumnSpan="3" MinHeight="28"
+              Height="{Binding WindowDecorationMargin.Top, RelativeSource={RelativeSource AncestorType=Window}}">
+            <Border Background="#EEF4FC" Win32Properties.NonClientHitTestResult="Caption" />
+            <Button x:Name="ModuleRailToggleButton" Classes="sidebarToggle titleBarMenuToggle"
+                    HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0"
+                    Win32Properties.NonClientHitTestResult="Client"
+                    ToolTip.Tip="收起左侧菜单" AutomationProperties.Name="收起左侧菜单"
+                    Click="OnModuleRailToggleClick">
+                <PathIcon Width="16" Height="16" IsHitTestVisible="False"
+                          Data="F0 M4,2 H16 A3,3 0 0 1 19,5 V15 A3,3 0 0 1 16,18 H4
+                                A3,3 0 0 1 1,15 V5 A3,3 0 0 1 4,2 Z
+                                M4,3.5 A1.5,1.5 0 0 0 2.5,5 V15 A1.5,1.5 0 0 0 4,16.5 H6.5 V3.5 Z
+                                M8,3.5 V16.5 H16 A1.5,1.5 0 0 0 17.5,15 V5 A1.5,1.5 0 0 0 16,3.5 Z" />
+            </Button>
+        </Grid>
+
+        <Grid x:Name="ModuleRail" Grid.Row="1" Classes="sidebarRail" Width="148" Background="#EEF4FC">
+            <StackPanel x:Name="ModuleNav" Margin="7,5,7,8" Spacing="4" VerticalAlignment="Top">
                 <Button Tag="download" Classes="moduleNavItem" AutomationProperties.Name="短剧下载" ToolTip.Tip="短剧下载" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M12,1.5 A1.5,1.5 0 0 1 13.5,3 V11.4 L16.1,8.8 A1.5,1.5 0 0 1 18.2,10.9
@@ -182,7 +199,7 @@
             </StackPanel>
         </Grid>
 
-        <Grid x:Name="AccountRail" Grid.Column="1" Classes="sidebarRail accountRailExpanded"
+        <Grid x:Name="AccountRail" Grid.Row="1" Grid.Column="1" Classes="sidebarRail accountRailExpanded"
               Width="198" Background="{StaticResource PythonPanelBgBrush}" SizeChanged="OnAccountRailSizeChanged">
             <Button x:Name="SidebarToggleButton" Classes="sidebarToggle" ZIndex="1"
                     HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8,6,0,0"
@@ -195,7 +212,7 @@
             </Panel>
         </Grid>
 
-        <Panel x:Name="ContentHostPanel" Grid.Column="2" Grid.IsSharedSizeScope="True" Background="{StaticResource PythonPageBgBrush}">
+        <Panel x:Name="ContentHostPanel" Grid.Row="1" Grid.Column="2" Grid.IsSharedSizeScope="True" Background="{StaticResource PythonPageBgBrush}">
             <Panel x:Name="BrowserHostMount"
                    IsHitTestVisible="False"
                    ClipToBounds="True"
@@ -285,7 +302,7 @@
             </Grid>
         </Panel>
 
-        <Border Grid.Row="1" Grid.ColumnSpan="3" Classes="statusBarFrame" Height="28">
+        <Border Grid.Row="2" Grid.ColumnSpan="3" Classes="statusBarFrame" Height="28">
             <Grid ColumnDefinitions="*,*,*,Auto" Margin="12,0">
                 <TextBlock x:Name="PrimaryStatusText" Grid.Column="0"
                            VerticalAlignment="Center"
