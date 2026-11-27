@@ -170,18 +170,7 @@ public sealed class PlayletDramaChainTests
     {
         var handler = new PlayletHandler();
         using var httpClient = new HttpClient(handler);
-        var router = new DramaSourceRouter(
-            httpClient,
-            new PlayletSettings(new DramaSourceSettings
-            {
-                DramaSourceChain = "playlet",
-                HongguoAppDeviceId = "1234567890123456",
-                HongguoAppInstallId = "1234567890123457",
-            }),
-            new HongguoNewApiService(httpClient),
-            new HongguoDramaSearchService(httpClient),
-            new HongguoDramaDownloader(httpClient),
-            new HongguoMemoryReaderService());
+        var router = CreateShelfRouter(httpClient);
 
         var offset = 0;
         var session = "";
@@ -199,6 +188,42 @@ public sealed class PlayletDramaChainTests
 
         handler.ShelfRequests.Should().HaveCount(9);
     }
+
+    [Theory]
+    [InlineData(18, true)]
+    [InlineData(17, false)]
+    public async Task Only_a_full_first_page_allows_one_continuation_check_when_the_feed_reports_an_end(
+        int firstPageSize, bool expectContinuation)
+    {
+        var handler = new PlayletHandler { ShelfFirstPageSizeWithEndFlag = firstPageSize };
+        using var httpClient = new HttpClient(handler);
+        var router = CreateShelfRouter(httpClient);
+
+        var first = await router.GetHongguoNewReleasePageAsync(ai: true, 0, null, CancellationToken.None);
+        first.Items.Should().HaveCount(firstPageSize);
+        first.HasMore.Should().Be(expectContinuation);
+        if (!expectContinuation)
+            return;
+
+        var next = await router.GetHongguoNewReleasePageAsync(ai: true, first.NextOffset, first.SessionId, CancellationToken.None);
+        var nextId = next.Items.Should().ContainSingle().Which.BookId;
+        first.Items.Select(item => item.BookId).Should().NotContain(nextId);
+        next.HasMore.Should().BeFalse();
+        handler.ShelfRequests.Should().Equal(("ai_series", 0, ""), ("ai_series", 18, "shelfSession"));
+    }
+
+    private static DramaSourceRouter CreateShelfRouter(HttpClient httpClient) => new(
+        httpClient,
+        new PlayletSettings(new DramaSourceSettings
+        {
+            DramaSourceChain = "playlet",
+            HongguoAppDeviceId = "1234567890123456",
+            HongguoAppInstallId = "1234567890123457",
+        }),
+        new HongguoNewApiService(httpClient),
+        new HongguoDramaSearchService(httpClient),
+        new HongguoDramaDownloader(httpClient),
+        new HongguoMemoryReaderService());
 
     private static DateOnly ChinaToday()
     {
@@ -236,6 +261,7 @@ public sealed class PlayletDramaChainTests
         public string RankUrl { get; private set; } = "";
         public List<string> ComicNewUrls { get; } = [];
         public List<(string Genre, int Offset, string Session)> ShelfRequests { get; } = [];
+        public int? ShelfFirstPageSizeWithEndFlag { get; init; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -247,20 +273,21 @@ public sealed class PlayletDramaChainTests
                 var offset = body.RootElement.GetProperty("offset").GetInt32();
                 ShelfRequests.Add((body.RootElement.GetProperty("req_scene").GetString()!, offset,
                     body.RootElement.GetProperty("session_id").GetString()!));
+                var count = offset == 0 ? ShelfFirstPageSizeWithEndFlag ?? 1 : 1;
                 return Json(JsonSerializer.Serialize(new
                 {
                     code = 0,
                     data = new
                     {
-                        has_more = offset < 144,
+                        has_more = ShelfFirstPageSizeWithEndFlag is null && offset < 144,
                         next_offset = offset + 18,
                         session_id = "shelfSession",
-                        cell_list = new[] { new { video_data = new
+                        cell_list = Enumerable.Range(0, count).Select(index => new { video_data = new
                         {
-                            series_id = (7000000000000000000L + offset).ToString(CultureInfo.InvariantCulture),
+                            series_id = (7000000000000000000L + offset + index).ToString(CultureInfo.InvariantCulture),
                             series_title = "分页测试剧",
                             episode_cnt = 12,
-                        } } },
+                        } }).ToArray(),
                     },
                 }));
             }

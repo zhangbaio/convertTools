@@ -244,6 +244,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             settings.HongguoAppInstallId);
         return page with
         {
+            // A full first page can be checked once for continuation even when the feed reports an end.
+            HasMore = page.HasMore || (playlet && offset == 0 && page.NextOffset > 0 &&
+                page.Items.Count == HongguoAppDirectClient.NewReleasePageSize),
             Items = playlet
                 ? page.Items.Select(AsPlayletBook).ToArray()
                 : page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
