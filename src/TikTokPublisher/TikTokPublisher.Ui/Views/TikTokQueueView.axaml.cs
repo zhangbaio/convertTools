@@ -3785,8 +3785,8 @@ public partial class TikTokQueueView : UserControl
 
                 var confirmed = await ConfirmAsync(
                     owner,
-                    "确认强制重跑",
-                    "已勾选“强制重跑”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
+                    "确认重跑",
+                    "已勾选“重跑”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
                 if (!confirmed)
                 {
                     vm.StatusMessage = "已取消执行勾选队列";

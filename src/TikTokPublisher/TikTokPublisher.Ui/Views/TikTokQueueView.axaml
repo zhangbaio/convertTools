@@ -368,11 +368,11 @@
                                                   IsChecked="{Binding SyncManagementAfterUpload}"
                                                   Margin="0,0,16,0"
                                                   ToolTip.Tip="上传完成后把项目同步到管理系统。" />
-                                        <CheckBox Content="传后归档"
+                                        <CheckBox Content="归档"
                                                   IsChecked="{Binding AutoArchiveAfterUpload}"
                                                   Margin="0,0,16,0"
                                                   ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                                        <CheckBox Content="强制重跑"
+                                        <CheckBox Content="重跑"
                                                   IsChecked="{Binding ForceRerunCompletedSteps}"
                                                   Margin="0,0,16,0"
                                                   ToolTip.Tip="已完成步骤会重新执行。" />
