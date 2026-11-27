@@ -51,6 +51,7 @@ public sealed class XingeRemoteCommandService
 
     // 这部剧的本地项目还在时，轮询到的命令直接续跑，不再弹出新派单确认。
     public Func<long, bool>? AssignmentAlreadyLocal { get; set; }
+    public Func<long, bool>? AssignmentVerifiedMissing { get; set; }
 
     public Func<IReadOnlyList<long>>? LocalStoppedAssignmentIds { get; set; }
 
@@ -277,6 +278,15 @@ public sealed class XingeRemoteCommandService
                         }
                         else
                         {
+                            var receipt = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                                $"/client-api/tiktok/auto-publish/assignments/{item.AssignmentId}/progress",
+                                new { status = "awaiting_confirmation" }, ct).ConfigureAwait(false);
+                            if (!receipt.Ok || !receipt.CanStart)
+                            {
+                                log?.Invoke($"XINGE 派单 {item.AssignmentId} 的预留已失效。");
+                                continue;
+                            }
+                            log?.Invoke($"收到 XINGE 派单 {item.AssignmentId}，等待确认。");
                             config.HeldConfirmMessages[message.ID] = message;
                             config.Confirm.ExpireIfDue(DateTimeOffset.Now);
                             var offer = config.Confirm.Offer(item, DateTimeOffset.Now, out var session);
@@ -603,9 +613,10 @@ public sealed class XingeRemoteCommandService
                     config.HeldConfirmMessages.Remove(item.MessageId);
                 break;
             case DispatchConfirmDecision.Dismissed:
+                if (!ct.IsCancellationRequested)
+                    await DeclineOnceAsync(http, config, items, log, ct, dismissed: true).ConfigureAwait(false);
                 foreach (var item in items)
                     config.HeldConfirmMessages.Remove(item.MessageId);
-                log?.Invoke("已关闭派单确认。这批剧仍保留，重启后会再提示，不会另派新剧。");
                 break;
             default:
                 foreach (var item in items)
@@ -624,7 +635,8 @@ public sealed class XingeRemoteCommandService
         XingeRemoteConfig config,
         IReadOnlyList<DispatchConfirmItem> items,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool dismissed = false)
     {
         var ids = items.Select(item => item.AssignmentId).Where(id => id > 0).Distinct().ToArray();
         if (ids.Length == 0)
@@ -633,8 +645,8 @@ public sealed class XingeRemoteCommandService
         {
             await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
                 "/client-api/tiktok/auto-publish/decline",
-                new { client_id = config.ClientId, client_token = config.ClientToken, assignment_ids = ids, current_batch_only = true }, ct).ConfigureAwait(false);
-            log?.Invoke($"已拒绝本次 TikTok 派单 {ids.Length} 部。");
+                new { client_id = config.ClientId, client_token = config.ClientToken, assignment_ids = ids, current_batch_only = true, dismissed }, ct).ConfigureAwait(false);
+            log?.Invoke(dismissed ? $"已向 XINGE 回报关闭确认窗口（{ids.Length} 部）。" : $"已拒绝本次 TikTok 派单 {ids.Length} 部。");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -681,6 +693,14 @@ public sealed class XingeRemoteCommandService
             result = await executeAsync(command with { XingeConnectionScope = XingeRuntimeConnection.ScopeForClient(config.BaseUrl, config.ClientId) }).ConfigureAwait(false);
         }
 
+        if (command is { IsAutoPublishAssignment: true } && result.Status == "failed" &&
+            AssignmentVerifiedMissing?.Invoke(command.AutoPublishAssignmentId) == true)
+        {
+            await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                $"/client-api/tiktok/auto-publish/assignments/{command.AutoPublishAssignmentId}/progress",
+                new { status = "import_not_queued", detail = result.SummaryText }, ct).ConfigureAwait(false);
+        }
+
         try
         {
             await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
@@ -696,6 +716,17 @@ public sealed class XingeRemoteCommandService
         {
             await Task.Delay(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
         }
+    }
+
+    public async Task<bool> TryStartRecoveredAssignmentAsync(long assignmentId, string connectionScope)
+    {
+        var config = XingeRemoteConfig.FromSettings(ClientSettingsStore.Load());
+        if (!config.HasClientCredentials || XingeRuntimeConnection.ScopeForClient(config.BaseUrl, config.ClientId) != connectionScope)
+            return false;
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        var response = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+            $"/client-api/tiktok/auto-publish/assignments/{assignmentId}/start", new { }, CancellationToken.None).ConfigureAwait(false);
+        return response.Ok && response.CanStart;
     }
 
     private async Task<bool> ResumeStoppedAsync(
@@ -991,6 +1022,9 @@ public sealed class XingeRemoteCommandService
 
         [JsonPropertyName("command")]
         public JsonElement Command { get; set; }
+
+        [JsonPropertyName("step")]
+        public string Step { get; set; } = "";
 
         [JsonPropertyName("message_status")]
         public string MessageStatus { get; set; } = "";

@@ -371,6 +371,16 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
         _xingeRemoteCommandService.AssignmentAlreadyLocal = AssignmentAlreadyLocal;
+        _xingeRemoteCommandService.AssignmentVerifiedMissing = assignmentId =>
+        {
+            var seeds = Avalonia.Threading.Dispatcher.UIThread.CheckAccess()
+                ? CaptureXingeAccountSeeds()
+                : Avalonia.Threading.Dispatcher.UIThread.Invoke(CaptureXingeAccountSeeds);
+            if (seeds.Count == 0)
+                return false;
+            var located = FindAutoPublishProject(assignmentId, seeds);
+            return !located.LookupFailed && !located.ProjectExists && !LocalAutoPublishMarkerExists(assignmentId, located);
+        };
         _xingeRemoteCommandService.LocalStoppedAssignmentIds = LocalStoppedAssignmentIds;
         _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
         XingeAutoPublishProgressReporter.Shared.Log += AppendLog;
@@ -533,13 +543,17 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             if (_restartResumeDismissed || !_restartResumeConfirmed)
                 return;
-            if (!_restartStoredStarted.Add(assignment.Id))
+            if (_restartStoredStarted.Contains(assignment.Id))
                 return;
             var command = assignment.ReadCommand();
             if (command is null)
                 return;
+            var scope = XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope;
+            if (scope is null || !await _xingeRemoteCommandService.TryStartRecoveredAssignmentAsync(assignment.Id, scope))
+                return;
+            _restartStoredStarted.Add(assignment.Id);
             AppendLog($"已分发未开始的剧继续执行：{FirstNonEmptyText(assignment.Title, command.Titles?.FirstOrDefault())}");
-            await ExecuteRemoteCommandAsync(command);
+            await ExecuteRemoteCommandAsync(command with { XingeConnectionScope = scope });
             return;
         }
 
@@ -564,7 +578,7 @@ public sealed partial class MainViewModel : ViewModelBase
                     AppendLog($"自动上新派单 {assignment.Id} 的本地项目还在，或队列库暂时读不到，这次不向服务器报告项目丢失。");
                     break;
                 }
-                await ReportRecoveredAutoPublishAsync(model, XingeAutoPublishStatuses.Interrupted, "import", "客户端未找到本地项目");
+                await ReportRecoveredAutoPublishAsync(model, assignment.Step == "importing" ? "import_not_queued" : XingeAutoPublishStatuses.Interrupted, "import", "客户端未找到本地项目");
                 break;
             case XingeAutoPublishRecoveryAction.Resume:
                 if (_restartResumeDismissed || !_restartResumeConfirmed)
