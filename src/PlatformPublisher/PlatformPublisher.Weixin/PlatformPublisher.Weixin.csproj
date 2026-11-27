@@ -21,5 +21,6 @@
   <ItemGroup>
     <Compile Include="..\..\ShortDrama\ShortDrama.Desktop\Services\WeixinMaterialChannelVideoDeleteService.cs"
              Link="Publishing\WeixinMaterialChannelVideoDeleteService.cs" />
+    <EmbeddedResource Include="Publishing/StoryboardRecording/StoryboardPage.html" />
   </ItemGroup>
 </Project>

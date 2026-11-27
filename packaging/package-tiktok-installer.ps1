@@ -659,13 +659,16 @@ function Test-PlaywrightChromiumBundle {
 
     $chromiumRevision = Get-PlaywrightBrowserRevision -BrowserName "chromium"
     $headlessRevision = Get-PlaywrightBrowserRevision -BrowserName "chromium-headless-shell"
+    $ffmpegRevision = Get-PlaywrightBrowserRevision -BrowserName "ffmpeg"
     if (-not [string]::IsNullOrWhiteSpace($chromiumRevision) -and
-        -not [string]::IsNullOrWhiteSpace($headlessRevision)) {
+        -not [string]::IsNullOrWhiteSpace($headlessRevision) -and
+        -not [string]::IsNullOrWhiteSpace($ffmpegRevision)) {
         $requiredFiles = @(
             (Join-Path $BrowserRoot "chromium-$chromiumRevision\chrome-win\chrome.exe"),
             (Join-Path $BrowserRoot "chromium_headless_shell-$headlessRevision\chrome-win\headless_shell.exe")
         )
-        return (Test-Path -LiteralPath $requiredFiles[0]) -and (Test-Path -LiteralPath $requiredFiles[1])
+        return (Test-Path -LiteralPath $requiredFiles[0]) -and (Test-Path -LiteralPath $requiredFiles[1]) -and
+            (Test-Path -LiteralPath (Join-Path $BrowserRoot "ffmpeg-$ffmpegRevision\ffmpeg-win64.exe") -PathType Leaf)
     }
 
     $chromium = Get-ChildItem -LiteralPath $BrowserRoot -Directory -Filter "chromium-*" -ErrorAction SilentlyContinue |
@@ -675,7 +678,10 @@ function Test-PlaywrightChromiumBundle {
         Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "chrome-win\headless_shell.exe") } |
         Select-Object -First 1
 
-    return $null -ne $chromium -and $null -ne $headless
+    $recorder = Get-ChildItem -LiteralPath $BrowserRoot -Directory -Filter "ffmpeg-*" -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "ffmpeg-win64.exe") -PathType Leaf } |
+        Select-Object -First 1
+    return $null -ne $chromium -and $null -ne $headless -and $null -ne $recorder
 }
 
 function Copy-PlaywrightRuntimeFromLocalCache {
@@ -936,10 +942,10 @@ if ($BundleLocalAsrModels) {
 $playwrightRoot = Join-Path $PublishDir "ms-playwright"
 $hasPlaywrightChromium = Test-PlaywrightChromiumBundle -BrowserRoot $playwrightRoot
 if ($BundleDependencies -and -not $hasPlaywrightChromium) {
-    throw "Playwright Chromium is not bundled. The installer would require a browser download on the target machine."
+    throw "Playwright Chromium or its recording FFmpeg is not bundled. Run packaging with a complete Playwright Chromium cache."
 }
 elseif (-not $hasPlaywrightChromium) {
-    Write-Warning "Playwright Chromium is not bundled. Use -InstallPlaywrightChromium, prefill packaging\dependencies\ms-playwright, or install Playwright browsers on the packaging machine."
+    Write-Warning "Playwright Chromium or its recording FFmpeg is not bundled. Use -InstallPlaywrightChromium or prefill packaging\dependencies\ms-playwright."
 }
 
 $webView2Installer = Join-Path $DependenciesDir "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"

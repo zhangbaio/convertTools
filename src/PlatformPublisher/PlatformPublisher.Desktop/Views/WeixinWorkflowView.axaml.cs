@@ -174,6 +174,8 @@ public partial class WeixinWorkflowView : UserControl
         AutoRepairStep.IsVisible = false;
         CostReportStep.IsVisible = false;
         AiProofStep.IsVisible = false;
+        StoryboardRecordingStep.IsVisible = false;
+        StoryboardRecordingSettings.IsVisible = false;
         TimestampStep.IsVisible = false;
         MaterialValidateStep.IsVisible = false;
         RemuxStep.IsVisible = false;

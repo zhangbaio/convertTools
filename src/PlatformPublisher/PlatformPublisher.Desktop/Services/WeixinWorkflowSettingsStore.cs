@@ -100,5 +100,9 @@ public sealed class WeixinWorkflowSettings
     public int SmartRecutMaxSeconds { get; set; } = 180;
     public bool SyncManagementAfterUpload { get; set; }
     public bool GenerateAiProofEnabled { get; set; }
+    public bool GenerateStoryboardRecordingEnabled { get; set; }
+    public int StoryboardTemplateIndex { get; set; }
+    public string StoryboardEpisodes { get; set; } = "";
+    public bool StoryboardArkEnabled { get; set; }
     public bool GenerateTimestampCertificateEnabled { get; set; }
 }

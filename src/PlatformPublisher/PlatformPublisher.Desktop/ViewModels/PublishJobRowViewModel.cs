@@ -112,6 +112,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string ProjectImageStepStatus => KuaishouStep(_kuaishou?.ProjectImageStatus, "project-image");
     public string ValidateStepStatus => StepStatus("material-validate");
     public string AiProofStepStatus => StepStatus("ai-proof");
+    public string StoryboardRecordingStepStatus => StepStatus(PlatformPublisher.Weixin.Publishing.WeixinStoryboardRecordingService.StepKey);
     public string TimestampStepStatus => StepStatus("timestamp-certificate");
     public string UploadStepStatus => IsDraftReviewPending
         ? DraftReviewPendingText : KuaishouStep(_kuaishou?.UploadStatus, "weixin-upload");
@@ -510,6 +511,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(ProjectImageStepStatus));
         OnPropertyChanged(nameof(ValidateStepStatus));
         OnPropertyChanged(nameof(AiProofStepStatus));
+        OnPropertyChanged(nameof(StoryboardRecordingStepStatus));
         OnPropertyChanged(nameof(TimestampStepStatus));
         OnPropertyChanged(nameof(UploadStepStatus));
         OnPropertyChanged(nameof(ShelfStepStatus));

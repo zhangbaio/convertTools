@@ -246,6 +246,7 @@ public partial class App : Application
         services.AddSingleton<WeixinSmartRecutService>();
         services.AddSingleton<WeixinManagementSyncService>();
         services.AddSingleton<WeixinProofArtifactsService>();
+        services.AddSingleton<WeixinStoryboardRecordingService>();
         services.AddSingleton<WeixinSeriesConfigOverrideService>();
         services.AddSingleton<WeixinSeriesApiUploadService>();
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();

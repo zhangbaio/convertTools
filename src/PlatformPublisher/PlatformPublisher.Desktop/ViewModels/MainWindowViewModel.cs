@@ -135,6 +135,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         WeixinSmartRecutService smartRecutService,
         WeixinManagementSyncService managementSyncService,
         WeixinProofArtifactsService proofArtifactsService,
+        WeixinStoryboardRecordingService storyboardRecordingService,
         KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
         KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
         DramaTitleImportService dramaTitleImportService,
@@ -161,6 +162,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _smartRecutService = smartRecutService;
         _managementSyncService = managementSyncService;
         _proofArtifactsService = proofArtifactsService;
+        _storyboardRecordingService = storyboardRecordingService;
         _kuaishouPersonalProjectDataService = kuaishouPersonalProjectDataService;
         _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
         _dramaTitleImportService=dramaTitleImportService;
@@ -1194,6 +1196,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static void EnsureStepStates(PublishJob job)
     {
         job.StepStates ??= new Dictionary<string, PublishJobStepState>(StringComparer.OrdinalIgnoreCase);
+        if (IsStoryboardJob(job))
+            job.StepStates.TryAdd(WeixinStoryboardRecordingService.StepKey, new PublishJobStepState
+            { Key = WeixinStoryboardRecordingService.StepKey, Label = WeixinStoryboardRecordingService.StepLabel });
         if (job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
             job.StepStates.TryAdd(KuaishouVideoDedup.Step, new PublishJobStepState
                 { Key = KuaishouVideoDedup.Step, Label = KuaishouVideoDedup.Label });
@@ -1440,6 +1445,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         (PipelineDownloadEnabled || (IsKuaishouPlatform && PipelineKuaishouDedupEnabled) || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
+         (!IsKuaishouPlatform && PipelineStoryboardRecordingEnabled) ||
          PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
          PipelineRemuxEnabled || (IsKuaishouPlatform && PipelineUploadEpisodesEnabled));
 
@@ -1690,6 +1696,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PipelinePreferUploadWhenReady = settings.PreferUploadWhenReady;
         PipelineSyncManagementAfterUpload = settings.SyncManagementAfterUpload;
         PipelineGenerateAiProofEnabled = settings.GenerateAiProofEnabled;
+        PipelineStoryboardRecordingEnabled = !IsKuaishouPlatform && settings.GenerateStoryboardRecordingEnabled;
+        StoryboardTemplateIndex = Math.Clamp(settings.StoryboardTemplateIndex, 0, 1);
+        StoryboardEpisodes = settings.StoryboardEpisodes ?? "";
+        StoryboardArkEnabled = settings.StoryboardArkEnabled;
         PipelineGenerateTimestampCertificateEnabled = settings.GenerateTimestampCertificateEnabled;
         WorkflowPageSize = Math.Clamp(settings.PageSize, 5, 200);
         AutoShelfMaxPages = Math.Clamp(settings.AutoShelfMaxPages, 1, 100);
@@ -1726,6 +1736,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PreferUploadWhenReady = PipelinePreferUploadWhenReady,
         SyncManagementAfterUpload = PipelineSyncManagementAfterUpload,
         GenerateAiProofEnabled = PipelineGenerateAiProofEnabled,
+        GenerateStoryboardRecordingEnabled = !IsKuaishouPlatform && PipelineStoryboardRecordingEnabled,
+        StoryboardTemplateIndex = StoryboardTemplateIndex,
+        StoryboardEpisodes = StoryboardEpisodes.Trim(),
+        StoryboardArkEnabled = StoryboardArkEnabled,
         GenerateTimestampCertificateEnabled = PipelineGenerateTimestampCertificateEnabled,
         PageSize = WorkflowPageSize,
         AutoShelfMaxPages = AutoShelfMaxPages,
@@ -1777,9 +1791,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!IsKuaishouPlatform && PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
         if (PipelineProjectImageEnabled) steps.Add(("project-image", "生成工程图"));
         if (!IsKuaishouPlatform && PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
+        if (!IsKuaishouPlatform && PipelineStoryboardRecordingEnabled)
+            steps.Add((WeixinStoryboardRecordingService.StepKey, WeixinStoryboardRecordingService.StepLabel));
         if (!IsKuaishouPlatform && PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
         var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+        var storyboardOptions = GetStoryboardOptions();
         if (IsKuaishouPlatform)
         {
             await RunCurrentKuaishouAccountPipelineAsync(targets);
@@ -1815,13 +1832,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
                 if (trackedJob is not null) EnsureStepStates(trackedJob);
                 var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
-                var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
+                string? runtimeConfigPath = null;
+                string RuntimeConfig() => runtimeConfigPath ??= PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
                 _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
                 try
                 {
                     foreach (var (key, label) in steps)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+                        if (key == WeixinStoryboardRecordingService.StepKey)
+                        {
+                            var storyboardRow = trackedJob is not null && IsStoryboardJob(trackedJob)
+                                ? trackedRow
+                                : VisibleJobs.FirstOrDefault(row => IsStoryboardJob(row.Model)
+                                    && !string.IsNullOrWhiteSpace(row.Model.ProjectDirectory)
+                                    && string.Equals(Path.GetFullPath(row.Model.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
+                            var storyboardJob = storyboardRow?.Model ??
+                                (trackedJob is not null && IsStoryboardJob(trackedJob) ? trackedJob : null);
+                            await RunStoryboardStepAsync(projectDirectory, storyboardJob, storyboardRow, storyboardOptions, cancellationToken);
+                            continue;
+                        }
                         await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
                         {
                             if (key == "download")
@@ -1881,7 +1911,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                 return;
                             }
                             var result = await _workService.RunProjectStepAsync(
-                                projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken, runtimeConfigPath);
+                                projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken, RuntimeConfig());
                             if (!result.Ok)
                                 throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
                         });
@@ -1890,7 +1920,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     if (!IsKuaishouPlatform && PipelineAutoRepairEnabled)
                     {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
-                            () => RunMaterialAutoRepairAsync(projectDirectory, runtimeConfigPath, progress, cancellationToken));
+                            () => RunMaterialAutoRepairAsync(projectDirectory, RuntimeConfig(), progress, cancellationToken));
                     }
 
                     if (PipelineAutoFillEnabled)
@@ -1960,11 +1990,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     _activityLogProject = "";
                     try
                     {
-                        var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
-                        if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
-                            Directory.Delete(runtimeDir, true);
-                        else
-                            File.Delete(runtimeConfigPath);
+                        if (runtimeConfigPath is not null)
+                        {
+                            var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
+                            if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
+                                Directory.Delete(runtimeDir, true);
+                            else
+                                File.Delete(runtimeConfigPath);
+                        }
                     }
                     catch { /* 临时配置清理由下次系统临时目录维护。 */ }
                 }
@@ -3383,7 +3416,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         bool force,
         Func<Task> action)
     {
-        if (job is not null && job.StepStates.TryGetValue(key, out var existing) &&
+        if (key != WeixinStoryboardRecordingService.StepKey && job is not null && job.StepStates.TryGetValue(key, out var existing) &&
             existing.Status == PublishJobStepStatus.Succeeded && !force)
         {
             AppendActivityLog($"共享流水线：{label}已完成，跳过。");
@@ -3903,6 +3936,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task RetryFailedAsync()
     {
         var rows = VisibleJobs.Where(row => row.Model.Status == PublishJobStatus.Failed).ToArray();
+        var storyboardRows = rows.Where(IsStoryboardFailure).ToArray();
+        if (storyboardRows.Length > 0 && !await RetryStoryboardRowsAsync(storyboardRows))
+            return;
+        rows = rows.Except(storyboardRows).ToArray();
+        if (rows.Length == 0 && storyboardRows.Length > 0)
+            return;
         await RunRowsAsync(rows, clearSchedule: true);
     }
 
@@ -3988,9 +4027,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             AppendActivityLog(StatusMessage);
         });
         var uploadLabel = job.Kind == PublishJobKind.Series ? "上传剧集" : "素材发表";
+        var preparingStoryboard = false;
 
         try
         {
+            if (IsStoryboardJob(job) && PipelineStoryboardRecordingEnabled)
+            {
+                preparingStoryboard = true;
+                await RunStoryboardStepAsync(job.ProjectDirectory, job, row, GetStoryboardOptions(), cancellationToken);
+                preparingStoryboard = false;
+            }
             if (_prepareEmbeddedWeixinSession is { } prepareSession)
             {
                 job.ConfigPath = await WeixinChannelPublishAdapter.RequireQueuedSeriesConfigAsync(job, cancellationToken);
@@ -4043,7 +4089,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
-            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Pending, "已停止，可继续执行");
+            if (!preparingStoryboard)
+                await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Pending, "已停止，可继续执行");
             job.Status = PublishJobStatus.Pending;
             job.StatusMessage = "已停止，可继续执行";
             StatusMessage = $"[{job.ProjectName}] 已停止";
@@ -4051,10 +4098,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Failed, ex.Message);
+            if (!preparingStoryboard)
+                await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Failed, ex.Message);
             job.Status = PublishJobStatus.Failed;
             job.StatusMessage = ex.Message;
-            StatusMessage = $"[{job.ProjectName}] 发布失败：{ex.Message}";
+            StatusMessage = $"[{job.ProjectName}] {(preparingStoryboard ? WeixinStoryboardRecordingService.StepLabel : "发布")}失败：{ex.Message}";
             AppendActivityLog(StatusMessage);
         }
         finally
