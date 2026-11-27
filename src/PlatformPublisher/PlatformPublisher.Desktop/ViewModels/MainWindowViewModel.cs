@@ -488,6 +488,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void UseGlobalAccount(GlobalAccount? account)
     {
         _activeGlobalAccount = account;
+        if (_jobScope == PublishJobScope.Weixin)
+        {
+            ApplyFooterLogs();
+            UseWeixinAccount(account?.Id,
+                account is null ? null : ChannelsPublisher.Core.Services.WeixinWorkspaceAccounts.DisplayName(account), account?.ProfileDir);
+            DraftAccountName = account is null ? "" : ActiveWeixinAccountName;
+            RefreshVisibleJobs();
+            RefreshVisibleAccounts(account?.Id);
+            NotifyCommands();
+            return;
+        }
         LoadKuaishouDedupOption();
         ApplyFooterLogs();
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
@@ -532,9 +543,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         var accountChanged = !string.Equals(_activeGlobalAccount?.Id, account?.Id, StringComparison.OrdinalIgnoreCase);
         UseGlobalAccounts(accounts, account);
-        if (accountChanged || account is null)
+        var workDirectory = account is null ? "" :
+            ChannelsPublisher.Core.Services.WeixinWorkspaceAccounts.WorkDirectory(account, _globalAccountStore.Accounts);
+        if (accountChanged || account is null || !string.Equals(_savedWeixinWorkDirectory, workDirectory, StringComparison.OrdinalIgnoreCase))
         {
-            DraftProjectDirectory = account?.WorkRootDirectory ?? string.Empty;
+            _savedWeixinWorkDirectory = workDirectory;
+            DraftProjectDirectory = workDirectory;
             ArchiveRootDirectory = DraftProjectDirectory;
         }
     }
@@ -558,6 +572,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var normalized = Path.GetFullPath(directory);
+        if (_jobScope == PublishJobScope.Weixin)
+        {
+            var previous = _activeGlobalAccount.WeixinWorkRootDirectory;
+            _activeGlobalAccount.WeixinWorkRootDirectory = normalized;
+            try { _globalAccountStore.Update(_activeGlobalAccount); }
+            catch (Exception ex)
+            {
+                _activeGlobalAccount.WeixinWorkRootDirectory = previous;
+                StatusMessage = $"保存视频号工作目录失败：{ex.Message}";
+                return false;
+            }
+            _savedWeixinWorkDirectory = DraftProjectDirectory = normalized;
+            ArchiveRootDirectory = normalized;
+            StatusMessage = $"已保存视频号工作目录：{normalized}";
+            ActiveAccountWorkRootDirectoryChanged?.Invoke();
+            return true;
+        }
         if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
             _activeGlobalAccount.KuaishouPersonalWorkRootDirectory = normalized;
         else if (SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue)
@@ -1143,7 +1174,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ProjectDirectory = directory,
             ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, SelectedPlatform.Value),
             AccountId = _activeGlobalAccount!.Id,
-            AccountName = _activeGlobalAccount.Name,
+            AccountName = _jobScope == PublishJobScope.Weixin ? ActiveWeixinAccountName : _activeGlobalAccount.Name,
             AccountSessionDirectory = SelectedPlatform.Value == PublishPlatform.WeixinChannel
                 ? _activeGlobalAccount.ProfileDir
                 : string.Empty,
@@ -1441,7 +1472,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanRunSharedPipeline() =>
         AllowsKuaishouWork() &&
         (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy) &&
-        Directory.Exists(DraftProjectDirectory) &&
+        (_jobScope == PublishJobScope.Weixin
+            ? VisibleJobs.Any(row => row.IsChecked && Directory.Exists(row.ProjectDirectory))
+            : Directory.Exists(DraftProjectDirectory)) &&
         (PipelineDownloadEnabled || (IsKuaishouPlatform && PipelineKuaishouDedupEnabled) || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
@@ -1658,6 +1691,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void OnWorkflowStepChanged()
     {
+        OnPropertyChanged(nameof(WeixinStepsSummary));
         RunSharedPipelineCommand.NotifyCanExecuteChanged();
         RememberWorkflowSteps();
     }
@@ -2022,7 +2056,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Select(row => Path.GetFullPath(row.Model.ProjectDirectory))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (checkedDirectories.Length > 0 || IsKuaishouPlatform)
+        if (checkedDirectories.Length > 0 || IsKuaishouPlatform || _jobScope == PublishJobScope.Weixin)
             return checkedDirectories;
         if (SelectedJob is not null && Directory.Exists(SelectedJob.Model.ProjectDirectory))
             return [Path.GetFullPath(SelectedJob.Model.ProjectDirectory)];
@@ -2269,6 +2303,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private bool CanRunChecked() =>
         AllowsKuaishouWork() &&
+        (_jobScope != PublishJobScope.Weixin || VisibleJobs.Any(row => row.IsChecked &&
+            row.Model.Status is PublishJobStatus.Pending or PublishJobStatus.Failed)) &&
         (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy);
 
     private bool CanStopCurrentWork() =>
@@ -3482,7 +3518,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             step.UpdatedAt = DateTimeOffset.Now;
             job.UpdatedAt = DateTimeOffset.Now;
             await _store.SaveAsync(_jobs, _persistJobScope).ConfigureAwait(false);
-            if (key == "weixin-upload" && status == PublishJobStepStatus.Succeeded)
+            if (key == "weixin-upload" && status == PublishJobStepStatus.Succeeded &&
+                job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
                 RefreshKuaishouTodayUploadCount();
         }
         finally
@@ -3499,6 +3536,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 row.Refresh(reloadArtifacts: reloadTitle);
                 if (kuaishou)
                     NotifyKuaishouLogProjectsChanged();
+                else if (IsWeixinPlatform)
+                {
+                    if (ShowOnlyWeixinPendingUpload) RefreshVisibleJobs(SelectedJob?.Id);
+                    else RefreshWeixinQueueIndicators();
+                }
             });
         }
     }
@@ -3562,7 +3604,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanRunRunnable() => !IsBusy && VisibleJobs.Any(row =>
         PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
         _coordinator.GetAdapter(row.Platform).IsAvailable);
-    private bool CanRetryFailed() => !IsBusy && VisibleJobs.Any(row => row.Model.Status == PublishJobStatus.Failed);
+    private bool CanRetryFailed() => !IsBusy && VisibleJobs.Any(IsRetryableUpload);
+
+    private bool IsRetryableUpload(PublishJobRowViewModel row) =>
+        row.Model.Status == PublishJobStatus.Failed &&
+        (_jobScope != PublishJobScope.Weixin ||
+         row.Model.StepStates.GetValueOrDefault("weixin-upload")?.Status == PublishJobStepStatus.Failed);
     private bool CanOpenLogin() => IsKuaishouPlatform
         ? ResolveOperatorPlatformJob() is not null
         : SelectedJob is not null && !IsBusy;
@@ -3710,6 +3757,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     internal async Task SaveQueueSelectionAsync(PublishJobRowViewModel row)
     {
+        RefreshWeixinQueueIndicators();
         await _persistGate.WaitAsync();
         try
         {
@@ -3729,6 +3777,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         foreach (var row in VisibleJobs)
             row.IsChecked = selector(row);
+        RefreshWeixinQueueIndicators();
         await PersistAsync();
         StatusMessage = $"当前筛选结果已勾选 {VisibleJobs.Count(row => row.IsChecked)} 条。";
     }
@@ -3744,6 +3793,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (currentIndex < 0) return;
         for (var index = 0; index < VisibleJobs.Count; index++)
             VisibleJobs[index].IsChecked = index <= currentIndex;
+        RefreshWeixinQueueIndicators();
         await PersistAsync();
         StatusMessage = $"已勾选到当前项目，共 {currentIndex + 1} 条。";
     }
@@ -3935,7 +3985,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RetryFailedAsync()
     {
-        var rows = VisibleJobs.Where(row => row.Model.Status == PublishJobStatus.Failed).ToArray();
+        var rows = VisibleJobs.Where(IsRetryableUpload).ToArray();
         var storyboardRows = rows.Where(IsStoryboardFailure).ToArray();
         if (storyboardRows.Length > 0 && !await RetryStoryboardRowsAsync(storyboardRows))
             return;
@@ -5503,7 +5553,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                          .OrderByDescending(job => job.CreatedAt))
             {
                 var row = RowForJob(job);
-                if (!MatchesWorkflowFilter(row))
+                if ((IsWeixinPlatform && ShowOnlyWeixinPendingUpload && !row.IsReadyForWeixinUpload) ||
+                    !MatchesWorkflowFilter(row))
                     continue;
                 rows.Add(row);
             }
@@ -5518,6 +5569,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             RefreshPagedJobs(selectId);
             OnPropertyChanged(nameof(QueueSummary));
+            RefreshWeixinQueueIndicators();
             ScheduleKuaishouListedVerification();
         }
 
@@ -5541,7 +5593,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             string.Equals(job.AccountId, account.Id, StringComparison.OrdinalIgnoreCase))
         {
             job.AccountId = account.Id;
-            job.AccountName = account.Name;
+            job.AccountName = ActiveWeixinAccountName;
             job.AccountSessionDirectory = account.ProfileDir;
             return true;
         }

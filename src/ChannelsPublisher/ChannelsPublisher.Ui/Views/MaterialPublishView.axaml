@@ -201,6 +201,8 @@
                             <TextBlock Text="（当前账号）" VerticalAlignment="Center" FontWeight="SemiBold" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="AssociateWeixinButton" Content="关联已有账号" Click="OnAssociateWeixinClick"
+                                    Classes="secondaryAction" IsVisible="False" />
                             <Button x:Name="LegacySessionImportButton" Content="导入旧版登录状态" Click="OnLegacySessionImportClick" Classes="secondaryAction" />
                             <Button Content="保存账号配置" Command="{Binding SaveAccountConfigCommand}" Classes="primaryAction" />
                         </StackPanel>
@@ -221,7 +223,7 @@
                     </Grid>
                 </Border>
                 <Border Grid.Row="1" Classes="panel" Padding="12">
-                    <TabControl>
+                    <TabControl x:Name="AccountDetailsTabs">
                         <TabItem Header="基础信息">
                             <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
                                 <TextBlock Text="账号名称" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -254,7 +256,7 @@
                                 <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding SelectedAccount.CostReportActorPayRatio}" Watermark="例如：30%" />
                             </Grid>
                         </TabItem>
-                        <TabItem Header="快手账号">
+                        <TabItem x:Name="KuaishouAccountTab" Header="快手账号">
                             <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
                                 <TextBlock Text="快手分账个人" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBox Grid.Column="1" Text="{Binding SelectedAccount.KuaishouPersonalAccount}" Watermark="快手个人版账号或备注" />
@@ -267,13 +269,16 @@
                             </Grid>
                         </TabItem>
                         <TabItem Header="工作目录">
-                            <Grid Margin="12" ColumnDefinitions="150,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                            <Grid Margin="12" ColumnDefinitions="150,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
                                 <TextBlock Text="工作根目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBox Grid.Column="1" Text="{Binding SelectedAccount.WorkRootDirectory}" Watermark="该账号默认项目工作根目录" />
                                 <TextBlock Grid.Row="1" Text="下载目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedAccount.DownloadDirectory}" Watermark="该账号默认短剧下载目录" />
                                 <TextBlock Grid.Row="2" Text="归档目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedAccount.ArchiveRootDirectory}" Watermark="上传完成后的默认归档根目录" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" IsVisible="{Binding SelectedAccount.NeedsWeixinWorkDirectory, FallbackValue=False}"
+                                           Text="请为视频号重新选择工作目录，或确认后填入原目录。"
+                                           Foreground="#9A3412" TextWrapping="Wrap" />
                             </Grid>
                         </TabItem>
                     </TabControl>

@@ -53,7 +53,8 @@ public partial class MaterialPublishView : UserControl
     }
 
     public PublishAccount? SelectedAccountProfile => _vm?.SelectedAccount?.Model;
-    public IReadOnlyList<PublishAccount> AccountProfiles => _vm?.Accounts.Select(item => item.Model).ToArray() ?? [];
+    public IReadOnlyList<PublishAccount> AccountProfiles => _vm?.Accounts.Where(_vm.IsInWorkspace).Select(item => item.Model).ToArray() ?? [];
+    public string SelectedAccountWorkDirectory => _vm?.SelectedAccount?.WorkRootDirectory ?? "";
     public bool HasActivePublish => _publishCts is not null;
 
     public void SetSidebarVisible(bool visible)
@@ -66,7 +67,8 @@ public partial class MaterialPublishView : UserControl
     public void UseUploadWorkspace(Panel sidebarHost, AccountStore store, string queuePath, Control workflow,
         Func<bool> canStartPublish, Func<int, Task<bool>> confirmPublish,
         Func<string, Task<bool?>> confirmPendingOutcome,
-        Func<string, int> allocatePort, Action<string> releasePort)
+        Func<string, int> allocatePort, Action<string> releasePort, bool showMaterialPublish = true,
+        Func<string, bool>? hasWeixinJobs = null)
     {
         _workspaceQueuePath = queuePath;
         _canStartPublish = canStartPublish;
@@ -81,11 +83,23 @@ public partial class MaterialPublishView : UserControl
         AccountSidebar.HideAccountRemoval();
         sidebarHost.Children.Add(AccountSidebar);
         LegacySessionImportButton.IsVisible = LegacySessionImportRequested is not null;
+        AssociateWeixinButton.IsVisible = hasWeixinJobs is not null;
+        AccountDetailsTabs.Items.Remove(KuaishouAccountTab);
         SetWorkflowContent(workflow);
         WorkflowTab.Header = "任务队列";
         foreach (var tab in WorkspaceTabs.Items.OfType<TabItem>())
-            tab.IsVisible = tab == MaterialQueueTab || tab == AccountConfigTab ||
+            tab.IsVisible = (tab == MaterialQueueTab && showMaterialPublish) || tab == AccountConfigTab ||
                 tab == SeriesUploadTab || tab == WorkflowTab || tab == RuntimeLogTab;
+        if (!showMaterialPublish)
+        {
+            var tabs = new[] { WorkflowTab, SeriesFormConfigTab, SeriesUploadTab, AccountConfigTab, RuntimeLogTab };
+            for (var index = 0; index < tabs.Length; index++)
+            {
+                WorkspaceTabs.Items.Remove(tabs[index]);
+                WorkspaceTabs.Items.Insert(index, tabs[index]);
+            }
+            WorkspaceTabs.SelectedItem = WorkflowTab;
+        }
         MaterialQueueTab.Header = "素材发布";
         AddMaterialDirectoryButton.IsVisible = true;
         ClearResumeButton.IsVisible = false;
@@ -105,9 +119,10 @@ public partial class MaterialPublishView : UserControl
         WorkspaceBrowserFrame.Margin = new Avalonia.Thickness(0);
         WorkspaceBrowserFrame.IsVisible = true;
         WorkspaceBrowserFrame.IsHitTestVisible = false;
-        DataContext = new MainViewModel(store, loadAccounts: false, excludeNewAccountsFromKuaishou: true);
+        DataContext = new MainViewModel(store, loadAccounts: false, excludeNewAccountsFromKuaishou: true, hasWeixinJobs: hasWeixinJobs);
         AccountSidebar.DataContext = DataContext;
         var vm = _vm!;
+        vm.AccountSettingsSaved += account => SelectedAccountChanged?.Invoke(account);
         WorkspaceTabs.SelectionChanged += (_, args) =>
         {
             if (ReferenceEquals(args.Source, WorkspaceTabs))
@@ -129,6 +144,7 @@ public partial class MaterialPublishView : UserControl
     public void SetWorkspaceAccountPanelEnabled(bool enabled) => AccountSidebar.IsEnabled = enabled;
 
     public void RefreshWorkspaceAccounts() => _vm?.RefreshAccountList();
+    public void RefreshSelectedAccountWorkDirectory() => _vm?.SelectedAccount?.RefreshWorkDirectory();
 
     public async Task DisposeWorkspaceAsync()
     {
@@ -229,6 +245,7 @@ public partial class MaterialPublishView : UserControl
     }
 
     public void ShowSeriesFormConfig() => WorkspaceTabs.SelectedItem = SeriesFormConfigTab;
+    public void ShowRuntimeLog() => WorkspaceTabs.SelectedItem = RuntimeLogTab;
 
     public void SetUnifiedPublishContent(Control content)
     {
@@ -237,12 +254,12 @@ public partial class MaterialPublishView : UserControl
 
     public void ShowUnifiedPublish()
     {
-        WorkspaceTabs.SelectedIndex = 0;
+        WorkspaceTabs.SelectedItem = MaterialQueueTab.IsVisible ? MaterialQueueTab : WorkflowTab;
     }
 
     public void ShowAccountSettings()
     {
-        WorkspaceTabs.SelectedIndex = 1;
+        WorkspaceTabs.SelectedItem = AccountConfigTab;
     }
 
     public void SetAccountSettingsOnly(bool settingsOnly)
@@ -252,7 +269,7 @@ public partial class MaterialPublishView : UserControl
             if (WorkspaceTabs.Items[index] is TabItem tab)
                 tab.IsVisible = tab == SeriesFormConfigTab
                     ? !settingsOnly && SeriesFormConfigHost.Content is not null
-                    : !settingsOnly || index == 1;
+                    : !settingsOnly || tab == AccountConfigTab;
         }
         if (settingsOnly)
             ShowAccountSettings();
@@ -262,7 +279,7 @@ public partial class MaterialPublishView : UserControl
     {
         var account = _vm?.Accounts.FirstOrDefault(item =>
             string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
-        if (account is not null && _vm is not null)
+        if (account is not null && _vm is not null && _vm.IsInWorkspace(account))
             _vm.SelectedAccount = account;
     }
 
@@ -501,6 +518,46 @@ public partial class MaterialPublishView : UserControl
 
     // 发布测试：选视频 → 经当前账号 WebView2 的 CDP 端点跑发布流程（只填不发，安全）
     private void OnAccountSettingsRequested(object? sender, EventArgs e) => ShowAccountSettings();
+
+    private async void OnAssociateWeixinClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is not { } vm || TopLevel.GetTopLevel(this) is not Window owner) return;
+        var candidates = vm.UnassociatedAccounts.Select(account => new ComboBoxItem
+        {
+            Content = $"{account.Name} · {account.Id}",
+            Tag = account.Id,
+        }).ToArray();
+        if (candidates.Length == 0)
+        {
+            vm.StatusMessage = "没有可关联的已有账号。";
+            return;
+        }
+        var picker = new ComboBox { ItemsSource = candidates, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
+        var submit = new Button { Content = "关联到视频号", IsEnabled = false, Classes = { "primaryAction" } };
+        var cancel = new Button { Content = "取消" };
+        var dialog = new Window
+        {
+            Title = "关联已有视频号账号", Width = 480, Height = 230, CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(18), Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = "选择一个确实用于视频号的旧账号，关联后可在这里扫码登录。", TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                    picker,
+                    new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8, Children = { submit, cancel } },
+                },
+            },
+        };
+        picker.SelectionChanged += (_, _) => submit.IsEnabled = picker.SelectedItem is ComboBoxItem;
+        submit.Click += (_, _) => dialog.Close((picker.SelectedItem as ComboBoxItem)?.Tag as string);
+        cancel.Click += (_, _) => dialog.Close(null);
+        var id = await dialog.ShowDialog<string?>(owner);
+        if (string.IsNullOrWhiteSpace(id)) return;
+        try { vm.AssociateWeixinAccount(id); }
+        catch (Exception ex) { vm.StatusMessage = $"关联账号失败：{ex.Message}"; }
+    }
     private void OnLegacySessionImportClick(object? sender, RoutedEventArgs e) =>
         LegacySessionImportRequested?.Invoke(this, EventArgs.Empty);
 

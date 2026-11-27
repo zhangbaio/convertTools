@@ -33,6 +33,11 @@ public sealed class PublishAccount
     public string LegacyProfileId { get; set; } = "";
     public string LegacySessionSourceRoot { get; set; } = "";
     public string WeixinAuthStatePath { get; set; } = "";
+    public bool IsWeixinWorkspaceAccount { get; set; }
+    public string WeixinAccountName { get; set; } = "";
+    public string? WeixinNickname { get; set; }
+    public DateTimeOffset? WeixinLastLoginAt { get; set; }
+    public string? WeixinWorkRootDirectory { get; set; }
     public string KuaishouPersonalAuthStatePath { get; set; } = "";
     public string KuaishouEnterpriseAuthStatePath { get; set; } = "";
     /// <summary>快手分账账号类型：personal、enterprise。空表示未设置，不能生成产物或上传。</summary>

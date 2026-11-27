@@ -38,6 +38,7 @@ public partial class WeixinUploadWorkspace : UserControl
     }
 
     private bool IsWorkflowRunning => _platformViewModel?.IsBusy == true;
+    public bool IsMaterialPublishVisible { get; } = false;
     public bool HasActiveUploads => Publisher.HasActivePublish || _series.IsRunning || IsWorkflowRunning;
     public string RuntimeStatus => _lastStatus;
     public event Action? RuntimeChanged;
@@ -93,19 +94,17 @@ public partial class WeixinUploadWorkspace : UserControl
             var adapter = (WeixinChannelPublishAdapter)workflowServices.GetRequiredService<PlatformPublishCoordinator>()
                 .GetAdapter(PublishPlatform.WeixinChannel);
             var workflow = new WeixinWorkflowView { DataContext = viewModel };
-            workflow.BindWorkspaceAccountActions(() =>
-            {
-                Publisher.RefreshWorkspaceAccounts();
-                ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
-            }, Publisher.ShowAccountSettings);
+            workflow.BindWorkspaceAccountActions(Publisher.ShowAccountSettings);
             workflow.SettingsRequested += (_, _) => SettingsRequested?.Invoke();
+            workflow.ViewLogsRequested += (_, _) => Publisher.ShowRuntimeLog();
             viewModel.BindEmbeddedWeixinWork(() => !Publisher.HasActivePublish && !_series.IsRunning,
                 Publisher.PrepareSeriesSessionAsync, ConfirmQueueUploadAsync);
             var queuePath = Path.Combine(PlatformPublisherPaths.DataRoot, "weixin", "material-queue.json");
             Publisher.UseUploadWorkspace(_accountPanel, services.GetRequiredService<AccountStore>(), queuePath, workflow,
                 () => !_series.IsRunning && !IsWorkflowRunning, ConfirmMaterialPublishAsync, ConfirmPendingOutcomeAsync,
                 id => AccountBrowserPortAllocator.Allocate("weixin:" + id),
-                id => AccountBrowserPortAllocator.Release("weixin:" + id));
+                id => AccountBrowserPortAllocator.Release("weixin:" + id),
+                showMaterialPublish: IsMaterialPublishVisible, hasWeixinJobs: viewModel.HasWeixinJobs);
             _series.BindWorkspace(adapter, () => Publisher.SelectedAccountProfile,
                 () => !Publisher.HasActivePublish && !IsWorkflowRunning,
                 Publisher.PrepareSeriesSessionAsync);
@@ -124,12 +123,21 @@ public partial class WeixinUploadWorkspace : UserControl
             _workflowServices = workflowServices;
             viewModel = null;
             workflowServices = null;
-            Publisher.SelectedAccountChanged += _series.SetAccount;
-            Publisher.SelectedAccountChanged += seriesForm.SetAccount;
+            void LoadSeriesAccount(Account? account)
+            {
+                var workDirectory = Publisher.SelectedAccountWorkDirectory;
+                _series.SetAccount(account, workDirectory);
+                seriesForm.SetAccount(account, workDirectory);
+            }
+            Publisher.SelectedAccountChanged += LoadSeriesAccount;
+            _platformViewModel.ActiveAccountWorkRootDirectoryChanged += () =>
+            {
+                Publisher.RefreshSelectedAccountWorkDirectory();
+                LoadSeriesAccount(Publisher.SelectedAccountProfile);
+            };
             Publisher.SelectedAccountChanged += ApplyWorkflowAccount;
             _platformViewModel.PropertyChanged += OnWorkflowPropertyChanged;
-            _series.SetAccount(Publisher.SelectedAccountProfile);
-            seriesForm.SetAccount(Publisher.SelectedAccountProfile);
+            LoadSeriesAccount(Publisher.SelectedAccountProfile);
             ApplyWorkflowAccount(Publisher.SelectedAccountProfile);
             _ready = true;
             _lease = lease;
@@ -167,6 +175,8 @@ public partial class WeixinUploadWorkspace : UserControl
 
     public async Task<string?> QueueClippedMaterialsAsync(IReadOnlyList<string> paths)
     {
+        if (!IsMaterialPublishVisible)
+            return "视频号素材发布暂未开放。";
         if (!_ready)
             return "视频号工作区尚未就绪，请打开入口检查状态。";
         if (Publisher.SelectedAccountProfile is not { } account || TopLevel.GetTopLevel(this) is not Window owner)

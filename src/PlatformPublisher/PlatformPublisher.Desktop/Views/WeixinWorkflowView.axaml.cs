@@ -28,7 +28,6 @@ public partial class WeixinWorkflowView : UserControl
     private bool _embeddedUploadLayout;
     private bool _kuaishouColumnsAdjusted;
     private Func<PublishAccount?>? _accountProvider;
-    private Action? _refreshWorkspaceAccount;
     private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
     public event EventHandler? ViewLogsRequested;
@@ -152,33 +151,15 @@ public partial class WeixinWorkflowView : UserControl
 
     private void ApplyMode()
     {
-        if (KuaishouChrome is null || WeixinChrome is null || QueueHeader is null ||
-            KuaishouQueueHeader is null || KuaishouQueueList is null || WeixinQueueList is null) return;
+        if (KuaishouChrome is null || WeixinChrome is null || WeixinTableRoot is null ||
+            WorkflowQueueScroll is null || WeixinFooter is null || WorkflowStatus is null) return;
         KuaishouChrome.IsVisible = _isKuaishouMode;
         WeixinChrome.IsVisible = !_isKuaishouMode;
-        KuaishouQueueHeader.IsVisible = _isKuaishouMode;
-        KuaishouQueueList.IsVisible = _isKuaishouMode;
-        QueueHeader.IsVisible = !_isKuaishouMode;
-        WeixinQueueList.IsVisible = !_isKuaishouMode;
+        WorkflowQueueScroll.IsVisible = _isKuaishouMode;
+        KuaishouQueueHeader.IsVisible = KuaishouQueueList.IsVisible = _isKuaishouMode;
+        WeixinTableRoot.IsVisible = WeixinFooter.IsVisible = !_isKuaishouMode;
+        WorkflowStatus.IsVisible = _isKuaishouMode && !_embeddedUploadLayout;
         Classes.Set("kuaishouQueue", _isKuaishouMode);
-        QueueHeader.Padding = _isKuaishouMode ? new Avalonia.Thickness(8, 4) : new Avalonia.Thickness(10, 7);
-        if (!_isKuaishouMode) return;
-        TaskTypeLabel.IsVisible = false;
-        TaskTypeSummary.IsVisible = false;
-        CreateProjectNameBox.IsVisible = false;
-        CreateProjectButton.IsVisible = false;
-        KuaishouConfigButton.IsVisible = true;
-        OpenLoginButton.Content = "经营者管理平台";
-        SmartRecutStep.IsVisible = false;
-        TranscodeStep.IsVisible = false;
-        AutoRepairStep.IsVisible = false;
-        CostReportStep.IsVisible = false;
-        AiProofStep.IsVisible = false;
-        StoryboardRecordingStep.IsVisible = false;
-        StoryboardRecordingSettings.IsVisible = false;
-        TimestampStep.IsVisible = false;
-        MaterialValidateStep.IsVisible = false;
-        RemuxStep.IsVisible = false;
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
@@ -221,20 +202,10 @@ public partial class WeixinWorkflowView : UserControl
         ViewModel?.UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
     }
 
-    internal void BindWorkspaceAccountActions(Action refreshAccount, Action openAccountSettings)
+    internal void BindWorkspaceAccountActions(Action openAccountSettings)
     {
-        _refreshWorkspaceAccount = refreshAccount;
         OpenLoginButton.Command = null;
-        OpenLoginButton.Content = "视频号登录";
         OpenLoginButton.Click += (_, _) => openAccountSettings();
-    }
-
-    private void OnRefreshAccountClick(object? sender, RoutedEventArgs e)
-    {
-        if (_refreshWorkspaceAccount is { } refresh)
-            refresh();
-        else
-            ApplyAccount(_accountProvider?.Invoke());
     }
 
     private async void OnPickProjectDirectoryClick(object? sender, RoutedEventArgs e)
@@ -402,7 +373,7 @@ public partial class WeixinWorkflowView : UserControl
         }
         finally
         {
-            UploadDramasButton.Content="上传短剧";
+            UploadDramasButton.Content="按剧名入队";
             KuaishouUploadDramasButton.Content="上传短剧";
             UploadDramasButton.IsEnabled=true;
             KuaishouUploadDramasButton.IsEnabled=true;
@@ -411,6 +382,9 @@ public partial class WeixinWorkflowView : UserControl
 
     private void OnKuaishouConfigClick(object? sender, RoutedEventArgs e) =>
         KuaishouConfigRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnViewWeixinLogsClick(object? sender, RoutedEventArgs e) =>
+        ViewLogsRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnViewKuaishouLogsClick(object? sender, RoutedEventArgs e) =>
         ViewLogsRequested?.Invoke(this, EventArgs.Empty);

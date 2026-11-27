@@ -116,6 +116,18 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string TimestampStepStatus => StepStatus("timestamp-certificate");
     public string UploadStepStatus => IsDraftReviewPending
         ? DraftReviewPendingText : KuaishouStep(_kuaishou?.UploadStatus, "weixin-upload");
+    public bool IsReadyForWeixinUpload => Platform == PublishPlatform.WeixinChannel &&
+        Model.Status == PublishJobStatus.Pending &&
+        Model.StepStates.GetValueOrDefault("material-validate")?.Status == PublishJobStepStatus.Succeeded &&
+        Model.StepStates.GetValueOrDefault("weixin-upload")?.Status is null or PublishJobStepStatus.Pending;
+    public string WeixinCurrentStep =>
+        Model.StepStates.Values.Where(step => step.Status is PublishJobStepStatus.Running or PublishJobStepStatus.Failed)
+            .OrderByDescending(step => step.Status == PublishJobStepStatus.Running)
+            .ThenByDescending(step => step.UpdatedAt).FirstOrDefault()?.Label ??
+        (IsReadyForWeixinUpload ? "等待上传" : StepProgressSummary);
+    public IReadOnlyList<string> WeixinStepDetails => Model.StepStates.Values
+        .Select(step => $"{step.Label} · {StepStatus(step.Key)}{(string.IsNullOrWhiteSpace(step.Message) ? "" : $" · {step.Message}")}")
+        .ToArray();
     private bool IsDraftReviewPending => Model.Status == PublishJobStatus.Blocked &&
         Model.StepStates.GetValueOrDefault("weixin-upload") is
             { Status: PublishJobStepStatus.Pending, Message: DraftReviewPendingText };
@@ -514,6 +526,9 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(StoryboardRecordingStepStatus));
         OnPropertyChanged(nameof(TimestampStepStatus));
         OnPropertyChanged(nameof(UploadStepStatus));
+        OnPropertyChanged(nameof(IsReadyForWeixinUpload));
+        OnPropertyChanged(nameof(WeixinCurrentStep));
+        OnPropertyChanged(nameof(WeixinStepDetails));
         OnPropertyChanged(nameof(ShelfStepStatus));
         OnPropertyChanged(nameof(ManagementSyncStepStatus));
         OnPropertyChanged(nameof(StepProgressSummary));

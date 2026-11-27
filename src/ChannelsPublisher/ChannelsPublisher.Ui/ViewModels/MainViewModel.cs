@@ -17,6 +17,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private readonly AccountStore _store;
     private readonly bool _excludeNewAccountsFromKuaishou;
+    private readonly Func<string, bool>? _hasWeixinJobs;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public IReadOnlyList<AccountItemViewModel> FilteredAccounts { get; private set; } = [];
@@ -25,7 +26,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _accountSearchText = "";
     [ObservableProperty] private string _statusMessage = "就绪";
-    public string CurrentAccountTitle => SelectedAccount?.Name ?? "请先在左侧选择账号";
+    public string CurrentAccountTitle => SelectedAccount?.DisplayName ?? "请先在左侧选择账号";
     public string CurrentLoginStatusText => SelectedAccount?.LoginStatusText ?? "尚未选择账号";
     public string CurrentLastLoginText => SelectedAccount?.LastLoginText ?? "-";
     public string CurrentRuntimeStatusText => SelectedAccount?.StatusText ?? "未选择";
@@ -54,13 +55,38 @@ public sealed partial class MainViewModel : ViewModelBase
     private void RefreshAccountFilter()
     {
         var keyword = (AccountSearchText ?? "").Trim();
-        FilteredAccounts = Accounts.Where(account => keyword.Length == 0 ||
+        FilteredAccounts = Accounts.Where(IsInWorkspace).Where(account => keyword.Length == 0 ||
             account.Name?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true ||
             account.Nickname?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true ||
             account.Id?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true).ToArray();
         OnPropertyChanged(nameof(FilteredAccounts));
         OnPropertyChanged(nameof(SidebarSelectedAccount));
     }
+
+    internal bool IsInWorkspace(AccountItemViewModel account) =>
+        _hasWeixinJobs is null || WeixinWorkspaceAccounts.IsVisible(account.Model, _hasWeixinJobs(account.Id));
+
+    internal IEnumerable<PublishAccount> UnassociatedAccounts =>
+        Accounts.Where(account => !IsInWorkspace(account)).Select(account => account.Model);
+
+    internal void AssociateWeixinAccount(string id)
+    {
+        if (_hasWeixinJobs is null || FindAccount(id) is not { } account) return;
+        var previous = account.Model.IsWeixinWorkspaceAccount;
+        account.Model.IsWeixinWorkspaceAccount = true;
+        try { _store.Update(account.Model); }
+        catch
+        {
+            account.Model.IsWeixinWorkspaceAccount = previous;
+            throw;
+        }
+        RefreshAccountFilter();
+        SelectedAccount = account;
+        StatusMessage = $"已关联视频号账号「{account.DisplayName}」。";
+    }
+
+    private AccountItemViewModel CreateAccountItem(PublishAccount account) =>
+        new(account, _hasWeixinJobs is null ? null : item => WeixinWorkspaceAccounts.WorkDirectory(item, _store.Accounts));
 
     partial void OnStatusMessageChanged(string value)
     {
@@ -97,9 +123,10 @@ public sealed partial class MainViewModel : ViewModelBase
         var selectedId = string.IsNullOrWhiteSpace(selectedAccountId) ? SelectedAccount?.Id : selectedAccountId;
         _store.Load();
         Accounts.Clear();
-        foreach (var account in _store.Accounts) Accounts.Add(new AccountItemViewModel(account));
+        foreach (var account in _store.Accounts) Accounts.Add(CreateAccountItem(account));
         RefreshAccountFilter();
-        SelectedAccount = Accounts.FirstOrDefault(account => account.Id == selectedId) ?? Accounts.FirstOrDefault();
+        SelectedAccount = Accounts.FirstOrDefault(account => account.Id == selectedId && IsInWorkspace(account))
+            ?? Accounts.FirstOrDefault(IsInWorkspace);
         StatusMessage = $"账号列表已刷新，共 {Accounts.Count} 个账号。";
     }
 
@@ -111,11 +138,11 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var account in current.Values)
         {
             if (Accounts.All(item => item.Id != account.Id))
-                Accounts.Add(new AccountItemViewModel(account));
+                Accounts.Add(CreateAccountItem(account));
         }
         RefreshAccountFilter();
-        if (SelectedAccount is null || !Accounts.Contains(SelectedAccount))
-            SelectedAccount = Accounts.FirstOrDefault();
+        if (SelectedAccount is null || !Accounts.Contains(SelectedAccount) || !IsInWorkspace(SelectedAccount))
+            SelectedAccount = Accounts.FirstOrDefault(IsInWorkspace);
     }
 
     public void RecordAccountLogin(AccountItemViewModel account)
@@ -127,17 +154,20 @@ public sealed partial class MainViewModel : ViewModelBase
 
     /// <summary>请求视图把某账号的内嵌浏览器导航到 url（View 侧持有 WebView2Host）。</summary>
     public event Action<AccountItemViewModel, string>? NavigateRequested;
+    public event Action<PublishAccount>? AccountSettingsSaved;
 
-    public MainViewModel(AccountStore store, bool loadAccounts = true, bool excludeNewAccountsFromKuaishou = false)
+    public MainViewModel(AccountStore store, bool loadAccounts = true, bool excludeNewAccountsFromKuaishou = false,
+        Func<string, bool>? hasWeixinJobs = null)
     {
         _store = store;
         _excludeNewAccountsFromKuaishou = excludeNewAccountsFromKuaishou;
+        _hasWeixinJobs = hasWeixinJobs;
         if (loadAccounts)
             _store.Load();
         foreach (var account in _store.Accounts)
-            Accounts.Add(new AccountItemViewModel(account));
+            Accounts.Add(CreateAccountItem(account));
         RefreshAccountFilter();
-        SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
+        SelectedAccount = Accounts.FirstOrDefault(IsInWorkspace);
         _selectedFinalAction = FinalActionChoices[0];
     }
 
@@ -149,8 +179,9 @@ public sealed partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void AddAccount()
     {
-        var account = _store.Add($"账号{Accounts.Count + 1}", _excludeNewAccountsFromKuaishou);
-        var vm = new AccountItemViewModel(account);
+        var account = _store.Add($"账号{Accounts.Count(IsInWorkspace) + 1}", _excludeNewAccountsFromKuaishou,
+            weixinWorkspaceAccount: _hasWeixinJobs is not null);
+        var vm = CreateAccountItem(account);
         Accounts.Add(vm);
         if (string.IsNullOrEmpty(AccountSearchText))
             RefreshAccountFilter();
@@ -168,7 +199,7 @@ public sealed partial class MainViewModel : ViewModelBase
         _store.Remove(vm.Model);
         Accounts.Remove(vm);
         RefreshAccountFilter();
-        SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
+        SelectedAccount = Accounts.FirstOrDefault(IsInWorkspace);
         StatusMessage = $"已删除「{vm.Name}」";
     }
 
@@ -204,16 +235,21 @@ public sealed partial class MainViewModel : ViewModelBase
         SelectedAccount.CostReportSealPath = SelectedAccount.CostReportSealPath?.Trim() ?? string.Empty;
         SelectedAccount.CostReportLegalRepresentative = SelectedAccount.CostReportLegalRepresentative?.Trim() ?? string.Empty;
         SelectedAccount.CostReportActorPayRatio = SelectedAccount.CostReportActorPayRatio?.Trim() ?? string.Empty;
-        SelectedAccount.KuaishouPersonalAccount = SelectedAccount.KuaishouPersonalAccount?.Trim() ?? string.Empty;
-        SelectedAccount.KuaishouPersonalConfigPath = SelectedAccount.KuaishouPersonalConfigPath?.Trim() ?? string.Empty;
-        SelectedAccount.KuaishouEnterpriseAccount = SelectedAccount.KuaishouEnterpriseAccount?.Trim() ?? string.Empty;
-        SelectedAccount.KuaishouEnterpriseConfigPath = SelectedAccount.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty;
+        if (_hasWeixinJobs is null)
+        {
+            SelectedAccount.KuaishouPersonalAccount = SelectedAccount.KuaishouPersonalAccount?.Trim() ?? string.Empty;
+            SelectedAccount.KuaishouPersonalConfigPath = SelectedAccount.KuaishouPersonalConfigPath?.Trim() ?? string.Empty;
+            SelectedAccount.KuaishouEnterpriseAccount = SelectedAccount.KuaishouEnterpriseAccount?.Trim() ?? string.Empty;
+            SelectedAccount.KuaishouEnterpriseConfigPath = SelectedAccount.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty;
+        }
         SelectedAccount.WorkRootDirectory = SelectedAccount.WorkRootDirectory?.Trim() ?? string.Empty;
         SelectedAccount.DownloadDirectory = SelectedAccount.DownloadDirectory?.Trim() ?? string.Empty;
         SelectedAccount.ArchiveRootDirectory = SelectedAccount.ArchiveRootDirectory?.Trim() ?? string.Empty;
         _store.Update(SelectedAccount.Model);
         RefreshAccountFilter();
         StatusMessage = $"[{SelectedAccount.Name}] 账号配置已保存";
+        OnPropertyChanged(nameof(CurrentAccountTitle));
+        AccountSettingsSaved?.Invoke(SelectedAccount.Model);
     }
 
     [RelayCommand]

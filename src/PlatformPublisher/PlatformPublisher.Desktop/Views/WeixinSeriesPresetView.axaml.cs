@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using Avalonia.Media;
+using ChannelsPublisher.Core.Services;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Weixin.Publishing;
 using Account = ChannelsPublisher.Core.Models.PublishAccount;
@@ -22,6 +23,7 @@ public partial class WeixinSeriesPresetView : UserControl
     private CancellationTokenSource? _previewCancellation;
     private bool _loading;
     private string? _loadedProject;
+    private string _configuredDirectory = "";
 
     public WeixinSeriesPresetView()
     {
@@ -41,15 +43,23 @@ public partial class WeixinSeriesPresetView : UserControl
         _forms = forms;
     }
 
-    internal void SetAccount(Account? account)
+    internal void SetAccount(Account? account, string workDirectory)
     {
-        if (account is not null && account.Id == _account?.Id) return;
+        if (account is not null && account.Id == _account?.Id)
+        {
+            AccountSummary.Text = WeixinWorkspaceAccounts.DisplayName(account);
+            if (ProjectDirectoryBox.Text == _configuredDirectory && _configuredDirectory != workDirectory)
+                LoadProject(workDirectory);
+            _configuredDirectory = workDirectory;
+            return;
+        }
         _account = account;
+        _configuredDirectory = workDirectory;
         ResetPreview();
         ConfigPathBox.Text = "";
-        ProjectDirectoryBox.Text = account?.WorkRootDirectory ?? "";
+        ProjectDirectoryBox.Text = workDirectory;
         PreviewModePicker.SelectedIndex = 0;
-        AccountSummary.Text = account is null ? "请先在左侧选择视频号账号。" : account.Name;
+        AccountSummary.Text = account is null ? "请先在左侧选择视频号账号。" : WeixinWorkspaceAccounts.DisplayName(account);
         _library = account is null || _store is null ? new() : _store.Load(account.Id);
         RenderPresetList(_library.DefaultId);
         StatusText.Text = "";
@@ -261,7 +271,7 @@ public partial class WeixinSeriesPresetView : UserControl
         var draft = new WeixinSeriesProjectForm(presetId, overrides, path);
         var job = new PublishJob
         {
-            AccountId = account.Id, AccountName = account.Name, ProjectDirectory = directory,
+            AccountId = account.Id, AccountName = WeixinWorkspaceAccounts.DisplayName(account), ProjectDirectory = directory,
             ProjectName = Path.GetFileName(Path.TrimEndingDirectorySeparator(directory)), ConfigPath = path,
             PlatformOptionsJson = new WeixinPublishOptions
             {

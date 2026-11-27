@@ -79,7 +79,8 @@ public partial class MainWindow : Window
         WeixinWorkspace.Bind(AccountPanelHost, KuaishouWorkspace);
         WeixinWorkspace.RuntimeChanged += UpdateWeixinStatus;
         WeixinWorkspace.SettingsRequested += () => NavigateTo("settings");
-        MaterialClipPage.BindWeixinExport(SendClippedMaterialsToWeixinAsync);
+        if (WeixinWorkspace.IsMaterialPublishVisible)
+            MaterialClipPage.BindWeixinExport(SendClippedMaterialsToWeixinAsync);
         AccountsView.Bind(_viewModel);
         AccountsView.UseWorkspaceNavigation();
         DedupTemplatesView.Bind(_viewModel);

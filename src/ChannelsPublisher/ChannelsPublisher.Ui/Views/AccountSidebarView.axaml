@@ -39,7 +39,7 @@
             </StackPanel>
 
             <TextBlock DockPanel.Dock="Bottom" Classes="pageSummary" TextWrapping="Wrap" Margin="0,10,0,0"
-                       Text="{Binding SelectedAccount.Name, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
+                       Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
 
             <ListBox x:Name="AccountList" Classes="uploadAccountList standaloneAccountList"
                      ItemsSource="{Binding FilteredAccounts}"
@@ -54,7 +54,7 @@
                                     <TextBlock Text="{Binding PlatformSummary}" />
                                 </StackPanel>
                             </ToolTip.Tip>
-                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                             <TextBlock Text="{Binding SidebarSubtitle}" FontSize="12" Classes="pageSummary"
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>

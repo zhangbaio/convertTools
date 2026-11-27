@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using ChannelsPublisher.Core.Services;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Weixin.Publishing;
@@ -102,11 +103,18 @@ public partial class WeixinSeriesUploadView : UserControl
         SubmitWithApi.IsVisible = ForceApiReupload.IsVisible = api;
     }
 
-    internal void SetAccount(ChannelAccount? account)
+    private string? _configuredDirectory;
+    private string? _configuredAccountId;
+
+    internal void SetAccount(ChannelAccount? account, string workDirectory)
     {
         RefreshAccountSummary();
-        if (!IsRunning)
-            ProjectDirectoryInput.Text = account?.WorkRootDirectory;
+        if (!IsRunning && (_configuredAccountId != account?.Id || _configuredDirectory != workDirectory))
+        {
+            _configuredAccountId = account?.Id;
+            _configuredDirectory = workDirectory;
+            ProjectDirectoryInput.Text = workDirectory;
+        }
     }
 
     public void Stop() => _cancellation?.Cancel();
@@ -144,7 +152,9 @@ public partial class WeixinSeriesUploadView : UserControl
         var account = _accountProvider?.Invoke();
         AccountSummary.Text = account is null
             ? "请先在左侧添加并选择一个账号"
-            : $"{account.Name} · {account.Status}";
+            : _openSeriesForm is not null
+                ? $"{WeixinWorkspaceAccounts.DisplayName(account)} · {(WeixinWorkspaceAccounts.LastLogin(account) is not null || WeixinWorkspaceAccounts.HasSavedSession(account) ? "已保存登录" : "待登录")}"
+                : $"{account.Name} · {account.Status}";
     }
 
     private async void OnPickProjectDirectoryClick(object? sender, RoutedEventArgs e)
@@ -242,7 +252,7 @@ public partial class WeixinSeriesUploadView : UserControl
             ProjectName = Path.GetFileName(projectDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             ConfigPath = configPath,
             AccountId = account.Id,
-            AccountName = account.Name,
+            AccountName = _openSeriesForm is null ? account.Name : WeixinWorkspaceAccounts.DisplayName(account),
             AccountSessionDirectory = account.ProfileDir,
             PublishCount = 9999,
             PlatformOptionsJson = _options.ToJson(),
@@ -267,7 +277,7 @@ public partial class WeixinSeriesUploadView : UserControl
 
         using var cancellation = new CancellationTokenSource();
         _cancellation = cancellation;
-        _runningAccountName = account.Name;
+        _runningAccountName = job.AccountName;
         SetRunning(true);
         SetStatus($"开始剧集上架：{job.ProjectName}", isError: false);
         var progress = new Progress<string>(message =>
@@ -277,7 +287,7 @@ public partial class WeixinSeriesUploadView : UserControl
             SetStatus(message, isError: false);
             AddLog(message);
         });
-        AddLog($"开始剧集上架：{job.ProjectName}，账号：{account.Name}");
+        AddLog($"开始剧集上架：{job.ProjectName}，账号：{job.AccountName}");
         try
         {
             string status;
