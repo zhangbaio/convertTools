@@ -392,21 +392,15 @@
         </Border>
         <Border x:Name="WeixinChrome" Classes="controlsFrame uploadQueueToolbar" Padding="10">
             <StackPanel Spacing="7">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                    <WrapPanel>
-                        <Button x:Name="UploadDramasButton" Content="按剧名入队" Click="OnUploadDramasClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
-                        <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
-                        <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="contentAction compactAction" Margin="0,0,6,4" />
-                        <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="fileAction compactAction" Margin="0,0,6,4" />
-                        <Button x:Name="OpenLoginButton" Content="账号配置" Command="{Binding OpenLoginCommand}" Classes="logAction compactAction" Margin="0,0,6,4" />
-                    </WrapPanel>
-                    <WrapPanel x:Name="WeixinQuickActions" Grid.Column="1" HorizontalAlignment="Right">
-                        <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
-                        <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
-                        <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" Margin="0,0,0,4" />
-                    </WrapPanel>
-                </Grid>
                 <WrapPanel>
+                    <Button x:Name="UploadDramasButton" Content="按剧名入队" Click="OnUploadDramasClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
+                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="contentAction compactAction" Margin="0,0,6,4" />
+                    <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="contentAction compactAction" Margin="0,0,6,4" />
+                    <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="fileAction compactAction" Margin="0,0,6,4" />
+                    <Button x:Name="OpenLoginButton" Content="账号配置" Command="{Binding OpenLoginCommand}" Classes="logAction compactAction" Margin="0,0,6,4" />
+                    <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
+                    <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
+                    <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,4" />
                     <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
                     <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
                     <Button Content="取消全选" Command="{Binding UncheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,4" />
