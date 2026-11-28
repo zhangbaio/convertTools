@@ -2,9 +2,33 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
              xmlns:views="using:TikTokPublisher.Ui.Views"
+             xmlns:converters="using:Avalonia.Data.Converters"
              x:Class="TikTokPublisher.Ui.Views.SystemSettingsView"
              x:DataType="vm:SystemSettingsViewModel"
              Background="{StaticResource PythonPageBgBrush}">
+    <UserControl.Resources>
+        <DataTemplate x:Key="SharedVideoProcessingSettings" x:DataType="vm:ProjectConcurrencySettingsViewModel">
+            <StackPanel Spacing="14">
+                <TextBlock Text="共享视频处理上限（快手与 TikTok 共用）" FontWeight="SemiBold" />
+                <CheckBox Content="根据硬件自动设置上限"
+                          IsChecked="{Binding VideoAutomatic}" />
+                <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
+                    <TextBlock Text="手动上限（路）" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                   Value="{Binding VideoManualLimit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                   IsEnabled="{Binding !VideoAutomatic}"
+                                   Minimum="1" Maximum="{Binding VideoManualMaximum}"
+                                   ParsingNumberStyle="Integer" FormatString="0" Width="120"
+                                   AutomationProperties.Name="共享视频处理手动上限" />
+                </Grid>
+                <TextBlock Text="{Binding VideoProcessingStatus}"
+                           Classes="pageSummary" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding SaveMessage}" Classes="pageSummary"
+                           IsVisible="{Binding !!SaveMessage}" TextWrapping="Wrap" />
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
     <UserControl.Styles>
         <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
     </UserControl.Styles>
@@ -14,7 +38,14 @@
         <Grid x:Name="SettingsSaveFooter" DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
             <TextBlock Grid.Column="0" VerticalAlignment="Center" Classes="pageSummary" Text="{Binding SaveMessage}" TextWrapping="Wrap" />
             <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}"
-                    CommandParameter="{Binding #GeneralSettingsTab.IsSelected}" Classes="primaryAction" MinWidth="140" />
+                    Classes="primaryAction" MinWidth="140">
+                <Button.CommandParameter>
+                    <MultiBinding Converter="{x:Static converters:BoolConverters.Or}">
+                        <Binding Path="#KuaishouSettingsTab.IsSelected" />
+                        <Binding Path="#TikTokSettingsTab.IsSelected" />
+                    </MultiBinding>
+                </Button.CommandParameter>
+            </Button>
         </Grid>
 
         <TextBlock DockPanel.Dock="Top" Text="系统设置" Classes="pageTitle" FontWeight="Bold" Margin="0,0,0,10" />
@@ -338,44 +369,41 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem x:Name="GeneralSettingsTab" Header="通用设置">
+            <TabItem x:Name="KuaishouSettingsTab" Header="快手配置"
+                     IsVisible="{Binding ProjectConcurrencySettings.ShowsKuaishou, FallbackValue=False}">
                 <ScrollViewer>
                     <StackPanel Spacing="24" Margin="4" MaxWidth="1080">
                         <StackPanel Spacing="14">
                             <TextBlock Text="并发管理" FontWeight="Bold" />
-                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
-                                  IsVisible="{Binding ProjectConcurrencySettings.ShowsKuaishou}">
+                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
                                 <TextBlock Text="快手项目并发数量" VerticalAlignment="Center" />
                                 <NumericUpDown Grid.Column="1" Classes="configurationInput"
                                                Value="{Binding ProjectConcurrencySettings.KuaishouProjectConcurrency}"
                                                Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
                                                FormatString="0" Width="120" />
                             </Grid>
-                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
-                                  IsVisible="{Binding ProjectConcurrencySettings.ShowsTikTok}">
+                        </StackPanel>
+                        <ContentControl Content="{Binding ProjectConcurrencySettings}"
+                                        ContentTemplate="{StaticResource SharedVideoProcessingSettings}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem x:Name="TikTokSettingsTab" Header="TikTok 配置">
+                <ScrollViewer>
+                    <StackPanel Spacing="24" Margin="4" MaxWidth="1080">
+                        <StackPanel Spacing="14" IsVisible="{Binding ProjectConcurrencySettings.ShowsTikTok}">
+                            <TextBlock Text="并发管理" FontWeight="Bold" />
+                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
                                 <TextBlock Text="TikTok 项目并发数量" VerticalAlignment="Center" />
                                 <NumericUpDown Grid.Column="1" Classes="configurationInput"
                                                Value="{Binding ProjectConcurrencySettings.TikTokProjectConcurrency}"
                                                Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
                                                FormatString="0" Width="120" />
                             </Grid>
-                            <TextBlock Text="共享视频处理上限" FontWeight="SemiBold" />
-                            <CheckBox Content="根据硬件自动设置上限"
-                                      IsChecked="{Binding ProjectConcurrencySettings.VideoAutomatic}" />
-                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
-                                <TextBlock Text="手动上限（路）" VerticalAlignment="Center" />
-                                <NumericUpDown Grid.Column="1" Classes="configurationInput"
-                                               Value="{Binding ProjectConcurrencySettings.VideoManualLimit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                               IsEnabled="{Binding !ProjectConcurrencySettings.VideoAutomatic}"
-                                               Minimum="1" Maximum="{Binding ProjectConcurrencySettings.VideoManualMaximum}"
-                                               ParsingNumberStyle="Integer" FormatString="0" Width="120"
-                                               AutomationProperties.Name="共享视频处理手动上限" />
-                            </Grid>
-                            <TextBlock Text="{Binding ProjectConcurrencySettings.VideoProcessingStatus}"
-                                       Classes="pageSummary" TextWrapping="Wrap" />
-                            <TextBlock Text="{Binding ProjectConcurrencySettings.SaveMessage}" Classes="pageSummary"
-                                       IsVisible="{Binding !!ProjectConcurrencySettings.SaveMessage}" TextWrapping="Wrap" />
                         </StackPanel>
+                        <ContentControl Content="{Binding ProjectConcurrencySettings}"
+                                        ContentTemplate="{StaticResource SharedVideoProcessingSettings}" />
 
                         <StackPanel Spacing="14">
                             <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />

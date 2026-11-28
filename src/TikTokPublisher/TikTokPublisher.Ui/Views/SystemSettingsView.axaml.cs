@@ -46,9 +46,9 @@ public partial class SystemSettingsView : UserControl
         if (sender is TabControl { SelectedItem: TabItem selected } tabs &&
             ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
         {
-            var showsGeneralSettings = selected == GeneralSettingsTab;
+            var showsConcurrencySettings = selected == KuaishouSettingsTab || selected == TikTokSettingsTab;
             footer.IsVisible = selected != SoftwareLicenseTab && selected != XingeSettingsTab;
-            if (showsGeneralSettings && _vm is { } vm)
+            if (showsConcurrencySettings && _vm is { } vm)
             {
                 vm.ProjectConcurrencySettings.RefreshVideoProcessingUsage();
                 _concurrencyUsageTimer.Start();
