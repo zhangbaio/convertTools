@@ -225,6 +225,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly Dictionary<string, WorkspaceQueueExecutionContext> _queueExecutionContexts =
         new(StringComparer.OrdinalIgnoreCase);
     private int _workspaceRefreshGeneration;
+    private long _workspaceQueueSelectionRevision;
     private DateTime _lastLogSnapshotUtc = DateTime.MinValue;
     private readonly Dictionary<string, QueueProjectRowViewModel> _queueRowByDir =
         new(StringComparer.OrdinalIgnoreCase);
@@ -1708,6 +1709,8 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
+        var selectionRevision = GetWorkspaceQueueSelectionRevision(root);
+
         // Exists 会碰到正在写视频的磁盘。放在 UI 线程上时，执行中点左侧账号会停住。
         var rootExists = await Task.Run(() => Directory.Exists(root)).ConfigureAwait(false);
         if (generation != Volatile.Read(ref _workspaceRefreshGeneration))
@@ -1747,13 +1750,16 @@ public sealed partial class MainViewModel : ViewModelBase
 
         if (!showedData)
         {
-            var persistedSnapshot = await Task.Run(() => WorkspaceQueueService.LoadPersistedSnapshot(root))
+            var persisted = await Task.Run(() =>
+                (Flushed: !_queueStatePersist.HasPending(root), Snapshot: WorkspaceQueueService.LoadPersistedSnapshot(root)))
                 .ConfigureAwait(false);
+            var persistedSnapshot = persisted.Snapshot;
             if (persistedSnapshot.Items.Count > 0)
             {
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (generation != _workspaceRefreshGeneration) return;
+                    RestoreNewerWorkspaceSelection(root, persistedSnapshot.Items, selectionRevision, persisted.Flushed);
                     ApplyWorkspaceScanResult(
                         root,
                         persistedSnapshot.Items.ToList(),
@@ -1785,8 +1791,9 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var scanResult = await Task.Run(() =>
         {
-            _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));
+            var flushed = _queueStatePersist.Flush(root, TimeSpan.FromMilliseconds(400));
             return (
+                Flushed: flushed,
                 Items: WorkspaceQueueService.ScanProjects(root).ToList(),
                 Options: WorkspaceQueueService.LoadRunOptions(root));
         }).ConfigureAwait(false);
@@ -1801,6 +1808,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase) &&
                 _queueItems.Count > 0)
                 return;
+            RestoreNewerWorkspaceSelection(root, scanResult.Items, selectionRevision, scanResult.Flushed);
             ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
         });
     }
@@ -2075,7 +2083,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private void CacheWorkspaceQueueSnapshot(
         string workspaceRoot,
         IReadOnlyList<QueueProjectItem> items,
-        QueueRunOptions? options = null)
+        QueueRunOptions? options = null,
+        bool selectionChanged = false)
     {
         var root = NormalizeWorkspaceRootKey(workspaceRoot);
         if (string.IsNullOrWhiteSpace(root)) return;
@@ -2089,7 +2098,26 @@ public sealed partial class MainViewModel : ViewModelBase
             {
                 Items = CloneQueueItems(items),
                 Options = options is null ? existingOptions : ClonePersistentQueueRunOptions(options),
+                SelectionRevision = selectionChanged ? ++_workspaceQueueSelectionRevision : existing?.SelectionRevision ?? 0,
             };
+        }
+    }
+
+    private long GetWorkspaceQueueSelectionRevision(string workspaceRoot)
+    {
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        lock (_workspaceQueueSnapshotsLock)
+            return _workspaceQueueSnapshots.GetValueOrDefault(root)?.SelectionRevision ?? 0;
+    }
+
+    private void RestoreNewerWorkspaceSelection(
+        string workspaceRoot, IReadOnlyList<QueueProjectItem> items, long observedRevision, bool persistenceFlushed)
+    {
+        var root = NormalizeWorkspaceRootKey(workspaceRoot);
+        lock (_workspaceQueueSnapshotsLock)
+        {
+            if (_workspaceQueueSnapshots.TryGetValue(root, out var snapshot))
+                snapshot.RestoreSelection(items, observedRevision, persistenceFlushed);
         }
     }
 
@@ -2425,7 +2453,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         if (changed > 0)
         {
-            PersistQueueItems();
+            PersistQueueSelection();
         }
         else
         {
@@ -2463,7 +2491,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         if (changed > 0)
-            PersistQueueItems();
+            PersistQueueSelection();
         else
             RefreshQueueRowViewModels();
 
@@ -2490,7 +2518,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         if (bound == 0) return false;
-        PersistQueueItems();
+        PersistQueueSelection();
         RefreshQueueRowViewModels();
         return true;
     }
@@ -4974,7 +5002,8 @@ public sealed partial class MainViewModel : ViewModelBase
         }, delay);
     }
 
-    private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items, bool refreshRows = true)
+    private void PersistQueueItems(
+        IReadOnlyList<QueueProjectItem> items, bool refreshRows = true, bool selectionChanged = false)
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root) || !CanWriteDisplayedQueue(root))
@@ -4988,6 +5017,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (visible.Count == 0 && items.Count > 0)
             return;
         _queueItems = visible;
+        if (selectionChanged)
+            CacheWorkspaceQueueSnapshot(root, visible, _queueRunOptions, selectionChanged: true);
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         if (refreshRows)
             RefreshQueueRowViewModels();
@@ -5008,9 +5039,12 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void PersistQueueItems() => PersistQueueItems(_queueItems);
 
+    private void PersistQueueSelection(bool refreshRows = true) =>
+        PersistQueueItems(_queueItems, refreshRows, selectionChanged: true);
+
     private void OnQueueRowEnabledChangedByUser(QueueProjectRowViewModel row)
     {
-        PersistQueueItems(_queueItems, refreshRows: false);
+        PersistQueueSelection(refreshRows: false);
         UpdateQueueSummaryText(refreshTodayUploadCount: false);
         StatusMessage = row.IsEnabled
             ? $"已勾选「{row.NewTitle}」"
@@ -7595,10 +7629,31 @@ public sealed partial class MainViewModel : ViewModelBase
         public TikTokAccountProfile? SelectedAccount { get; }
     }
 
-    private sealed class WorkspaceQueueSnapshot
+    internal sealed class WorkspaceQueueSnapshot
     {
         public List<QueueProjectItem> Items { get; init; } = new();
         public QueueRunOptions? Options { get; set; }
+        internal long SelectionRevision { get; init; }
+
+        internal void RestoreSelection(IReadOnlyList<QueueProjectItem> items, long observedRevision, bool persistenceFlushed)
+        {
+            if (SelectionRevision == 0 || (persistenceFlushed && SelectionRevision == observedRevision))
+                return;
+
+            var enabledByDir = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in Items)
+            {
+                if (!string.IsNullOrWhiteSpace(item.ProjectDir))
+                    enabledByDir.TryAdd(NormalizeWorkspaceRootKey(item.ProjectDir), item.Enabled);
+            }
+
+            foreach (var item in items)
+            {
+                if (!string.IsNullOrWhiteSpace(item.ProjectDir) &&
+                    enabledByDir.TryGetValue(NormalizeWorkspaceRootKey(item.ProjectDir), out var enabled))
+                    item.Enabled = enabled;
+            }
+        }
     }
 
 }
