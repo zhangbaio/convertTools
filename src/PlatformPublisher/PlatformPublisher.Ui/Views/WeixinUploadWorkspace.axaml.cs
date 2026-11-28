@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Core.Services;
