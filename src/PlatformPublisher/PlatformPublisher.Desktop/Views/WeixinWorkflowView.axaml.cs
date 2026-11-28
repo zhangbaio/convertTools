@@ -390,6 +390,25 @@ public partial class WeixinWorkflowView : UserControl
         }
     }
 
+    private async void OnUploadWeixinTitlesClick(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner || ViewModel is not { } viewModel)
+            return;
+
+        try
+        {
+            var target = viewModel.CaptureWeixinTitleUploadTarget();
+            var request = await UploadDramaTitlesDialog.ShowWeixinUploadAsync(owner, target);
+            if (request is null) return;
+            var summary = await viewModel.UploadWeixinTitlesAsync(target, request.Titles, request.MatchMode);
+            await InfoDialog.ShowAsync(owner, summary, "视频号上传短剧结果", 620, 325);
+        }
+        catch (Exception ex)
+        {
+            await InfoDialog.ShowAsync(owner, ex.Message, "无法开始上传短剧", 520, 220);
+        }
+    }
+
     private void OnKuaishouConfigClick(object? sender, RoutedEventArgs e) =>
         KuaishouConfigRequested?.Invoke(this, EventArgs.Empty);
 

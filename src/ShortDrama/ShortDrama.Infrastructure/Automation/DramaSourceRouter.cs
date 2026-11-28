@@ -98,13 +98,20 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken) =>
         SearchAsync(keyword, page, cancellationToken, searchCategory: null);
 
-    public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
+    public Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
         string keyword,
         int page,
         CancellationToken cancellationToken,
-        string? searchCategory)
+        string? searchCategory) =>
+        SearchWithSettingsAsync(_settingsProvider.Get(), keyword, page, cancellationToken, searchCategory);
+
+    public async Task<IReadOnlyList<DramaSearchItem>> SearchWithSettingsAsync(
+        DramaSourceSettings settings,
+        string keyword,
+        int page,
+        CancellationToken cancellationToken,
+        string? searchCategory = null)
     {
-        var settings = _settingsProvider.Get();
         var source = ResolveSelectedService(settings.DramaSourceChain, SearchServices);
         return source switch
         {

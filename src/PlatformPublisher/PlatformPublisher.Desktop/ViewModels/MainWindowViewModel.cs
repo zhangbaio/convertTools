@@ -1415,7 +1415,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         string? targetAccountName = null,
         string? targetSessionDirectory = null,
         PublishPlatform? platform = null,
-        string? configPath = null)
+        string? configPath = null,
+        List<PublishJob>? batchJobs = null)
     {
         var effectivePlatform = platform ?? PublishPlatform.WeixinChannel;
         var effectiveAccountId = string.IsNullOrWhiteSpace(targetAccountId) ? _activeWeixinAccountId : targetAccountId;
@@ -1448,15 +1449,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ? string.IsNullOrWhiteSpace(targetSessionDirectory) ? _activeWeixinAccountSessionDirectory : targetSessionDirectory
                     : string.Empty,
                 Status = PublishJobStatus.Pending,
-                StatusMessage = "本地导入，等待执行",
+                StatusMessage = batchJobs is null ? "本地导入，等待执行" : "按剧名入队，等待执行",
             };
             EnsureStepStates(job);
             _jobs.Add(job);
+            batchJobs?.Add(job);
             added++;
         }
         if (added > 0)
         {
-            await PersistAsync();
+            try
+            {
+                await PersistAsync();
+            }
+            catch when (batchJobs is not null)
+            {
+                foreach (var job in batchJobs)
+                    _jobs.Remove(job);
+                batchJobs.Clear();
+                throw;
+            }
             RefreshVisibleJobs();
         }
         return added;
@@ -1815,227 +1827,203 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        var steps = new List<(string Key, string Label)>();
-        if (PipelineDownloadEnabled) steps.Add(("download", "下载剧集"));
-        if (!IsKuaishouPlatform && PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
-        if (PipelineRewriteEnabled) steps.Add(("rewrite", "改写信息"));
-        if (PipelinePosterEnabled) steps.Add(("poster-rename", "生成海报"));
-        if (!IsKuaishouPlatform && PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
-        if (!IsKuaishouPlatform && PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
-        if (PipelineProjectImageEnabled) steps.Add(("project-image", "生成工程图"));
-        if (!IsKuaishouPlatform && PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
-        if (!IsKuaishouPlatform && PipelineStoryboardRecordingEnabled)
-            steps.Add((WeixinStoryboardRecordingService.StepKey, WeixinStoryboardRecordingService.StepLabel));
-        if (!IsKuaishouPlatform && PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
-
-        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-        var storyboardOptions = GetStoryboardOptions();
         if (IsKuaishouPlatform)
         {
             await RunCurrentKuaishouAccountPipelineAsync(targets);
             return;
         }
+
+        var options = CaptureWeixinPreparationOptions(ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath));
         await RunBusyAsync(async cancellationToken =>
         {
-            var progress = new Progress<WorkRunEvent>(item =>
+            try
             {
-                if (string.IsNullOrWhiteSpace(item.Message)) return;
-                var line = string.Equals(item.StepType, "download", StringComparison.Ordinal)
-                    ? item.Message
-                    : $"[{item.DisplayName}] {item.Message}";
-                StatusMessage = line;
-                AppendActivityLog(line);
-            });
-            var succeeded = 0;
-            var failed = 0;
-            var stepNames = steps.Select(step => step.Label).ToList();
-            if (!IsKuaishouPlatform && PipelineAutoRepairEnabled) stepNames.Add("一键修复");
-            if (PipelineAutoFillEnabled) stepNames.Add("补齐字段");
-            if (IsKuaishouPlatform && PipelineUploadEpisodesEnabled) stepNames.Add("上传剧集");
-            AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
-            foreach (var projectDirectory in targets)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var trackedJob = _jobs.FirstOrDefault(job =>
-                    (_jobScope != PublishJobScope.Weixin || (job.Platform == PublishPlatform.WeixinChannel &&
-                        job.Kind == PublishJobKind.Series &&
-                        string.Equals(job.AccountId, _activeWeixinAccountId, StringComparison.OrdinalIgnoreCase))) &&
-                    !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
-                    string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
-                if (trackedJob is not null) EnsureStepStates(trackedJob);
-                var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
-                string? runtimeConfigPath = null;
-                string RuntimeConfig() => runtimeConfigPath ??= PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
-                _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
-                try
-                {
-                    foreach (var (key, label) in steps)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (key == WeixinStoryboardRecordingService.StepKey)
-                        {
-                            var storyboardRow = trackedJob is not null && IsStoryboardJob(trackedJob)
-                                ? trackedRow
-                                : VisibleJobs.FirstOrDefault(row => IsStoryboardJob(row.Model)
-                                    && !string.IsNullOrWhiteSpace(row.Model.ProjectDirectory)
-                                    && string.Equals(Path.GetFullPath(row.Model.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
-                            var storyboardJob = storyboardRow?.Model ??
-                                (trackedJob is not null && IsStoryboardJob(trackedJob) ? trackedJob : null);
-                            await RunStoryboardStepAsync(projectDirectory, storyboardJob, storyboardRow, storyboardOptions, cancellationToken);
-                            continue;
-                        }
-                        await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
-                        {
-                            if (key == "download")
-                            {
-                                var concurrent = Math.Clamp(runtimeSettings.DramaDownloadConcurrent, 1, 10);
-                                var segments = Math.Clamp(runtimeSettings.DownloadFileSegments <= 0 ? 4 : runtimeSettings.DownloadFileSegments, 1, 8);
-                                var parallel = Math.Clamp(
-                                    runtimeSettings.DramaDownloadMaxParallelProjects <= 0 ? 1 : runtimeSettings.DramaDownloadMaxParallelProjects,
-                                    1,
-                                    4);
-                                var timeoutSeconds = Math.Clamp(runtimeSettings.HongguoDownloadTimeoutSeconds, 10, 600);
-                                var attempts = Math.Clamp(runtimeSettings.HongguoEpisodeDownloadAttempts, 1, 20);
-                                AppendActivityLog($"分集下载并发: {concurrent}，单集分块连接数: {segments}，同时下载剧数: {parallel}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
-                            }
-                            if (key == "smart-recut")
-                            {
-                                await _smartRecutService.RunAsync(
-                                    projectDirectory,
-                                    SmartRecutEpisodeCount,
-                                    SmartRecutMinSeconds,
-                                    SmartRecutMaxSeconds,
-                                    PipelineForceRerun,
-                                    new Progress<string>(message => AppendActivityLog($"智能重剪：{message}")),
-                                    cancellationToken);
-                                await UpdateStepStateAsync(
-                                    trackedJob,
-                                    trackedRow,
-                                    "transcode",
-                                    "素材转码",
-                                    PublishJobStepStatus.Skipped,
-                                    "智能重剪已直接生成工作视频");
-                                return;
-                            }
-                            if (key == "ai-proof" || key == "timestamp-certificate")
-                            {
-                                var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-                                var artifactProgress = new Progress<string>(message => AppendActivityLog($"证明材料：{message}"));
-                                if (key == "ai-proof")
-                                    await _proofArtifactsService.GenerateAiProofAsync(
-                                        trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
-                                        settings,
-                                        PipelineForceRerun,
-                                        artifactProgress,
-                                        cancellationToken);
-                                else
-                                    await _proofArtifactsService.GenerateTimestampCertificateAsync(
-                                        trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
-                                        settings,
-                                        PipelineForceRerun,
-                                        artifactProgress,
-                                        cancellationToken);
-                                return;
-                            }
-                            if (key == "project-image" && IsKuaishouPlatform)
-                            {
-                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken, row: trackedRow);
-                                return;
-                            }
-                            var result = await _workService.RunProjectStepAsync(
-                                projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken, RuntimeConfig());
-                            if (!result.Ok)
-                                throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
-                        });
-                    }
-
-                    if (!IsKuaishouPlatform && PipelineAutoRepairEnabled)
-                    {
-                        await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
-                            () => RunMaterialAutoRepairAsync(projectDirectory, RuntimeConfig(), progress, cancellationToken));
-                    }
-
-                    if (PipelineAutoFillEnabled)
-                    {
-                        await RunTrackedStepAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PipelineForceRerun,
-                            async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
-                    }
-
-                    if (PipelineMaterialValidateEnabled)
-                    {
-                        if (IsKuaishouPlatform)
-                        {
-                            AppendActivityLog($"素材校验：{SelectedPlatform.Name}已使用专属产物校验，跳过视频号校验器。");
-                        }
-                        else
-                        {
-                        await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", PipelineForceRerun, async () =>
-                        {
-                            var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
-                            if (_jobScope == PublishJobScope.Weixin && trackedJob is not null)
-                                trackedJob.ConfigPath = configPath;
-                            var workflowDirectory = Path.GetDirectoryName(configPath)
-                                                    ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
-                            var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
-                            if (validation.HasErrors)
-                            {
-                                var errors = validation.Issues.Where(item => item.Severity == "错误").Select(item => item.Message);
-                                throw new InvalidOperationException($"素材校验失败：{string.Join("；", errors)}");
-                            }
-                            foreach (var issue in validation.Issues)
-                                AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
-                        });
-                        }
-                    }
-
-                    StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
-                    AppendActivityLog(StatusMessage);
-                    succeeded++;
-                }
-                catch (OperationCanceledException)
-                {
-                    if (IsKuaishouPlatform)
-                        SetKuaishouLogTone(projectDirectory, "none");
-                    StatusMessage = "共享项目流水线已停止。";
-                    AppendActivityLog(StatusMessage);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    failed++;
-                    if (IsKuaishouPlatform)
-                        SetKuaishouLogTone(projectDirectory, "failed");
-                    StatusMessage = $"共享项目流水线失败：{ex.Message}";
-                    AppendActivityLog(StatusMessage);
-                }
-                finally
-                {
-                    _activityLogProject = "";
-                    try
-                    {
-                        if (runtimeConfigPath is not null)
-                        {
-                            var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
-                            if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
-                                Directory.Delete(runtimeDir, true);
-                            else
-                                File.Delete(runtimeConfigPath);
-                        }
-                    }
-                    catch { /* 临时配置清理由下次系统临时目录维护。 */ }
-                }
+                await RunWeixinPreparationAsync(targets, options, ActiveWeixinAccountName, cancellationToken);
             }
-
-            if (IsKuaishouPlatform || targets.Count > 1)
+            catch (OperationCanceledException)
             {
-                StatusMessage = IsKuaishouPlatform
-                    ? $"勾选队列已停止：成功 {succeeded}，失败 {failed}。"
-                    : $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
+                StatusMessage = "共享项目流水线已停止。";
                 AppendActivityLog(StatusMessage);
             }
-            if (IsKuaishouPlatform)
-                RefreshKuaishouTodayUploadCount();
         });
+    }
+
+    private async Task<IReadOnlySet<string>> RunWeixinPreparationAsync(
+        IReadOnlyList<string> targets, WeixinPreparationOptions options, string accountName,
+        CancellationToken cancellationToken, IReadOnlyDictionary<string, PublishJob>? batchJobs = null)
+    {
+        var progress = new Progress<WorkRunEvent>(item =>
+        {
+            if (string.IsNullOrWhiteSpace(item.Message)) return;
+            var line = string.Equals(item.StepType, "download", StringComparison.Ordinal)
+                ? item.Message
+                : $"[{item.DisplayName}] {item.Message}";
+            StatusMessage = line;
+            AppendActivityLog(line);
+        });
+        var succeeded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var failed = 0;
+        var stepNames = options.Steps.Select(step => step.Label).ToList();
+        if (options.AutoRepair) stepNames.Add("一键修复");
+        if (options.AutoFill) stepNames.Add("补齐字段");
+        AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
+        foreach (var projectDirectory in targets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var trackedJob = batchJobs is null ? _jobs.FirstOrDefault(job =>
+                (_jobScope != PublishJobScope.Weixin || (job.Platform == PublishPlatform.WeixinChannel &&
+                    job.Kind == PublishJobKind.Series &&
+                    string.Equals(job.AccountId, _activeWeixinAccountId, StringComparison.OrdinalIgnoreCase))) &&
+                !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+                string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase))
+                : batchJobs.GetValueOrDefault(projectDirectory);
+            if (trackedJob is not null) EnsureStepStates(trackedJob);
+            var trackedRow = trackedJob is null ? null : RowForJob(trackedJob);
+            string? runtimeConfigPath = null;
+            string RuntimeConfig() => runtimeConfigPath ??= PrepareWeixinRuntimeConfig(options.RuntimeSettings, projectDirectory, accountName);
+            _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
+            try
+            {
+                foreach (var (key, label) in options.Steps)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (key == WeixinStoryboardRecordingService.StepKey)
+                    {
+                        var storyboardRow = trackedJob is not null && IsStoryboardJob(trackedJob)
+                            ? trackedRow
+                            : VisibleJobs.FirstOrDefault(row => IsStoryboardJob(row.Model)
+                                && !string.IsNullOrWhiteSpace(row.Model.ProjectDirectory)
+                                && string.Equals(Path.GetFullPath(row.Model.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
+                        var storyboardJob = storyboardRow?.Model ??
+                            (trackedJob is not null && IsStoryboardJob(trackedJob) ? trackedJob : null);
+                        await RunStoryboardStepAsync(projectDirectory, storyboardJob, storyboardRow, options.Storyboard, cancellationToken);
+                        continue;
+                    }
+                    await RunTrackedStepAsync(trackedJob, trackedRow, key, label, options.Force, async () =>
+                    {
+                        if (key == "download")
+                        {
+                            var concurrent = Math.Clamp(options.RuntimeSettings.DramaDownloadConcurrent, 1, 10);
+                            var segments = Math.Clamp(options.RuntimeSettings.DownloadFileSegments <= 0 ? 4 : options.RuntimeSettings.DownloadFileSegments, 1, 8);
+                            var parallel = Math.Clamp(
+                                options.RuntimeSettings.DramaDownloadMaxParallelProjects <= 0 ? 1 : options.RuntimeSettings.DramaDownloadMaxParallelProjects,
+                                1,
+                                4);
+                            var timeoutSeconds = Math.Clamp(options.RuntimeSettings.HongguoDownloadTimeoutSeconds, 10, 600);
+                            var attempts = Math.Clamp(options.RuntimeSettings.HongguoEpisodeDownloadAttempts, 1, 20);
+                            AppendActivityLog($"分集下载并发: {concurrent}，单集分块连接数: {segments}，同时下载剧数: {parallel}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
+                        }
+                        if (key == "smart-recut")
+                        {
+                            await _smartRecutService.RunAsync(
+                                projectDirectory,
+                                options.SmartRecutEpisodeCount,
+                                options.SmartRecutMinSeconds,
+                                options.SmartRecutMaxSeconds,
+                                options.Force,
+                                new Progress<string>(message => AppendActivityLog($"智能重剪：{message}")),
+                                cancellationToken);
+                            await UpdateStepStateAsync(
+                                trackedJob,
+                                trackedRow,
+                                "transcode",
+                                "素材转码",
+                                PublishJobStepStatus.Skipped,
+                                "智能重剪已直接生成工作视频");
+                            return;
+                        }
+                        if (key == "ai-proof" || key == "timestamp-certificate")
+                        {
+                            var artifactProgress = new Progress<string>(message => AppendActivityLog($"证明材料：{message}"));
+                            if (key == "ai-proof")
+                                await _proofArtifactsService.GenerateAiProofAsync(
+                                    trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
+                                    options.RuntimeSettings,
+                                    options.Force,
+                                    artifactProgress,
+                                    cancellationToken);
+                            else
+                                await _proofArtifactsService.GenerateTimestampCertificateAsync(
+                                    trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
+                                    options.RuntimeSettings,
+                                    options.Force,
+                                    artifactProgress,
+                                    cancellationToken);
+                            return;
+                        }
+                        var result = await _workService.RunProjectStepAsync(
+                            projectDirectory, null, key, options.Force, progress, cancellationToken, RuntimeConfig());
+                        if (!result.Ok)
+                            throw new InvalidOperationException(result.Message ?? $"{label}执行失败。");
+                    });
+                }
+
+                if (options.AutoRepair)
+                {
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", options.Force,
+                        () => RunMaterialAutoRepairAsync(projectDirectory, RuntimeConfig(), progress, cancellationToken));
+                }
+
+                if (options.AutoFill)
+                {
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", options.Force,
+                        async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
+                }
+
+                if (options.Validate)
+                {
+                    await RunTrackedStepAsync(trackedJob, trackedRow, "material-validate", "素材校验", options.Force, async () =>
+                    {
+                        var configPath = await _workService.EnsureWeixinUploadConfigAsync(projectDirectory, null, cancellationToken);
+                        if (_jobScope == PublishJobScope.Weixin && trackedJob is not null)
+                            trackedJob.ConfigPath = configPath;
+                        var workflowDirectory = Path.GetDirectoryName(configPath)
+                                                ?? throw new InvalidOperationException("无法定位视频号工作项目目录。");
+                        var validation = await _materialValidationService.ValidateAsync(workflowDirectory, cancellationToken);
+                        if (validation.HasErrors)
+                        {
+                            var errors = validation.Issues.Where(item => item.Severity == "错误").Select(item => item.Message);
+                            throw new InvalidOperationException($"素材校验失败：{string.Join("；", errors)}");
+                        }
+                        foreach (var issue in validation.Issues)
+                            AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
+                    });
+                }
+
+                StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
+                AppendActivityLog(StatusMessage);
+                succeeded.Add(projectDirectory);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                StatusMessage = $"共享项目流水线失败：{ex.Message}";
+                AppendActivityLog(StatusMessage);
+            }
+            finally
+            {
+                _activityLogProject = "";
+                try
+                {
+                    if (runtimeConfigPath is not null)
+                    {
+                        var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
+                        if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
+                            Directory.Delete(runtimeDir, true);
+                        else
+                            File.Delete(runtimeConfigPath);
+                    }
+                }
+                catch { /* 临时配置清理由下次系统临时目录维护。 */ }
+            }
+        }
+
+        if (targets.Count > 1)
+        {
+            StatusMessage = $"勾选步骤结束：成功 {succeeded.Count}，失败 {failed}。";
+            AppendActivityLog(StatusMessage);
+        }
+        return succeeded;
     }
 
     private IReadOnlyList<string> ResolveSharedPipelineTargets()
@@ -4009,19 +3997,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             try
             {
-                if (_confirmEmbeddedWeixinQueue is { } confirmQueue &&
-                    !await confirmQueue(rows.Count))
-                {
+                if (!await ExecuteQueueRowsAsync(rows, clearSchedule, cancellationToken))
                     StatusMessage = "已取消剧集队列执行。";
-                    return;
-                }
-                for (var index = 0; index < rows.Count; index++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    StatusMessage = $"批量执行 {index + 1}/{rows.Count}：{rows[index].ProjectName}";
-                    AppendActivityLog(StatusMessage);
-                    await ExecuteJobAsync(rows[index], clearSchedule, cancellationToken);
-                }
             }
             catch (OperationCanceledException)
             {
@@ -4035,10 +4012,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
+    private async Task<bool> ExecuteQueueRowsAsync(IReadOnlyList<PublishJobRowViewModel> rows, bool clearSchedule,
+        CancellationToken cancellationToken, bool storyboardPrepared = false)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_confirmEmbeddedWeixinQueue is { } confirmQueue && !await confirmQueue(rows.Count))
+            return false;
+
+        for (var index = 0; index < rows.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            StatusMessage = $"批量执行 {index + 1}/{rows.Count}：{rows[index].ProjectName}";
+            AppendActivityLog(StatusMessage);
+            await ExecuteJobAsync(rows[index], clearSchedule, cancellationToken, storyboardPrepared);
+        }
+
+        return true;
+    }
+
     private async Task ExecuteJobAsync(
         PublishJobRowViewModel row,
         bool clearSchedule,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool storyboardPrepared = false)
     {
         var job = row.Model;
         var adapter = _coordinator.GetAdapter(job.Platform);
@@ -4075,7 +4071,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         try
         {
-            if (IsStoryboardJob(job) && PipelineStoryboardRecordingEnabled)
+            if (!storyboardPrepared && IsStoryboardJob(job) && PipelineStoryboardRecordingEnabled)
             {
                 preparingStoryboard = true;
                 await RunStoryboardStepAsync(job.ProjectDirectory, job, row, GetStoryboardOptions(), cancellationToken);

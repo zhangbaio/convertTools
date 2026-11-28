@@ -274,7 +274,8 @@ public static class UploadTitleImportService
 
     public static (List<UploadTitleImportRequest> Requests, List<UploadTitleImportFailure> Failures) ParseRequests(
         string rawText,
-        string matchMode)
+        string matchMode,
+        ICollection<string>? duplicates = null)
     {
         var useEpisode = string.Equals(matchMode, MatchModeTitleEpisode, StringComparison.OrdinalIgnoreCase);
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -286,6 +287,8 @@ public static class UploadTitleImportService
             {
                 if (seen.Add(rawLine))
                     requests.Add(new UploadTitleImportRequest(rawLine, 0, rawLine));
+                else
+                    duplicates?.Add(rawLine);
                 continue;
             }
 
@@ -300,6 +303,8 @@ public static class UploadTitleImportService
             var key = $"{title}\n{count}";
             if (title.Length > 0 && seen.Add(key))
                 requests.Add(new UploadTitleImportRequest(title, count, rawLine));
+            else if (title.Length > 0)
+                duplicates?.Add(rawLine);
         }
 
         return (requests, failures);
@@ -374,7 +379,8 @@ public static class UploadTitleImportService
         string title,
         IReadOnlyList<DramaSearchItem> results,
         int expectedEpisodeTotal = 0,
-        int truncatedKeepCount = 0)
+        int truncatedKeepCount = 0,
+        bool allowSingleFallback = true)
     {
         var target = (title ?? "").Trim();
         var exact = Dedupe(results.Where(item => string.Equals((item.Title ?? "").Trim(), target, StringComparison.Ordinal))).ToList();
@@ -392,6 +398,7 @@ public static class UploadTitleImportService
 
         var unique = Dedupe(results).ToList();
         if (unique.Count == 0) return (null, EmptySearchResultReason);
+        if (!allowSingleFallback) return (null, NoExactMatchReason);
         if (expectedEpisodeTotal > 0 && unique.Count == 1)
             return PickEpisodeTotalMatch(unique, expectedEpisodeTotal, truncatedKeepCount);
         if (unique.Count == 1) return (unique[0], "");
