@@ -8,7 +8,6 @@ using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Core.Posters;
 using ShortDrama.Infrastructure.Automation;
-using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
@@ -2156,14 +2155,13 @@ public static partial class QueueMaterialStepService
                         Overwrite: true,
                         Log: log,
                         UseVisibleImagePrompt: PosterGenerationTemplates.IsSupportedMode(posterMode),
-                        PlainTextImagePrompt: TikTokAccountAiSettings.GetPlainTextPosterPrompt(settings, posterMode)),
+                        PlainTextImagePrompt: TikTokAccountAiSettings.GetPlainTextPosterPrompt(settings, posterMode))
+                    {
+                        AllowTextOnlyFallback = posterMode != "video_frame",
+                    },
                     cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (QueueWorkerRunner.IsPosterSensitiveContent(ex))
-            {
-                throw new InvalidOperationException(PosterRenamer.PosterSensitiveContentMessage);
-            }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException && !QueueWorkerRunner.IsPosterSensitiveContent(ex))
             {
                 var firstLine = ex.Message.Split(['\r', '\n'], 2, StringSplitOptions.None)[0];
                 log(

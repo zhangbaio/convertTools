@@ -62,7 +62,7 @@ public sealed partial class PosterRenamer
         PosterRenameRequest request,
         CancellationToken cancellationToken)
     {
-        await TryGeneratePosterWithAiAsync(configFile, inputPath, outputPath, title, layout, cancellationToken);
+        await TryGeneratePosterWithAiAsync(configFile, inputPath, outputPath, title, layout, request, cancellationToken);
 
         var config = ReadConfig(configFile);
         if (!IsPosterTitleVerifyEnabled(config))
@@ -245,7 +245,8 @@ public sealed partial class PosterRenamer
                 cancellationToken,
                 forceFullTextCleanup: true,
                 verifyEnabled: verifyEnabled,
-                throwOnResidual: verifyMode != "warn");
+                throwOnResidual: verifyMode != "warn",
+                sourceIsOriginal: true);
             if (verifyEnabled && !finalVerify.Ok && verifyMode == "blocking")
                 throw new InvalidOperationException($"海报文字清理后标题校验仍未通过：{finalVerify.Reason}");
             if (verifyEnabled && !finalVerify.Ok && verifyMode == "warn")
@@ -288,7 +289,8 @@ public sealed partial class PosterRenamer
                 layout,
                 erasePrompt,
                 eraseAllText: true,
-                cancellationToken);
+                cancellationToken,
+                sourceIsOriginal: true);
             await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
             Log(request, $"已生成AI去字底图：{Path.GetFileName(erasedPath)}");
 
@@ -515,7 +517,8 @@ public sealed partial class PosterRenamer
         CancellationToken cancellationToken,
         bool forceFullTextCleanup = false,
         bool verifyEnabled = true,
-        bool throwOnResidual = true)
+        bool throwOnResidual = true,
+        bool sourceIsOriginal = false)
     {
         Log(request, "开始去字后重绘标题。");
         var outputDirectory = Path.GetDirectoryName(outputPath)!;
@@ -578,7 +581,7 @@ public sealed partial class PosterRenamer
             ? DefaultPosterAllTextErasePrompt
             : GetOptional(config, "PosterTitleErasePrompt") ?? DefaultPosterTitleErasePrompt;
         var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
-            config, outputPath, layout, erasePrompt, eraseAllText, cancellationToken);
+            config, outputPath, layout, erasePrompt, eraseAllText, cancellationToken, sourceIsOriginal);
         await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
         Log(request, $"已生成AI去字底图：{Path.GetFileName(erasedPath)}");
 
@@ -1075,7 +1078,8 @@ public sealed partial class PosterRenamer
         PosterLayout layout,
         string prompt,
         bool eraseAllText,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool sourceIsOriginal = false)
     {
         var endpoint = GetOptional(config, "ImageEditEndpoint") ?? GetRequired(config, "ImageModelEndpoint");
         var apiPath = GetOptional(config, "ImageEditPath") ?? GetDefaultImageEditPath(endpoint);
@@ -1091,34 +1095,33 @@ public sealed partial class PosterRenamer
             : NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
         var mediaType = GuessMediaType(Path.GetExtension(inputPath).TrimStart('.'));
 
-        if (eraseAllText && !apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase))
+        try
         {
-            return await GeneratePosterWithEditFormNoMaskAsync(
+            if (eraseAllText && !apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase))
+            {
+                return await GeneratePosterWithEditFormNoMaskAsync(
+                    requestUrl, modelId, apiKey, inputPath, mediaType, prompt.Trim(),
+                    provider, imageQuality, imageSize, cancellationToken).ConfigureAwait(false);
+            }
+
+            return await GeneratePosterWithAiPromptAsync(
                 requestUrl,
+                apiPath,
                 modelId,
                 apiKey,
                 inputPath,
                 mediaType,
+                layout,
                 prompt.Trim(),
                 provider,
                 imageQuality,
                 imageSize,
                 cancellationToken).ConfigureAwait(false);
         }
-
-        return await GeneratePosterWithAiPromptAsync(
-            requestUrl,
-            apiPath,
-            modelId,
-            apiKey,
-            inputPath,
-            mediaType,
-            layout,
-            prompt.Trim(),
-            provider,
-            imageQuality,
-            imageSize,
-            cancellationToken);
+        catch (PosterSensitiveContentException ex) when (ex.IsInputImage && !sourceIsOriginal)
+        {
+            throw new PosterSensitiveContentException("待修复的海报被内容审核拦截。");
+        }
     }
 
     private async Task<byte[]> GenerateImage2TitleRegeneratedPosterBytesAsync(

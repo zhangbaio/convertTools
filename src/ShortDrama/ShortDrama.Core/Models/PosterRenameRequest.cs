@@ -10,4 +10,7 @@ public sealed record PosterRenameRequest(
     bool Overwrite = false,
     Action<string>? Log = null,
     bool UseVisibleImagePrompt = false,
-    string? PlainTextImagePrompt = null);
+    string? PlainTextImagePrompt = null)
+{
+    public bool AllowTextOnlyFallback { get; init; }
+}

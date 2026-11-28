@@ -143,9 +143,7 @@ public sealed partial class PosterRenamer
         PosterRenameRequest request,
         CancellationToken cancellationToken)
     {
-        var verifier = new PosterTitleVerificationService(_httpClient);
-        var result = await verifier.VerifyAsync(config, imagePath, title, layout: null, cancellationToken,
-            PosterGenerationTemplates.TitleVerificationPrompt);
+        var result = await VerifyVisiblePosterTitleAsync(config, imagePath, title, cancellationToken);
         if (result.Ok)
             Log(request, $"标题校验通过：{result.DetectedTitle}");
         else if (result.IsInconclusive)
@@ -153,6 +151,14 @@ public sealed partial class PosterRenamer
         else
             Log(request, $"标题校验发现差异：{result.Reason}。本次仅报告结果。");
     }
+
+    private Task<PosterTitleVerifyResult> VerifyVisiblePosterTitleAsync(
+        IReadOnlyDictionary<string, string> config,
+        string imagePath,
+        string title,
+        CancellationToken cancellationToken) =>
+        new PosterTitleVerificationService(_httpClient).VerifyAsync(config, imagePath, title, layout: null, cancellationToken,
+            PosterGenerationTemplates.TitleVerificationPrompt);
 
     private static bool IsVisibleImageRetryable(Exception ex) => ex switch
     {

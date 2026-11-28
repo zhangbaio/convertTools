@@ -134,6 +134,151 @@ public sealed class PosterVisiblePromptTests
     }
 
     [Fact]
+    public async Task Blocked_original_switches_to_one_request_with_only_the_synopsis_and_verifies_the_drawn_title()
+    {
+        const string synopsis = "一群唐代亲友在花园相聚。";
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode,
+            sourceWidth: 600, sourceHeight: 800, synopsis: synopsis, configuredSize: "600x800");
+        var original = File.ReadAllBytes(project.InputPath);
+        var previous = File.ReadAllBytes(project.OutputPath);
+        var generated = CreatePng(600, 800, GeneratedColor);
+        using var handler = new RecordingImageHandler((attempt, _) =>
+        {
+            File.ReadAllBytes(project.OutputPath).Should().Equal(previous);
+            return attempt switch
+            {
+                1 => ModerationFailure("InputImageSensitiveContentDetected"),
+                2 => ImageResponse(generated),
+                _ => TitleVerificationResponse(matches: true),
+            };
+        });
+        using var http = new HttpClient(handler);
+
+        await CreateRenamer(http).RenameAsync(project.Request with { AllowTextOnlyFallback = true }, CancellationToken.None);
+
+        handler.Requests.Select(call => call.Path).Should().Equal(
+            "/v1/images/generations", "/v1/images/generations", "/v1/chat/completions");
+        using var request = JsonDocument.Parse(handler.Requests[1].Body);
+        request.RootElement.TryGetProperty("image", out _).Should().BeFalse();
+        request.RootElement.TryGetProperty("stream", out _).Should().BeFalse();
+        GetPrompt(handler.Requests[1]).Should().Contain(synopsis).And.Contain("无字短剧海报底图").And.NotContain(Title);
+        using var verification = JsonDocument.Parse(handler.Requests[2].Body);
+        var parts = verification.RootElement.GetProperty("messages")[0].GetProperty("content");
+        parts[0].GetProperty("text").GetString().Should().Contain(Title);
+        var imageUrl = parts[1].GetProperty("image_url").GetProperty("url").GetString()!;
+        var checkedBytes = Convert.FromBase64String(imageUrl[(imageUrl.IndexOf(',') + 1)..]);
+        File.ReadAllBytes(project.OutputPath).Should().Equal(checkedBytes).And.NotEqual(generated);
+        File.ReadAllBytes(project.InputPath).Should().Equal(original);
+        project.Log.Should().Contain(message => message.Contains("纯文生图海报已通过标题校验"));
+        Directory.EnumerateFileSystemEntries(project.Request.ProjectDir, ".text-only-poster-*").Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("InputTextSensitiveContentDetected", "提示词")]
+    [InlineData("OutputImageSensitiveContentDetected", "生成的海报")]
+    public async Task Moderation_of_prompt_or_output_does_not_trigger_text_only_generation(string code, string reason)
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode, synopsis: "邻里一起筹备庆典。");
+        var previous = File.ReadAllBytes(project.OutputPath);
+        using var handler = new RecordingImageHandler((_, _) => ModerationFailure(code));
+        using var http = new HttpClient(handler);
+
+        var generate = () => CreateRenamer(http).RenameAsync(
+            project.Request with { AllowTextOnlyFallback = true }, CancellationToken.None);
+        await generate.Should().ThrowAsync<InvalidOperationException>().WithMessage($"*{reason}*内容审核*");
+
+        handler.Requests.Should().ContainSingle();
+        File.ReadAllBytes(project.OutputPath).Should().Equal(previous);
+    }
+
+    [Theory]
+    [InlineData(false, "生成的海报被内容审核拦截")]
+    [InlineData(true, "标题校验未通过：标题不同")]
+    public async Task Text_only_failure_preserves_files_and_reports_its_own_reason(bool verify, string reason)
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode,
+            synopsis: "邻里一起筹备庆典。");
+        var original = File.ReadAllBytes(project.InputPath);
+        var previous = File.ReadAllBytes(project.OutputPath);
+        using var handler = new RecordingImageHandler((attempt, _) => attempt switch
+        {
+            1 => ModerationFailure("InputImageSensitiveContentDetected"),
+            2 when !verify => ModerationFailure("OutputImageSensitiveContentDetected"),
+            2 => ImageResponse(CreatePng(96, 128, GeneratedColor)),
+            _ => TitleVerificationResponse(matches: false),
+        });
+        using var http = new HttpClient(handler);
+
+        var generate = () => CreateRenamer(http).RenameAsync(
+            project.Request with { AllowTextOnlyFallback = true }, CancellationToken.None);
+        await generate.Should().ThrowAsync<InvalidOperationException>().WithMessage($"纯文生图回退失败：*{reason}*");
+
+        handler.Requests.Count(call => call.Path.EndsWith("/images/generations")).Should().Be(2);
+        File.ReadAllBytes(project.OutputPath).Should().Equal(previous);
+        File.ReadAllBytes(project.InputPath).Should().Equal(original);
+        Directory.EnumerateFileSystemEntries(project.Request.ProjectDir, ".text-only-poster-*").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Missing_synopsis_reports_what_to_supply_without_submitting_another_request()
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode);
+        using var handler = new RecordingImageHandler((_, _) => ModerationFailure("InputImageSensitiveContentDetected"));
+        using var http = new HttpClient(handler);
+
+        var generate = () => CreateRenamer(http).RenameAsync(
+            project.Request with { AllowTextOnlyFallback = true }, CancellationToken.None);
+        await generate.Should().ThrowAsync<InvalidOperationException>().WithMessage("纯文生图回退失败：缺少剧集简介*");
+
+        handler.Requests.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Text_only_http_failure_is_not_retried()
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode, synopsis: "兄妹筹备庆典。");
+        var previous = File.ReadAllBytes(project.OutputPath);
+        using var handler = new RecordingImageHandler((attempt, _) => attempt == 1
+            ? ModerationFailure("InputImageSensitiveContentDetected")
+            : TemporaryFailure());
+        using var http = new HttpClient(handler);
+
+        var generate = () => CreateRenamer(http).RenameAsync(
+            project.Request with { AllowTextOnlyFallback = true }, CancellationToken.None);
+        await generate.Should().ThrowAsync<InvalidOperationException>().WithMessage("纯文生图回退失败：*503*");
+
+        handler.Requests.Should().HaveCount(2);
+        File.ReadAllBytes(project.OutputPath).Should().Equal(previous);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_fallback_verification_does_not_save_the_candidate()
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode, synopsis: "兄妹筹备庆典。");
+        using var cancellation = new CancellationTokenSource();
+        var previous = File.ReadAllBytes(project.OutputPath);
+        using var handler = new RecordingImageHandler((attempt, _) =>
+        {
+            if (attempt == 1)
+                return ModerationFailure("InputImageSensitiveContentDetected");
+            if (attempt == 2)
+                return ImageResponse(CreatePng(96, 128, GeneratedColor));
+
+            cancellation.Cancel();
+            throw new OperationCanceledException(cancellation.Token);
+        });
+        using var http = new HttpClient(handler);
+
+        var generate = () => CreateRenamer(http).RenameAsync(
+            project.Request with { AllowTextOnlyFallback = true }, cancellation.Token);
+        await generate.Should().ThrowAsync<OperationCanceledException>();
+
+        handler.Requests.Should().HaveCount(3);
+        File.ReadAllBytes(project.OutputPath).Should().Equal(previous);
+        Directory.EnumerateFileSystemEntries(project.Request.ProjectDir, ".text-only-poster-*").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Cancellation_does_not_retry_or_overwrite_the_previous_poster()
     {
         using var project = new PosterProject(PosterGenerationTemplates.DirectMode);
@@ -265,6 +410,25 @@ public sealed class PosterVisiblePromptTests
         Content = JsonContent.Create(new { data = new[] { new { b64_json = Convert.ToBase64String(png) } } }),
     };
 
+    private static HttpResponseMessage ModerationFailure(string code) => new(HttpStatusCode.BadRequest)
+    {
+        Content = JsonContent.Create(new { error = new { code } }),
+    };
+
+    private static HttpResponseMessage TitleVerificationResponse(bool matches) => new(HttpStatusCode.OK)
+    {
+        Content = JsonContent.Create(new
+        {
+            choices = new[] { new { message = new { content = JsonSerializer.Serialize(new
+            {
+                detectedTitle = matches ? Title : "Another Name",
+                matchesTarget = matches,
+                hasResidualText = false,
+                reason = matches ? "" : "标题不同",
+            }) } } },
+        }),
+    };
+
     private static byte[] CreatePng(int width, int height, Rgba32 color)
     {
         using var image = new Image<Rgba32>(width, height, color);
@@ -316,14 +480,15 @@ public sealed class PosterVisiblePromptTests
     {
         private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("poster-visible-prompt-");
 
-        public PosterProject(string mode, bool verifyTitle = false, int sourceWidth = 96, int sourceHeight = 128)
+        public PosterProject(string mode, bool verifyTitle = false, int sourceWidth = 96, int sourceHeight = 128,
+            string? synopsis = null, string configuredSize = "96x128")
         {
             InputPath = Path.Combine(_directory.FullName, "海报原图.png");
             OutputPath = Path.Combine(_directory.FullName, "海报图片.png");
             var configPath = Path.Combine(_directory.FullName, "poster.json");
             File.WriteAllBytes(InputPath, CreatePng(sourceWidth, sourceHeight, new Rgba32(15, 30, 55)));
             File.WriteAllBytes(OutputPath, CreatePng(sourceWidth, sourceHeight, new Rgba32(55, 20, 10)));
-            File.WriteAllText(Path.Combine(_directory.FullName, "短剧信息.txt"), $"原剧名：原剧\n新剧名：{Title}");
+            File.WriteAllText(Path.Combine(_directory.FullName, "短剧信息.txt"), $"原剧名：原剧\n新剧名：{Title}\n简介：{synopsis}");
             File.WriteAllText(configPath, JsonSerializer.Serialize(new
             {
                 PosterMode = mode,
@@ -331,7 +496,7 @@ public sealed class PosterVisiblePromptTests
                 ImageEditPath = "/images/generations",
                 ImageModelId = "test-model",
                 ImageModelApiKey = "fake-image-key",
-                ImageSize = "96x128",
+                ImageSize = configuredSize,
                 DoubaoImageRatio = "3:4",
                 PosterLayoutRequestMode = "fast",
                 PosterGenerationPrompt = "Legacy hidden generation text",

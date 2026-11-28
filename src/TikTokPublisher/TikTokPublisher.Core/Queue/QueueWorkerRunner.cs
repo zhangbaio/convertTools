@@ -1,6 +1,5 @@
 using PublisherShared.Scheduling;
 using System.Diagnostics;
-using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -1204,7 +1203,7 @@ public sealed class QueueWorkerRunner
                 catch (Exception ex)
                 {
                     var failedStep = ResolveFailedStep(ex, preItem, failureSteps);
-                    var failureMessage = DescribeQueueFailure(ex);
+                    var failureMessage = ex.Message;
                     Mutate(() =>
                     {
                         MarkFailed(preItem, failedStep, failureMessage);
@@ -2498,7 +2497,7 @@ public sealed class QueueWorkerRunner
         for (var current = exception; current is not null; current = current.InnerException)
         {
             var message = current.Message ?? "";
-            if (message.Contains(PosterRenamer.PosterSensitiveContentMessage, StringComparison.Ordinal) ||
+            if (message.Contains("被内容审核拦截", StringComparison.Ordinal) ||
                 message.Contains("InputImageSensitiveContentDetected", StringComparison.Ordinal) ||
                 message.Contains("OutputImageSensitiveContentDetected", StringComparison.Ordinal))
                 return true;
@@ -2521,11 +2520,6 @@ public sealed class QueueWorkerRunner
         detail = "";
         return false;
     }
-
-    private static string DescribeQueueFailure(Exception exception) =>
-        IsPosterSensitiveContent(exception)
-            ? PosterRenamer.PosterSensitiveContentMessage
-            : exception.Message;
 
     private static string BuildExceptionDiagnostics(
         Exception exception,

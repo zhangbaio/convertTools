@@ -115,7 +115,11 @@ public sealed class TxtProjectInfoParser : IProjectInfoParser
             originalTitle,
             title,
             GetOptional(map, "推荐语"),
-            GetOptional(map, "简介"));
+            FirstNonEmpty(
+                GetOptional(map, "简介"),
+                GetOptional(map, "剧情简介"),
+                GetOptional(map, "描述"),
+                GetOptional(map, "原简介")));
     }
 
     private static void ValidateProjectDirectory(string projectDir)

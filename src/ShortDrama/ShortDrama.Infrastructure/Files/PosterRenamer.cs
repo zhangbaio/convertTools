@@ -186,7 +186,7 @@ JSON 结构：
             ?? Path.Combine(request.ProjectDir, BuildFileName(posterName, request.NameTemplate, Path.GetExtension(inputPath)));
         var samePath = string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outputPath),
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-        if (samePath && (useVisiblePrompt || posterMode == PosterReferenceCover.Mode))
+        if (samePath && (useVisiblePrompt || request.AllowTextOnlyFallback || posterMode == PosterReferenceCover.Mode))
             throw new InvalidOperationException(useVisiblePrompt
                 ? "生成海报需要独立的原图和输出文件。"
                 : "参考原图生成新封面需要独立的原图文件。");
@@ -196,7 +196,7 @@ JSON 结构：
             if (!request.Overwrite)
                 throw new InvalidOperationException($"目标海报文件已存在: {outputPath}");
 
-            if (!useVisiblePrompt && posterMode != PosterReferenceCover.Mode)
+            if (!useVisiblePrompt && !request.AllowTextOnlyFallback && posterMode != PosterReferenceCover.Mode)
                 File.Delete(outputPath);
         }
 
@@ -205,16 +205,34 @@ JSON 结构：
             request.Log,
             !useVisiblePrompt && IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")),
             useVisiblePrompt);
+        var renderOutputPath = request.AllowTextOnlyFallback && !useVisiblePrompt
+            ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outputPath))!,
+                $".poster-{Guid.NewGuid():N}{Path.GetExtension(outputPath)}")
+            : outputPath;
         try
         {
             if (useVisiblePrompt)
                 await GenerateWithVisiblePromptAsync(request, config, inputPath, outputPath, posterName, posterMode, cancellationToken);
             else
-                await RenderByModeAsync(request, inputPath, outputPath, posterName, posterMode, cancellationToken);
+                await RenderByModeAsync(request, inputPath, renderOutputPath, posterName, posterMode, cancellationToken);
+
+            if (renderOutputPath != outputPath)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(renderOutputPath, outputPath, request.Overwrite);
+            }
+        }
+        catch (PosterSensitiveContentException ex) when (ShouldUseTextOnlyFallback(request, ex))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await GenerateTextOnlyFallbackAsync(
+                request, config, project, inputPath, outputPath, posterName, posterMode, cancellationToken);
         }
         finally
         {
             CurrentCall.Value = previousCall;
+            if (renderOutputPath != outputPath)
+                TryDeleteFile(renderOutputPath);
         }
 
         _logger.LogInformation("Updated poster: {Input} -> {Output}", inputPath, outputPath);
@@ -245,7 +263,7 @@ JSON 结构：
                     await GenerateCoverFromPosterAsync(
                         request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (ex is not OperationCanceledException && !ShouldUseTextOnlyFallback(request, ex))
                 {
                     Log(request, $"封面单次AI编辑失败，回退到原始海报模式：{ex.Message}");
                     await RenderPosterAsync(inputPath, outputPath, posterName, request.ConfigFile, request, cancellationToken);
@@ -820,8 +838,13 @@ JSON 结构：
 
         public string Describe(TimeSpan? elapsed, HttpStatusCode? status, string? responsePreview, Exception? ex = null)
         {
-            var (width, height) = TryReadImageSize(imagePath);
-            var pixels = width is int w && height is int h ? $"{w}x{h}" : "未知";
+            var source = "图片=无（纯文生图）";
+            if (imagePath.Length != 0)
+            {
+                var (width, height) = TryReadImageSize(imagePath);
+                var pixels = width is int w && height is int h ? $"{w}x{h}" : "未知";
+                source = $"图片={Path.GetFileName(imagePath)}，大小={FormatByteCount(imageBytes)}，像素={pixels}";
+            }
             var elapsedText = elapsed is null ? "未完成" : $"{elapsed.Value.TotalSeconds:0.0} 秒";
             var statusText = status is null ? "无响应" : ((int)status).ToString();
             var chain = "";
@@ -835,7 +858,7 @@ JSON 结构：
 
             var preview = string.IsNullOrWhiteSpace(responsePreview) ? "" : $"，响应={responsePreview}";
             return $"模式={(Stream ? "快速" : "标准")}，第 {Attempt} 次，接口={RequestUrl}，模型={modelId}，" +
-                   $"图片={Path.GetFileName(imagePath)}，大小={FormatByteCount(imageBytes)}，像素={pixels}，" +
+                   $"{source}，" +
                    $"输出尺寸={(string.IsNullOrWhiteSpace(imageSize) ? "默认" : imageSize)}，请求体={FormatByteCount(requestBytes)}，" +
                    $"流式={(Stream ? "是，HTTP=1.1" : "否")}，耗时={elapsedText}，状态={statusText}{chain}{preview}";
         }
@@ -953,6 +976,7 @@ JSON 结构：
         string outputPath,
         string title,
         PosterLayout layout,
+        PosterRenameRequest request,
         CancellationToken cancellationToken)
     {
         var config = ReadConfig(configFile);
@@ -1001,7 +1025,7 @@ JSON 结构：
                 cancellationToken,
                 editFullImage: true);
         }
-        catch (PosterSensitiveContentException ex)
+        catch (PosterSensitiveContentException ex) when (!ShouldUseTextOnlyFallback(request, ex))
         {
             _logger.LogWarning(
                 ex,
@@ -1024,7 +1048,7 @@ JSON 结构：
                     cancellationToken,
                     editFullImage: true);
             }
-            catch (PosterSensitiveContentException retryEx)
+            catch (PosterSensitiveContentException retryEx) when (!ShouldUseTextOnlyFallback(request, retryEx))
             {
                 var sanitizedTitle = SanitizePosterTitleForSafety(title);
                 if (string.Equals(sanitizedTitle, title, StringComparison.Ordinal))
@@ -1140,7 +1164,7 @@ JSON 结构：
         string requestUrl,
         string modelId,
         string apiKey,
-        string inputPath,
+        string? inputPath,
         string mediaType,
         string prompt,
         string provider,
@@ -1148,9 +1172,10 @@ JSON 结构：
         string imageSize,
         CancellationToken cancellationToken)
     {
-        var imageBytes = await File.ReadAllBytesAsync(inputPath, cancellationToken);
+        var imageBytes = inputPath is null ? Array.Empty<byte>() : await File.ReadAllBytesAsync(inputPath, cancellationToken);
         var call = CurrentCall.Value;
-        var stream = call?.Fast == true && !IsOpenAiImageProvider(provider) && SupportsImageStreaming(modelId);
+        var stream = inputPath is not null && call?.Fast == true &&
+            !IsOpenAiImageProvider(provider) && SupportsImageStreaming(modelId);
         if (stream && imageBytes.LongLength > FastUploadJpegThresholdBytes &&
             !string.Equals(mediaType, "image/jpeg", StringComparison.OrdinalIgnoreCase))
         {
@@ -1158,13 +1183,13 @@ JSON 结构：
             mediaType = "image/jpeg";
         }
 
-        var imageBase64 = Convert.ToBase64String(imageBytes);
         var payload = new Dictionary<string, object?>
         {
             ["model"] = modelId,
             ["prompt"] = prompt,
-            ["image"] = $"data:{mediaType};base64,{imageBase64}",
         };
+        if (inputPath is not null)
+            payload["image"] = $"data:{mediaType};base64,{Convert.ToBase64String(imageBytes)}";
         if (!string.IsNullOrWhiteSpace(imageSize))
             payload["size"] = imageSize;
         if (IsOpenAiImageProvider(provider))
@@ -1190,7 +1215,7 @@ JSON 结构：
                 attempt,
                 requestUrl,
                 modelId,
-                inputPath,
+                inputPath ?? "",
                 imageBytes.LongLength,
                 imageSize,
                 Encoding.UTF8.GetByteCount(body));
@@ -1317,7 +1342,7 @@ JSON 结构：
                 if (IsSensitiveContentBlocked(errorText))
                 {
                     LogSensitiveApiResponse(errorText);
-                    throw new PosterSensitiveContentException(PosterSensitiveContentMessage);
+                    throw CreatePosterSensitiveContentException(errorText);
                 }
 
                 throw new InvalidOperationException(
@@ -1479,7 +1504,7 @@ JSON 结构：
         if (IsSensitiveContentBlocked(responseText))
         {
             LogSensitiveApiResponse(responseText);
-            throw new PosterSensitiveContentException(PosterSensitiveContentMessage);
+            throw CreatePosterSensitiveContentException(responseText);
         }
 
         var error = AiApiErrorMessage.Create(
@@ -1499,14 +1524,15 @@ JSON 结构：
 
     private static Exception CreateMissingImageDataException(string message, string responseText)
     {
-        if (CurrentCall.Value?.UseVisiblePrompt != true)
-            return new InvalidOperationException(message);
+        if (IsSensitiveContentBlocked(responseText))
+        {
+            LogSensitiveApiResponse(responseText);
+            return CreatePosterSensitiveContentException(responseText);
+        }
 
-        if (!IsSensitiveContentBlocked(responseText))
-            return new InvalidDataException(message);
-
-        LogSensitiveApiResponse(responseText);
-        return new PosterSensitiveContentException(PosterSensitiveContentMessage);
+        return CurrentCall.Value?.UseVisiblePrompt == true
+            ? new InvalidDataException(message)
+            : new InvalidOperationException(message);
     }
 
     private static void LogSensitiveApiResponse(string responseText) =>
@@ -1704,12 +1730,36 @@ JSON 结构：
 
     public const string PosterSensitiveContentMessage = "封面原图被内容审核拦截。";
 
-    private sealed class PosterSensitiveContentException : InvalidOperationException
+    private static PosterSensitiveContentException CreatePosterSensitiveContentException(string responseText)
     {
-        public PosterSensitiveContentException(string message)
-            : base(message)
+        string? code = null;
+        try
+        {
+            using var document = JsonDocument.Parse(responseText);
+            var error = document.RootElement;
+            if (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("error", out var nested))
+                error = nested;
+            if (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("code", out var value) &&
+                value.ValueKind == JsonValueKind.String)
+                code = value.GetString();
+        }
+        catch (JsonException)
         {
         }
+
+        return code?.ToUpperInvariant() switch
+        {
+            "INPUTIMAGESENSITIVECONTENTDETECTED" => new(PosterSensitiveContentMessage, isInputImage: true),
+            "OUTPUTIMAGESENSITIVECONTENTDETECTED" => new("生成的海报被内容审核拦截。"),
+            "INPUTTEXTSENSITIVECONTENTDETECTED" => new("海报提示词被内容审核拦截。"),
+            _ => new("海报生成请求被内容审核拦截。"),
+        };
+    }
+
+    private sealed class PosterSensitiveContentException(string message, bool isInputImage = false)
+        : InvalidOperationException(message)
+    {
+        public bool IsInputImage { get; } = isInputImage;
     }
 
     private static string BuildApiUrl(string endpoint, string apiPath)
