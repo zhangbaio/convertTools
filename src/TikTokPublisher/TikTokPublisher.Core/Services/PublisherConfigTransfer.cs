@@ -20,7 +20,7 @@ public static class PublisherConfigTransfer
         WriteIndented = true,
     };
 
-    public static void ExportTo(string zipPath, bool includeRunData)
+    public static void ExportTo(string zipPath, bool includeRunData, bool deduplicateSeals = false)
     {
         var accounts = ReadAccounts(AppPaths.AccountsFile);
         var activeId = ReadActiveAccountId(AppPaths.ActiveAccountFile);
@@ -78,8 +78,10 @@ public static class PublisherConfigTransfer
                     CopyProfile(account, tempRoot, entry);
                 else
                     CopyLoginState(account, tempRoot, entry);
-                CopyFile(entry.Seal, Path.Combine(tempRoot, "seals", account.Id, Path.GetFileName(entry.Seal)), out var hasSeal);
+                var sealCopy = Path.Combine(tempRoot, "seals", account.Id, Path.GetFileName(entry.Seal));
+                CopyFile(entry.Seal, sealCopy, out var hasSeal);
                 entry.HasSeal = hasSeal;
+            var sealOwners = new Dictionary<string, string>();
                 CopyFile(
                     entry.ProofTemplate,
                     Path.Combine(tempRoot, "proof-templates", account.Id, Path.GetFileName(entry.ProofTemplate)),
@@ -97,6 +99,21 @@ public static class PublisherConfigTransfer
                         entry.HasQueueDatabase = true;
                         manifest.QueueProjectCount += CountRows(exported, "SELECT COUNT(*) FROM upload_projects");
                         manifest.ArchiveRecordCount += CountRows(exported, "SELECT COUNT(*) FROM archive_projects");
+                if (hasSeal && deduplicateSeals)
+                {
+                    string hash;
+                    using (var sealStream = File.OpenRead(sealCopy))
+                        hash = Convert.ToHexString(SHA256.HashData(sealStream));
+                    if (sealOwners.TryGetValue(hash, out var ownerId))
+                    {
+                        entry.SealOwnerAccountId = ownerId;
+                        File.Delete(sealCopy);
+                    }
+                    else
+                    {
+                        sealOwners.Add(hash, account.Id);
+                    }
+                }
                     }
                 }
 
@@ -264,8 +281,14 @@ public static class PublisherConfigTransfer
 
     private static void RestoreSeal(string tempRoot, TikTokAccountProfile account, ConfigAccountEntry? entry, List<string> notes)
     {
-        var source = Directory.Exists(Path.Combine(tempRoot, "seals", account.Id))
-            ? Directory.EnumerateFiles(Path.Combine(tempRoot, "seals", account.Id)).FirstOrDefault()
+        var ownerId = entry?.SealOwnerAccountId;
+        if (ownerId is not null &&
+            (string.IsNullOrWhiteSpace(ownerId) || ownerId.EndsWith('.') || ownerId.EndsWith(' ') ||
+             ownerId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+            throw new InvalidOperationException("配置包包含无效印章引用");
+        var sealDir = Path.Combine(tempRoot, "seals", ownerId ?? account.Id);
+        var source = Directory.Exists(sealDir)
+            ? Directory.EnumerateFiles(sealDir).FirstOrDefault()
             : null;
         if (string.IsNullOrWhiteSpace(source))
             return;
@@ -276,7 +299,7 @@ public static class PublisherConfigTransfer
             dest = original;
         else
         {
-            dest = Path.Combine(account.ProfileDir, Path.GetFileName(source));
+            dest = Path.Combine(account.ProfileDir, Path.GetFileName(string.IsNullOrEmpty(original) ? source : original));
             if (!string.IsNullOrWhiteSpace(original))
                 notes.Add($"「{account.DisplayName}」印章原目录不存在，已改存到账号目录。");
         }
@@ -780,6 +803,8 @@ public static class PublisherConfigTransfer
         public string Workspace { get; set; } = "";
         public string Excel { get; set; } = "";
         public string Seal { get; set; } = "";
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? SealOwnerAccountId { get; set; }
         public string ProofTemplate { get; set; } = "";
         public string Archive { get; set; } = "";
         public bool HasQueueDatabase { get; set; }

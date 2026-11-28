@@ -125,7 +125,7 @@ public sealed class TikTokManagementConfigSyncService
             "tiktok-config-upload-" + Guid.NewGuid().ToString("N") + ".zip");
         try
         {
-            PublisherConfigTransfer.ExportTo(packagePath, includeRunData: false);
+            PublisherConfigTransfer.ExportTo(packagePath, includeRunData: false, deduplicateSeals: true);
             var info = PublisherConfigTransfer.Inspect(packagePath);
             var summary = info.Summary + Environment.NewLine + "上传后会覆盖该登录账号在云端已有的配置。";
             return new TikTokConfigUploadPackage(true, summary, "", packagePath);

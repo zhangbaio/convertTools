@@ -16,6 +16,43 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokManagementConfigSyncServiceTests
 {
     [Fact]
+    public void PrepareUpload_StoresIdenticalSealsOnceAndRestoresBothAccounts()
+    {
+        var sourceRoot = CreateRoot();
+        using var sourceScope = new DataRootScope(sourceRoot);
+        var accountsPath = Path.Combine(sourceRoot, "accounts.json");
+        WriteAccount(accountsPath, "acct-a", "账号 A", "", append: false);
+        WriteAccount(accountsPath, "acct-b", "账号 B", "", append: true);
+        var accounts = ReadAccounts(accountsPath);
+        var sealFolder = Directory.CreateDirectory(Path.Combine(sourceRoot, "original-seals"));
+        foreach (var account in accounts)
+        {
+            account.TiktokProofSealPath = Path.Combine(sealFolder.FullName, account.Id + ".png");
+            File.WriteAllText(account.TiktokProofSealPath, "identical seal bytes");
+        }
+        File.WriteAllText(accountsPath, JsonSerializer.Serialize(accounts,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+
+        using var http = new HttpClient();
+        using var package = CreateService(http).PrepareUpload();
+        package.Ok.Should().BeTrue(package.Message);
+        using (var zip = ZipFile.OpenRead(package.PackagePath!))
+            zip.Entries.Count(entry => entry.FullName.StartsWith("seals/") && entry.Name.Length > 0).Should().Be(1);
+
+        sealFolder.Delete(recursive: true);
+        var targetRoot = CreateRoot();
+        using var targetScope = new DataRootScope(targetRoot);
+        PublisherConfigTransfer.ImportFrom(package.PackagePath!, includeRunData: false);
+        var restored = ReadAccounts(Path.Combine(targetRoot, "accounts.json"));
+        restored.Should().HaveCount(2);
+        foreach (var account in restored)
+        {
+            Path.GetFileName(account.TiktokProofSealPath).Should().Be(account.Id + ".png");
+            File.ReadAllText(account.TiktokProofSealPath).Should().Be("identical seal bytes");
+        }
+    }
+
+    [Fact]
     public async Task UploadAsync_SendsConfigOnlyPackageWithTtHeaders()
     {
         var root = CreateRoot();
