@@ -116,6 +116,79 @@ public sealed class QueueProjectDeletionUseCaseTests : IDisposable
         WorkspaceQueueDatabase.Load(Root).Items.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Loading_queue_restores_directories_moved_before_the_removal_commit(bool movedWorkflow)
+    {
+        var project = CreateProject("interrupted");
+        WorkspaceQueueDatabase.Save(Root, [project.Item]);
+        var stage = CreateAbandonedStage(project.Item.ProjectDir, project.Workflow, movedWorkflow);
+
+        WorkspaceQueueService.LoadPersistedSnapshot(Root).Items
+            .Select(item => item.ProjectDir).Should().Contain(project.Item.ProjectDir);
+
+        AssertIntact(project.Item, project.Workflow);
+        Directory.Exists(stage).Should().BeFalse();
+        WorkspaceQueueService.ScanProjects(Root).Should().Contain(item => item.ProjectDir == project.Item.ProjectDir);
+    }
+
+    [Fact]
+    public void Recovery_never_revives_a_committed_removal_or_replaces_a_recreated_directory()
+    {
+        var removed = CreateProject("committed");
+        var conflicted = CreateProject("conflict");
+        WorkspaceQueueDatabase.Save(Root, [removed.Item, conflicted.Item]);
+        var committedStage = CreateAbandonedStage(removed.Item.ProjectDir, removed.Workflow, movedWorkflow: true);
+        WorkspaceQueueService.CommitProjectDeletion(Root, removed.Item.ProjectDir);
+        var conflictedStage = CreateAbandonedStage(conflicted.Item.ProjectDir, conflicted.Workflow, movedWorkflow: true);
+        Directory.CreateDirectory(conflicted.Item.ProjectDir);
+        var fresh = Path.Combine(conflicted.Item.ProjectDir, "new.txt");
+        File.WriteAllText(fresh, "new content");
+
+        _ = WorkspaceQueueService.LoadPersistedSnapshot(Root);
+
+        Directory.Exists(removed.Item.ProjectDir).Should().BeFalse();
+        Directory.Exists(removed.Workflow).Should().BeFalse();
+        Directory.Exists(Path.Combine(committedStage, "0")).Should().BeTrue();
+        File.ReadAllText(fresh).Should().Be("new content");
+        Directory.Exists(Path.Combine(conflictedStage, "0")).Should().BeTrue();
+        Directory.Exists(Path.Combine(conflictedStage, "1")).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Recovery_waits_for_an_active_delete_to_release_its_staging_lease()
+    {
+        var project = CreateProject("reserved");
+        WorkspaceQueueDatabase.Save(Root, [project.Item]);
+        using (var lease = QueueProjectDeletionRecovery.TryAcquire(Root, create: true))
+        {
+            lease.Should().NotBeNull();
+            _ = CreateAbandonedStage(project.Item.ProjectDir, project.Workflow, movedWorkflow: true);
+            _ = WorkspaceQueueService.LoadPersistedSnapshot(Root);
+            Directory.Exists(project.Item.ProjectDir).Should().BeFalse();
+        }
+
+        _ = WorkspaceQueueService.LoadPersistedSnapshot(Root);
+        AssertIntact(project.Item, project.Workflow);
+    }
+
+    private string CreateAbandonedStage(string project, string workflow, bool movedWorkflow)
+    {
+        var stage = Path.Combine(Root, QueueProjectDeletionPaths.StagingFolderName, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stage);
+        // Emulate the restore.json created by a client that exited before handling rollback.
+        File.WriteAllText(Path.Combine(stage, "restore.json"), JsonSerializer.Serialize(new
+        {
+            Project = project,
+            Directories = new Dictionary<string, string> { ["0"] = project, ["1"] = workflow },
+        }));
+        Directory.Move(project, Path.Combine(stage, "0"));
+        if (movedWorkflow)
+            Directory.Move(workflow, Path.Combine(stage, "1"));
+        return stage;
+    }
+
     [Fact]
     public async Task Rejected_ownership_does_not_hide_or_delete_either_project()
     {

@@ -34,7 +34,10 @@ public static class WorkspaceQueueService
         if (!Directory.Exists(root)) return Array.Empty<QueueProjectItem>();
 
         if (reconcile)
+        {
+            QueueProjectDeletionRecovery.Recover(root);
             TryDeleteLegacyProjectDirectories(root);
+        }
         var deleted = SnapshotDeletedProjectDirs(root);
 
         var state = WorkspaceQueueDatabase.Load(root);
@@ -121,8 +124,8 @@ public static class WorkspaceQueueService
     }
 
     /// <summary>
-    /// Loads the database snapshot without touching project artifact trees. This is suitable
-    /// for immediately populating the UI while a full filesystem reconciliation runs.
+    /// Loads the database snapshot for immediate display, recovering interrupted deletions
+    /// when a staging journal is present.
     /// </summary>
     public static (IReadOnlyList<QueueProjectItem> Items, QueueRunOptions Options) LoadPersistedSnapshot(
         string workspaceRoot)
@@ -131,6 +134,7 @@ public static class WorkspaceQueueService
         if (!Directory.Exists(root))
             return (Array.Empty<QueueProjectItem>(), new QueueRunOptions());
 
+        QueueProjectDeletionRecovery.Recover(root);
         var state = WorkspaceQueueDatabase.Load(root);
         var items = new List<QueueProjectItem>();
         var outsideWorkspace = new List<string>();

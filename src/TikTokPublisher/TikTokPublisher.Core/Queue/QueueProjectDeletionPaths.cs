@@ -58,7 +58,7 @@ internal static class QueueProjectDeletionPaths
         }
     }
 
-    private static FileAttributes? ReadSafeAttributes(string path)
+    internal static FileAttributes? ReadSafeAttributes(string path)
     {
         FileAttributes attributes;
         try { attributes = File.GetAttributes(path); }

@@ -67,6 +67,10 @@ public sealed class QueueProjectDeletionUseCase
             if (lease is null)
                 return new([], 0, ["该工作目录正在执行队列或删除项目，请结束后重试"], false);
 
+            using var stagingLease = QueueProjectDeletionRecovery.TryAcquire(root, create: true);
+            if (stagingLease is null)
+                return new([], 0, ["该工作目录正在恢复或删除项目，请稍后重试"], false);
+
             QueueProjectDeletionPaths.ValidateQueueFiles(root);
             var visible = IndexByPath(request.QueueSnapshot);
             var stored = IndexByPath(WorkspaceQueueDatabase.Load(root).Items);
@@ -123,11 +127,8 @@ public sealed class QueueProjectDeletionUseCase
         var moved = new List<(string Source, string Staged)>();
         try
         {
-            File.WriteAllText(Path.Combine(stage, "restore.json"), JsonSerializer.Serialize(new
-            {
-                Project = projectDir,
-                Directories = moves.ToDictionary(move => Path.GetFileName(move.Staged), move => move.Source),
-            }));
+            QueueProjectDeletionRecovery.WriteJournal(stage, projectDir,
+                moves.ToDictionary(move => Path.GetFileName(move.Staged), move => move.Source));
 
             foreach (var move in moves)
             {
