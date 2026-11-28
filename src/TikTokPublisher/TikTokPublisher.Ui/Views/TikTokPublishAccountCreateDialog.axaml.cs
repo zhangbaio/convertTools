@@ -180,9 +180,16 @@ public partial class TikTokPublishAccountCreateDialog : Window
                 var job = jobs[i];
                 var row = job.Row;
                 row.Selection.IsEnabled = false;
-                row.Status.Text = "正在登录并提交…";
+                row.Status.Text = "正在核对已有登录状态…";
                 StatusText.Text = $"正在处理 {i + 1}/{jobs.Length} · {job.Target.Label}";
-                var result = await _runner.CreateAsync(_accounts![job.Target.Number], row.Material, cancellation.Token);
+                var finished = false;
+                var progress = new Progress<string>(message =>
+                {
+                    if (!finished)
+                        row.Status.Text = message;
+                });
+                var result = await _runner.CreateAsync(_accounts![job.Target.Number], row.Material, cancellation.Token, progress);
+                finished = true;
                 row.Status.Text = result.Message;
                 row.Selection.IsEnabled = result.State == PublishAccountCreationState.Retryable;
             }

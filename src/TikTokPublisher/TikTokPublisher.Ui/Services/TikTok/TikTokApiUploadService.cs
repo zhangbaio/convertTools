@@ -91,12 +91,12 @@ public static partial class TikTokApiUploadService
     }
 
     /// <summary>剧集中心把 imagex-upload-sg 改写到 vod 域名，图片版本固定 2018-08-01。</summary>
-    internal static Uri BuildImageApplyUri(string serviceBase, long fileSize, string token) =>
-        new($"{serviceBase.TrimEnd('/')}/?Action=ApplyImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}" +
+    internal static Uri BuildImageApplyUri(string serviceBase, long fileSize, string token, string imageServiceId = ImageServiceId) =>
+        new($"{serviceBase.TrimEnd('/')}/?Action=ApplyImageUpload&Version={ImageApiVersion}&ServiceId={imageServiceId}" +
             $"&FileSize={fileSize}&s={token}&device_platform=web");
 
-    internal static Uri BuildImageCommitUri(string serviceBase) =>
-        new($"{serviceBase.TrimEnd('/')}/?Action=CommitImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}");
+    internal static Uri BuildImageCommitUri(string serviceBase, string imageServiceId = ImageServiceId) =>
+        new($"{serviceBase.TrimEnd('/')}/?Action=CommitImageUpload&Version={ImageApiVersion}&ServiceId={imageServiceId}");
 
     internal readonly record struct ImageUploadTicket(
         string SessionKey,
@@ -1527,7 +1527,10 @@ public static partial class TikTokApiUploadService
         return rejected;
     }
 
-    private readonly record struct FetchReply(int Status, string Text, string? RetryAfter = null);
+    internal readonly record struct FetchReply(int Status, string Text, string? RetryAfter = null)
+    {
+        public Uri? Redirect { get; init; }
+    }
 
     private static async Task<IReadOnlyList<FetchReply>> PostJsonManyAsync(
         IPage? page,
@@ -1718,7 +1721,8 @@ public static partial class TikTokApiUploadService
         string? objectBase = null,
         string? itemLabel = null,
         bool useResponseUploadHost = false,
-        bool preferDomesticImageHosts = false)
+        bool preferDomesticImageHosts = false,
+        string imageServiceId = ImageServiceId)
     {
         var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var isVideo = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase);
@@ -1726,7 +1730,7 @@ public static partial class TikTokApiUploadService
         var applyUri = isVideo
             ? new Uri($"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
               $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web")
-            : BuildImageApplyUri(vodBase, fileSize, RandomToken());
+            : BuildImageApplyUri(vodBase, fileSize, RandomToken(), imageServiceId);
         using var applyDocument = await ExecuteWithRetryAsync(
             retries,
             $"{label}初始化上传",
@@ -2359,14 +2363,16 @@ public static partial class TikTokApiUploadService
         private readonly HttpClient _http;
         private readonly string _cookie;
         private readonly string _origin;
+        private readonly string _referrerPath;
 
         internal string Site { get; }
 
-        private PartnerSession(string cookie, TikTokPublishOptions options, bool allowAutoRedirect)
+        private PartnerSession(string cookie, TikTokPublishOptions options, bool allowAutoRedirect, string referrerPath)
         {
             _cookie = cookie;
             Site = TikTokApiSites.Normalize(options.ApiSite);
             _origin = TikTokApiSites.Origin(Site);
+            _referrerPath = referrerPath;
             var handler = new HttpClientHandler
             {
                 UseCookies = false,
@@ -2393,7 +2399,23 @@ public static partial class TikTokApiUploadService
             var cookie = TikTokAccountAnalyticsClient.ReadCookieHeader(storageStatePath);
             if (string.IsNullOrWhiteSpace(cookie))
                 throw new InvalidOperationException("接口上传：保存的登录状态里没有剧集中心 Cookie，请先在浏览器页重新登录该账号。");
-            return new PartnerSession(cookie, options, allowAutoRedirect);
+            return new PartnerSession(cookie, options, allowAutoRedirect, "/series/draft");
+        }
+
+        public static PartnerSession? TryOpenForPublishing(string storageStatePath, TikTokPublishOptions options)
+        {
+            string cookie;
+            try
+            {
+                cookie = ReadPublishingCookies(storageStatePath, options.ApiSite);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return null;
+            }
+
+            return string.IsNullOrEmpty(cookie)
+                ? null : new PartnerSession(cookie, options, allowAutoRedirect: false, "/accounts/publishing");
         }
 
         public async Task<FetchReply> SendAsync(
@@ -2409,7 +2431,9 @@ public static partial class TikTokApiUploadService
             request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
             request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
             request.Headers.TryAddWithoutValidation("Origin", _origin);
-            request.Headers.TryAddWithoutValidation("Referer", _origin + "/series/draft");
+            request.Headers.TryAddWithoutValidation("Referer", _origin + _referrerPath);
+            if (_referrerPath == "/accounts/publishing")
+                request.Headers.TryAddWithoutValidation("X-Locale", "zh-Hans");
             request.Headers.TryAddWithoutValidation("Cookie", _cookie);
             if (body is not null)
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");
@@ -2417,7 +2441,10 @@ public static partial class TikTokApiUploadService
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var retryAfter = response.Headers.TryGetValues("Retry-After", out var values) ? values.FirstOrDefault() : null;
-            return new FetchReply((int)response.StatusCode, text, retryAfter);
+            return new FetchReply((int)response.StatusCode, text, retryAfter)
+            {
+                Redirect = response.Headers.Location is { } location ? new Uri(new Uri(url), location) : null,
+            };
         }
 
         public void Dispose() => _http.Dispose();

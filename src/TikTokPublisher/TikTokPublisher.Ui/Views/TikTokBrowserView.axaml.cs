@@ -7,7 +7,6 @@ using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services;
-using TikTokPublisher.Ui.Services.TikTok;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -108,30 +107,6 @@ public partial class TikTokBrowserView : UserControl
         }
 
         _vm.BeginAccountLogin(forceRelogin: false);
-    }
-
-    internal TikTokPublishAccountBatchRunner? PublishAccountRunner { get; set; }
-
-    private void OnPublishingAccountsClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm?.SelectedAccount is { } account)
-            OnNavigateRequested(account, TikTokPublishAccountBatchRunner.PublishingUrl(account.Model));
-    }
-
-    private async void OnCreatePublishAccountsClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm?.SelectedAccount is not { } account || PublishAccountRunner is null ||
-            TopLevel.GetTopLevel(this) is not Window owner)
-        {
-            if (_vm is not null)
-                _vm.StatusMessage = "请先在左侧选择 TikTok 主账号";
-            return;
-        }
-
-        var dialog = new TikTokPublishAccountCreateDialog();
-        dialog.Bind(PublishAccountRunner, [new(1, account.DisplayName)],
-            () => new Dictionary<int, TikTokAccountProfile> { [1] = account.Model });
-        await dialog.ShowDialog(owner);
     }
 
     private void OnHomeClick(object? sender, RoutedEventArgs e)

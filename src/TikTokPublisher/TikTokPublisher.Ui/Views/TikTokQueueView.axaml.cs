@@ -77,6 +77,8 @@ public partial class TikTokQueueView : UserControl
     public event EventHandler? OpenLogsRequested;
     public event Action<AccountItemViewModel>? PublishBrowserFocusRequested;
 
+    internal TikTokPublishAccountBatchRunner? PublishAccountRunner { get; set; }
+
     public TikTokQueueView()
     {
         InitializeComponent();
@@ -484,6 +486,23 @@ public partial class TikTokQueueView : UserControl
     }
 
     private void OnOpenLogsClick(object? sender, RoutedEventArgs e) => OpenLogsRequested?.Invoke(this, EventArgs.Empty);
+
+    private async void OnCreatePublishAccountsClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null || PublishAccountRunner is not { } runner || TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+        if (vm.SelectedAccount is not { } account)
+        {
+            vm.StatusMessage = "请先在左侧选择 TikTok 主账号";
+            return;
+        }
+
+        var dialog = new TikTokPublishAccountCreateDialog();
+        dialog.Bind(runner, [new(1, account.DisplayName)],
+            () => new Dictionary<int, TikTokAccountProfile> { [1] = account.Model });
+        await dialog.ShowDialog(owner);
+    }
 
     private async void OnConfigureRoleMaterialClick(object? sender, RoutedEventArgs e)
     {

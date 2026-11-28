@@ -4,15 +4,8 @@
              x:Class="TikTokPublisher.Ui.Views.TikTokBrowserView"
              x:DataType="vm:MainViewModel">
 
-    <Grid RowDefinitions="Auto,Auto,*" Background="#FFFFFF">
-        <Border Padding="10,6" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="发布账号" Click="OnPublishingAccountsClick" />
-                <Button Content="批量创建发布账号" Classes="secondaryAction" Click="OnCreatePublishAccountsClick" />
-            </StackPanel>
-        </Border>
+    <Grid RowDefinitions="Auto,*" Background="#FFFFFF">
         <Border x:Name="AnalyticsToolbar"
-                Grid.Row="1"
                 IsVisible="False"
                 Padding="12,8"
                 BorderBrush="#E2E8F0"
@@ -33,7 +26,7 @@
             </StackPanel>
         </Border>
 
-        <Panel Grid.Row="2" x:Name="BrowserArea" Background="#FFFFFF" ClipToBounds="True">
+        <Panel Grid.Row="1" x:Name="BrowserArea" Background="#FFFFFF" ClipToBounds="True">
         <TextBlock x:Name="EmptyHint"
                    Text="请先在左侧选择或添加账号，然后点击「登录」加载 TikTok 短剧中心。"
                    HorizontalAlignment="Center"

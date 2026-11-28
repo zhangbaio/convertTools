@@ -504,7 +504,8 @@ public static partial class TikTokApiUploadService
         TikTokPublishOptions options,
         string label,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        string imageServiceId = ImageServiceId)
     {
         var fileSize = new FileInfo(path).Length;
         if (fileSize <= 0)
@@ -537,14 +538,15 @@ public static partial class TikTokApiUploadService
                 fileType: "image",
                 objectBase: imageBase,
                 itemLabel: label,
-                preferDomesticImageHosts: !TikTokApiSites.IsInternational(site));
+                preferDomesticImageHosts: !TikTokApiSites.IsInternational(site),
+                imageServiceId: imageServiceId);
         }
         finally
         {
             gates.Transfer.Release();
         }
 
-        return await CommitImageAsync(http, sts, vodBase, sessionKey, label, retries, log, ct);
+        return await CommitImageAsync(http, sts, vodBase, sessionKey, label, retries, log, ct, imageServiceId);
     }
 
     private static async Task<string> ResolveSeriesIdAsync(
@@ -798,10 +800,11 @@ public static partial class TikTokApiUploadService
         string label,
         int retries,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        string imageServiceId)
     {
         var commitBody = JsonSerializer.Serialize(new { SessionKey = sessionKey });
-        var commitUri = BuildImageCommitUri(vodBase);
+        var commitUri = BuildImageCommitUri(vodBase, imageServiceId);
         using var commitDocument = await ExecuteWithRetryAsync(
             retries,
             $"{label}提交图片",

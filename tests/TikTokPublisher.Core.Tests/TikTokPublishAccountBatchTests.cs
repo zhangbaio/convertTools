@@ -73,24 +73,178 @@ public sealed class TikTokPublishAccountBatchTests
     }
 
     [Theory]
-    [InlineData("tiktokdramacenter.com", ".tiktokdramacenter.com")]
-    [InlineData("www.tiktokdramacenter.com", "www.tiktokdramacenter.com")]
-    [InlineData(".tiktokdramacenter.com", ".tiktokdramacenter.com")]
-    [InlineData("drama.tiktok.com", "drama.tiktok.com")]
-    public void Dedicated_publishing_page_imports_the_account_cookie_scope(string domain, string expected)
+    [InlineData("domestic", "domestic=one")]
+    [InlineData("international", "international=two")]
+    public void Saved_publishing_cookies_stay_on_their_account_site(string site, string expected)
     {
-        Assert.Equal(expected, TikTokPublishAccountBatchRunner.PublishingCookieDomain(domain));
+        using var workspace = new MaterialRoot();
+        var stateFile = Path.Combine(workspace.Path, "state.json");
+        File.WriteAllText(stateFile, """
+            {"cookies":[
+              {"domain":"tiktokdramacenter.com","path":"/","name":"domestic","value":"one","expires":-1},
+              {"domain":".tiktok.com","path":"/","name":"international","value":"two","expires":-1},
+              {"domain":"www.tiktokdramacenter.com","path":"/","name":"expired","value":"old","expires":1},
+              {"domain":"unrelated.tiktokdramacenter.com","path":"/","name":"unrelated","value":"no","expires":-1},
+              {"domain":".tiktok.com","path":"/elsewhere","name":"scoped","value":"no","expires":-1}
+            ]}
+            """);
+
+        Assert.Equal(expected, TikTokApiUploadService.ReadPublishingCookies(stateFile, site));
+    }
+
+    private const string ValidProfile = """
+        {"code":0,"data":{"profile":{"isParent":true,"email":"test@example.test"},"institution":{"institutionId":"1234567890123456789","sourceV2":3}}}
+        """;
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(401)]
+    [InlineData(200)]
+    public async Task Existing_login_is_reused_and_an_expired_login_is_renewed_only_once(int expiredStatus)
+    {
+        var expired = expiredStatus != 0;
+        var calls = new List<string>();
+        var profileReads = 0;
+        var logins = 0;
+        var marked = false;
+        var material = new PublishAccountMaterial("", "AfterFive", "Short drama clips.", "",
+            PublishAccountMaterialState.Ready, "");
+        var result = await TikTokApiUploadService.SubmitPublishingAccountAsync(
+            material,
+            (path, body, _) =>
+            {
+                calls.Add(path.Split('/').Last());
+                if (path.EndsWith("/profile"))
+                    return Task.FromResult(expired && ++profileReads == 1
+                        ? new TikTokApiUploadService.FetchReply(expiredStatus, """{"statusCode":401}""")
+                        : new TikTokApiUploadService.FetchReply(200, ValidProfile));
+                if (path.EndsWith("/detail"))
+                    return Task.FromResult(new TikTokApiUploadService.FetchReply(200,
+                        """{"code":0,"data":{"isRegistering":false,"creatorHostingConfig":{"enabled":false}}}"""));
+                Assert.True(marked);
+                using var json = JsonDocument.Parse(body!);
+                var submitted = json.RootElement;
+                Assert.Equal("1234567890123456789", submitted.GetProperty("institutionID").GetString());
+                Assert.Equal(material.Nickname, submitted.GetProperty("uniqueName").GetString());
+                Assert.Equal(material.Biography, submitted.GetProperty("description").GetString());
+                Assert.Equal("avatar-uploaded", submitted.GetProperty("avatarUri").GetString());
+                Assert.True(submitted.GetProperty("enabled").GetBoolean());
+                return Task.FromResult(new TikTokApiUploadService.FetchReply(200,
+                    """{"code":0,"data":{"requestId":"receipt-1"}}"""));
+            },
+            _ =>
+            {
+                logins++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                Assert.False(marked);
+                calls.Add("avatar");
+                return Task.FromResult("avatar-uploaded");
+            },
+            () => marked = true,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(expired ? 1 : 0, logins);
+        Assert.Equal(expired ? ["profile", "profile", "detail", "avatar", "creator-hosting"]
+            : new[] { "profile", "detail", "avatar", "creator-hosting" }, calls);
+        Assert.Equal(PublishAccountCreationState.Accepted, result.State);
+        Assert.Equal("receipt-1", result.ReceiptId);
     }
 
     [Theory]
-    [InlineData("""{"enabled":true,"uniqueName":"AfterFive"}""", true)]
-    [InlineData("""{"enabled":true,"unique_name":"AfterFive"}""", true)]
-    [InlineData("""{"enabled":true,"uniqueName":"WrongAccount"}""", false)]
-    [InlineData("""{"enabled":false,"uniqueName":"AfterFive"}""", false)]
-    [InlineData("not json", false)]
-    public void Submission_response_is_correlated_with_the_expected_material(string body, bool expected)
+    [InlineData("""{"code":0,"data":{"isRegistering":true}}""")]
+    [InlineData("""{"code":0,"data":{"creatorHostingConfig":{"enabled":true}}}""")]
+    public async Task An_existing_platform_request_keeps_a_new_material_unsubmitted(string detail)
     {
-        Assert.Equal(expected, TikTokPublishAccountBatchRunner.MatchesSubmissionBody(body, "AfterFive"));
+        using var workspace = new MaterialRoot();
+        workspace.Add("AfterFive");
+        var material = Assert.Single(workspace.Scan());
+        using var reservation = TikTokPublishAccountMaterials.Reserve(material, "account");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TikTokApiUploadService.SubmitPublishingAccountAsync(
+            material,
+            (path, _, _) => Task.FromResult(path.EndsWith("/profile")
+                ? new TikTokApiUploadService.FetchReply(200, ValidProfile)
+                : new TikTokApiUploadService.FetchReply(200, detail)),
+            _ => throw new Xunit.Sdk.XunitException("Unexpected login."),
+            _ => throw new Xunit.Sdk.XunitException("Unexpected avatar upload."),
+            reservation.BeginSubmission,
+            progress: null,
+            CancellationToken.None));
+
+        Assert.False(reservation.SubmissionStarted);
+        Assert.Equal(PublishAccountMaterialState.Ready, Assert.Single(workspace.Scan()).State);
+    }
+
+    [Theory]
+    [InlineData(403, 0)]
+    [InlineData(429, 0)]
+    [InlineData(503, 0)]
+    [InlineData(401, 1)]
+    public async Task Profile_validation_failure_does_not_upload_or_submit(int status, int expectedLoginCount)
+    {
+        var logins = 0;
+        var material = new PublishAccountMaterial("", "AfterFive", "Description.", "",
+            PublishAccountMaterialState.Ready, "");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TikTokApiUploadService.SubmitPublishingAccountAsync(
+            material,
+            (_, _, _) => Task.FromResult(new TikTokApiUploadService.FetchReply(status, "")),
+            _ =>
+            {
+                logins++;
+                return Task.CompletedTask;
+            },
+            _ => throw new Xunit.Sdk.XunitException("Unexpected avatar upload."),
+            () => Assert.Fail("Unexpected submission."),
+            progress: null,
+            CancellationToken.None));
+        Assert.Equal(expectedLoginCount, logins);
+    }
+
+    [Fact]
+    public void Publishing_avatar_uses_its_own_image_service_for_apply_and_commit()
+    {
+        const string imageHost = "https://image.example.test";
+        var serviceId = TikTokApiUploadService.PublishingAvatarServiceId;
+        var apply = TikTokApiUploadService.BuildImageApplyUri(imageHost, 500, "nonce", serviceId);
+        var commit = TikTokApiUploadService.BuildImageCommitUri(imageHost, serviceId);
+        Assert.Contains("ServiceId=fjfgkmyddx", apply.Query);
+        Assert.Contains("ServiceId=fjfgkmyddx", commit.Query);
+        Assert.Contains("ServiceId=xbj99bix8q", TikTokApiUploadService.BuildImageCommitUri(imageHost).Query);
+    }
+
+    [Fact]
+    public async Task Unknown_submission_response_is_recorded_as_pending_after_one_attempt()
+    {
+        var submissions = 0;
+        using var workspace = new MaterialRoot();
+        workspace.Add("AfterFive");
+        var material = Assert.Single(workspace.Scan());
+        using var reservation = TikTokPublishAccountMaterials.Reserve(material, "account");
+        var result = await TikTokApiUploadService.SubmitPublishingAccountAsync(
+            material,
+            (path, _, _) =>
+            {
+                if (path.EndsWith("/profile"))
+                    return Task.FromResult(new TikTokApiUploadService.FetchReply(200, ValidProfile));
+                if (path.EndsWith("/detail"))
+                    return Task.FromResult(new TikTokApiUploadService.FetchReply(200, """{"code":0,"data":{}}"""));
+                Assert.True(reservation.SubmissionStarted);
+                submissions++;
+                return Task.FromResult(new TikTokApiUploadService.FetchReply(503, ""));
+            },
+            _ => throw new InvalidOperationException("Unexpected login."),
+            _ => Task.FromResult("avatar-uploaded"),
+            reservation.BeginSubmission,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.Equal(1, submissions);
+        Assert.Equal(PublishAccountCreationState.Pending, result.State);
+        Assert.Equal(PublishAccountMaterialState.Pending, Assert.Single(workspace.Scan()).State);
     }
 
     [Theory]
@@ -100,7 +254,7 @@ public sealed class TikTokPublishAccountBatchTests
     [InlineData("""{"message":"ok"}""", 2, "")]
     public void Only_explicit_platform_success_yields_an_acceptance(string body, int state, string receipt)
     {
-        var result = TikTokPublishAccountBatchRunner.ParseSubmission(body);
+        var result = TikTokApiUploadService.ParsePublishingSubmission(body);
         Assert.Equal((PublishAccountCreationState)state, result.State);
         Assert.Equal(receipt, result.ReceiptId);
     }
