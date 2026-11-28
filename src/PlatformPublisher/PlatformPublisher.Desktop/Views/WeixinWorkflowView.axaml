@@ -595,8 +595,14 @@
                             <TextBlock Grid.Column="7" Text="上传" FontWeight="SemiBold" />
                         </Grid>
                     </Border>
-                    <ListBox Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
-                             Background="#FFFFFF" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox Grid.Row="1" ItemsSource="{Binding VisibleJobs}" SelectedItem="{Binding SelectedJob}"
+                             Background="#FFFFFF" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
                         <ListBox.Styles>
                             <Style Selector="ListBoxItem">
                                 <Setter Property="Padding" Value="9,4" />
@@ -630,7 +636,7 @@
                     <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8"
                                 IsVisible="{Binding !HasWeixinQueueResults}">
                         <TextBlock Text="当前没有可显示的剧集项目" HorizontalAlignment="Center" FontWeight="SemiBold" />
-                        <TextBlock Text="可调整筛选条件，或扫描目录、导入本地项目。" HorizontalAlignment="Center" Foreground="#64748B" />
+                        <TextBlock Text="可调整筛选条件，也可按剧名入队或导入本地项目。" HorizontalAlignment="Center" Foreground="#64748B" />
                     </StackPanel>
                     <Expander Grid.Row="2" Header="所选项目的步骤详情" IsVisible="{Binding HasWeixinQueueResults}"
                               HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
@@ -641,20 +647,11 @@
         </Border>
 
         <StackPanel x:Name="WeixinFooter" Grid.Row="2" Spacing="4" Margin="0,0,0,2">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBlock VerticalAlignment="Center" Foreground="#475569" TextTrimming="CharacterEllipsis">
-                    <Run Text="{Binding WeixinQueueSummary}" />
-                    <Run Text=" · 工作目录 " />
-                    <Run Text="{Binding DraftProjectDirectory}" />
-                </TextBlock>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <NumericUpDown Width="70" Value="{Binding WorkflowPageSize}" Minimum="5" Maximum="200" Increment="5"
-                                   AutomationProperties.Name="队列每页项目数" />
-                    <Button Content="‹" Command="{Binding PreviousWorkflowPageCommand}" Classes="secondaryAction compactAction" />
-                    <TextBlock Text="{Binding WorkflowPageSummary}" VerticalAlignment="Center" Foreground="#64748B" />
-                    <Button Content="›" Command="{Binding NextWorkflowPageCommand}" Classes="secondaryAction compactAction" />
-                </StackPanel>
-            </Grid>
+            <TextBlock VerticalAlignment="Center" Foreground="#475569" TextTrimming="CharacterEllipsis">
+                <Run Text="{Binding WeixinQueueSummary}" />
+                <Run Text=" · 工作目录 " />
+                <Run Text="{Binding DraftProjectDirectory}" />
+            </TextBlock>
             <TextBlock Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}"
                        FontSize="12" Foreground="#64748B" />
         </StackPanel>

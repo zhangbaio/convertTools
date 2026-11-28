@@ -1012,7 +1012,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
         WorkflowCurrentPage = 1;
-        RefreshPagedJobs();
+        if (!IsWeixinPlatform)
+            RefreshPagedJobs();
     }
     partial void OnSelectedAccountChanged(PublishAccountItemViewModel? value)
     {
@@ -5556,11 +5557,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
             foreach (var stale in _jobRowCache.Keys.Where(id => !liveIds.Contains(id)).ToArray())
                 _jobRowCache.Remove(stale);
 
-            VisibleJobs.Clear();
-            foreach (var row in rows)
-                VisibleJobs.Add(row);
+            var selectedId = IsWeixinPlatform ? selectId ?? SelectedJob?.Id : selectId;
+            if (!IsWeixinPlatform || !VisibleJobs.SequenceEqual(rows))
+            {
+                VisibleJobs.Clear();
+                foreach (var row in rows)
+                    VisibleJobs.Add(row);
+            }
 
-            RefreshPagedJobs(selectId);
+            if (IsWeixinPlatform)
+            {
+                for (var index = 0; index < rows.Count; index++)
+                    rows[index].QueueIndex = index + 1;
+                SelectedJob = rows.Find(row => row.Id == selectedId) ?? rows.FirstOrDefault();
+                AutoShelfCommand.NotifyCanExecuteChanged();
+                SyncCheckedManagementCommand.NotifyCanExecuteChanged();
+            }
+            else
+            {
+                RefreshPagedJobs(selectedId);
+            }
             OnPropertyChanged(nameof(QueueSummary));
             RefreshWeixinQueueIndicators();
             ScheduleKuaishouListedVerification();
