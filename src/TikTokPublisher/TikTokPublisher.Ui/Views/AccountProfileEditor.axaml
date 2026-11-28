@@ -447,21 +447,23 @@
                                 <TextBox Classes="configurationInput" x:Name="SeriesUrlBox" />
                             </StackPanel>
 
-                            <StackPanel Spacing="5">
-                                <TextBlock Classes="configurationLabel" Text="上传工作目录" />
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBox Classes="configurationInput" x:Name="WorkspaceBox" Watermark="上传工作目录" />
-                                    <Button Grid.Column="1" Content="浏览…" Click="OnBrowseWorkspaceClick" />
-                                </Grid>
-                            </StackPanel>
+                            <UniformGrid x:Name="DirectoryPathsRow" Classes="publishRow" Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="上传工作目录" />
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox Classes="configurationInput" x:Name="WorkspaceBox" Watermark="上传工作目录" />
+                                        <Button Grid.Column="1" Content="浏览…" Click="OnBrowseWorkspaceClick" />
+                                    </Grid>
+                                </StackPanel>
 
-                            <StackPanel Spacing="5">
-                                <TextBlock Classes="configurationLabel" Text="归档目录" />
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBox Classes="configurationInput" x:Name="ArchiveRootBox" Watermark="留空时默认使用上传工作目录下的 archive" />
-                                    <Button Grid.Column="1" Content="浏览…" Click="OnBrowseArchiveRootClick" />
-                                </Grid>
-                            </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="归档目录" />
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox Classes="configurationInput" x:Name="ArchiveRootBox" Watermark="留空时默认使用上传工作目录下的 archive" />
+                                        <Button Grid.Column="1" Content="浏览…" Click="OnBrowseArchiveRootClick" />
+                                    </Grid>
+                                </StackPanel>
+                            </UniformGrid>
 
                             <StackPanel Spacing="5">
                                 <TextBlock Classes="configurationLabel" Text="下载工作目录" />

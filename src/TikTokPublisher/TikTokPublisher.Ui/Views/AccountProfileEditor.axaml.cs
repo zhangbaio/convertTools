@@ -1219,8 +1219,12 @@ public partial class AccountProfileEditor : UserControl
 
     private void OnBasicFormSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        if (e.NewSize.Width > 0)
-            BasicForm.Width = Math.Min(e.NewSize.Width, BasicForm.MaxWidth);
+        var width = e.NewSize.Width;
+        if (width <= 0)
+            return;
+
+        BasicForm.Width = Math.Min(width, BasicForm.MaxWidth);
+        DirectoryPathsRow.Columns = width < 580 ? 1 : 2;
     }
 
     private void OnPublishFormSizeChanged(object? sender, SizeChangedEventArgs e)
