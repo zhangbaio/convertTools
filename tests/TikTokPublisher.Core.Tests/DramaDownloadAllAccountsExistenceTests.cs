@@ -48,6 +48,44 @@ public sealed class DramaDownloadAllAccountsExistenceTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Missing_archive_is_skipped_while_other_archives_and_management_are_checked(bool configuredArchive)
+    {
+        var root = Directory.CreateTempSubdirectory("drama-existence-missing-archive-");
+        try
+        {
+            var newWorkspace = root.CreateSubdirectory("new-account");
+            var archivePath = Path.Combine(newWorkspace.FullName, configuredArchive ? "custom-archive" : "archive");
+            var first = Account("first", "新账号", newWorkspace.FullName, configuredArchive ? archivePath : "");
+            var secondWorkspace = root.CreateSubdirectory("second-account");
+            var archive = secondWorkspace.CreateSubdirectory("archive");
+            var second = Account("second", "旧账号", secondWorkspace.FullName);
+            WriteArchive(archive, "saved", "历史归档剧", second.Id);
+
+            var result = await DramaDownloadExistenceService.CheckAllAsync(
+                ["历史归档剧", "管理系统剧", "未命中剧"], [first, second], (_, account, _) =>
+                    Task.FromResult((true, "", account?.Id == first.Id
+                        ? new HashSet<string> { "管理系统剧" } : [])), CancellationToken.None);
+
+            var skipped = result.Accounts[0].Result;
+            skipped.ArchiveSkipped.Should().BeTrue();
+            skipped.ArchiveChecked.Should().BeFalse();
+            skipped.ArchiveMessage.Should().BeEmpty();
+            skipped.LabelFor("管理系统剧").Should().Be("管理系统");
+            skipped.LabelFor("未命中剧").Should().Be("不存在");
+            result.LabelFor("历史归档剧").Should().Be("已存在 · 旧账号（已归档）");
+            result.LabelFor("管理系统剧").Should().Be("已存在 · 新账号（管理系统）");
+            result.LabelFor("未命中剧").Should().Be("不存在");
+            Directory.Exists(archivePath).Should().BeFalse();
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task A_failed_account_keeps_other_matches_and_leaves_unverified_absence_unknown()
     {
@@ -60,7 +98,10 @@ public sealed class DramaDownloadAllAccountsExistenceTests
                     : Task.FromResult((true, "", new HashSet<string> { "命中剧" })), timeout.Token);
 
         result.Accounts[0].Result.ManagementMessage.Should().Be("连接管理系统超时");
+        result.Accounts[0].Result.ArchiveSkipped.Should().BeTrue();
+        result.Accounts[0].Result.LabelFor("未命中剧").Should().Be("管理系统未核对");
         result.LabelFor("命中剧").Should().Be("已存在 · 账号二（管理系统） · 部分来源未核对");
+        result.LabelFor("未命中剧").Should().Be("未核对完整");
         DramaDownloadExistenceResult.ToneFor(result.LabelFor("未命中剧")).Should().Be(DramaExistenceTone.Unknown);
     }
 

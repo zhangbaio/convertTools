@@ -11,6 +11,9 @@ public sealed record DramaDownloadExistenceResult(
     IReadOnlySet<string> ArchiveKeys,
     IReadOnlySet<string> ManagementKeys)
 {
+    public bool ArchiveSkipped { get; init; }
+    internal bool ArchiveIncomplete => !ArchiveChecked && !ArchiveSkipped;
+
     public string LabelFor(string? title)
     {
         var key = AiRewriteHistoryService.NormalizeTitleKey(title);
@@ -18,7 +21,7 @@ public sealed record DramaDownloadExistenceResult(
             return "-";
         var inArchive = ArchiveChecked && ArchiveKeys.Contains(key);
         var inManagement = ManagementChecked && ManagementKeys.Contains(key);
-        return Format(ArchiveChecked, inArchive, ManagementChecked, inManagement);
+        return Format(!ArchiveIncomplete, inArchive, ManagementChecked, inManagement);
     }
 
     public static string Format(bool archiveChecked, bool inArchive, bool managementChecked, bool inManagement)
@@ -80,7 +83,7 @@ public sealed record DramaDownloadAllAccountsExistenceResult(
         if (UnassignedArchiveKeys.Contains(key))
             hits.Add("归属未标记的归档");
 
-        var incomplete = Accounts.Any(account => !account.Result.ArchiveChecked || !account.Result.ManagementChecked);
+        var incomplete = Accounts.Any(account => account.Result.ArchiveIncomplete || !account.Result.ManagementChecked);
         if (hits.Count == 0)
             return incomplete ? "未核对完整" : "不存在";
         return PresentPrefix + string.Join("、", hits) + (incomplete ? " · 部分来源未核对" : "");
@@ -162,7 +165,10 @@ public static class DramaDownloadExistenceService
             var name = duplicateNames.Contains(account.DisplayName) && !string.IsNullOrWhiteSpace(account.Id)
                 ? $"{account.DisplayName} [{account.Id}]" : account.DisplayName;
             results[index] = new(name, new DramaDownloadExistenceResult(
-                archive.Checked, archive.Message, management.Checked, management.Message, archiveKeys, management.Keys));
+                archive.Checked, archive.Message, management.Checked, management.Message, archiveKeys, management.Keys)
+            {
+                ArchiveSkipped = archive.Skipped,
+            });
             unassigned[index] = unassignedKeys;
         }).ConfigureAwait(false);
 
@@ -189,38 +195,53 @@ public static class DramaDownloadExistenceService
             management.Checked,
             management.Message,
             archive.Keys,
-            management.Keys);
+            management.Keys)
+        {
+            ArchiveSkipped = archive.Skipped,
+        };
     }
 
-    internal static (bool Checked, string Message, HashSet<string> Keys) CollectArchive(TikTokAccountProfile? account)
+    internal static (bool Checked, bool Skipped, string Message, HashSet<string> Keys) CollectArchive(TikTokAccountProfile? account)
     {
         if (account is null)
-            return (false, "没有选中 TikTok 账号", new HashSet<string>(StringComparer.Ordinal));
+            return (false, false, "没有选中 TikTok 账号", new HashSet<string>(StringComparer.Ordinal));
 
         var workspace = account.ResolveWorkspacePath();
         var archive = ReadArchive(workspace, account.ResolveArchiveRootPath(workspace));
         var keys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in archive.Items)
             AddArchiveKeys(keys, item);
-        return (archive.Checked, archive.Message, keys);
+        return (archive.Checked, archive.Skipped, archive.Message, keys);
     }
 
-    private static (bool Checked, string Message, IReadOnlyList<ArchivedProjectItem> Items) ReadArchive(
+    private static (bool Checked, bool Skipped, string Message, IReadOnlyList<ArchivedProjectItem> Items) ReadArchive(
         string workspace, string archiveRoot)
     {
-        if (string.IsNullOrWhiteSpace(workspace))
-            return (false, "当前账号没有上传工作目录", []);
-
-        if (string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
-            return (false, "当前账号没有归档目录", []);
+        if (string.IsNullOrWhiteSpace(archiveRoot))
+            return (false, true, "", []);
 
         try
         {
-            return (true, "", TikTokArchivedProjectService.ListForNewTitleCheck(workspace, archiveRoot));
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(archiveRoot);
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException)
+            {
+                return (false, true, "", []);
+            }
+
+            if ((attributes & FileAttributes.Directory) == 0)
+                return (false, true, "", []);
+            if (string.IsNullOrWhiteSpace(workspace))
+                return (false, false, "当前账号没有上传工作目录", []);
+
+            return (true, false, "", TikTokArchivedProjectService.ListForNewTitleCheck(workspace, archiveRoot));
         }
         catch (Exception ex)
         {
-            return (false, ex.Message, []);
+            return (false, false, ex.Message, []);
         }
     }
 
