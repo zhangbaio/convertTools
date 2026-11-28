@@ -1,3 +1,4 @@
+using PublisherShared.Scheduling;
 using PlatformPublisher.Desktop.Services;
 using TikTokPublisher.Core.Queue;
 using Xunit;

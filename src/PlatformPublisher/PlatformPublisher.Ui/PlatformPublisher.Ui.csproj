@@ -23,6 +23,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\LicenseTranslate\LicenseTranslate.Core\LicenseTranslate.Core.csproj" />
+    <ProjectReference Include="..\..\PublisherShared\PublisherShared.Scheduling\PublisherShared.Scheduling.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Analytics\PlatformPublisher.Analytics.csproj" />

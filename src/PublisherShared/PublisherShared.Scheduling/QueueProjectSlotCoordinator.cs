@@ -1,4 +1,4 @@
-namespace TikTokPublisher.Core.Queue;
+namespace PublisherShared.Scheduling;
 
 /// <summary>
 /// 本机所有账号队列共享的剧集运行名额。一部剧从开始执行到上传结束、失败或停止都占 1 个名额，

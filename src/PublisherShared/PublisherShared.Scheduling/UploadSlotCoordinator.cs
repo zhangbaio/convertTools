@@ -1,4 +1,4 @@
-namespace TikTokPublisher.Core.Queue;
+namespace PublisherShared.Scheduling;
 
 /// <summary>
 /// 本机同时上传的剧数。同一个账号可以同时占多个名额，每部剧各自打开一个浏览器。

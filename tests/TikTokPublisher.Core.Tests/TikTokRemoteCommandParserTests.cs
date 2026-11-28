@@ -1,3 +1,4 @@
+using PublisherShared.Scheduling;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;

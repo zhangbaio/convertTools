@@ -1,3 +1,4 @@
+using PublisherShared.Scheduling;
 using System.Diagnostics;
 using System.Reflection;
 using FluentAssertions;
