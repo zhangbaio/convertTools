@@ -83,6 +83,7 @@ public static class PlatformDatabaseInitializer
             CREATE INDEX IF NOT EXISTS idx_publish_drafts_updated ON publish_drafts(updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_publish_batches_started ON publish_batches(started_at DESC);
             """);
+        EnsureColumn(connection, transaction, "app_settings", "schema_version", "INTEGER NOT NULL DEFAULT 1");
         EnsureColumn(connection, transaction, "platform_accounts", "owner", "TEXT NOT NULL DEFAULT 'platform'");
         Execute(connection, transaction, """
             UPDATE platform_accounts SET owner='channels'
@@ -92,6 +93,7 @@ public static class PlatformDatabaseInitializer
         RecordMigration(connection, transaction, 1, "initial-main-schema", "main-v1");
         RecordMigration(connection, transaction, 2, "account-settings-and-owner", "main-v2");
         RecordMigration(connection, transaction, 3, "unified-material-publishing", "main-v3");
+        RecordMigration(connection, transaction, 4, "app-settings-schema-version", "main-v4");
         transaction.Commit();
     }
 

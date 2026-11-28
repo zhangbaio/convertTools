@@ -54,6 +54,43 @@ public sealed class PlatformDatabaseTests : IDisposable
         Assert.Equal("old",new JsonSettingStore(target).Load("legacy",()=>new TestSettings("",0)).Name);
     }
 
+    [Fact]
+    public void MainDatabaseUpgradesLegacySettingsInPlace()
+    {
+        var database = Database();
+        Directory.CreateDirectory(_root);
+        using (var connection = database.Open())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TABLE app_settings(key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL);
+                INSERT INTO app_settings VALUES('legacy', '{"name":"原有设置","count":7}', '2026-01-01');
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var store = new JsonSettingStore(database);
+        var newSetting = new TestSettings("新增设置", 9);
+        store.Save("new", newSetting, schemaVersion: 5);
+        PlatformDatabaseInitializer.EnsureMainDatabase(database);
+        Assert.Equal(newSetting, store.Load("new", () => new TestSettings("", 0)));
+        Assert.Equal(new TestSettings("原有设置", 7), store.Load("legacy", () => new TestSettings("", 0)));
+
+        using var readerConnection = database.Open(readOnly: true);
+        using var query = readerConnection.CreateCommand();
+        query.CommandText = "SELECT value_json, schema_version, updated_at FROM app_settings WHERE key = 'legacy'";
+        using (var reader = query.ExecuteReader())
+        {
+            Assert.True(reader.Read());
+            Assert.Equal("{\"name\":\"原有设置\",\"count\":7}", reader.GetString(0));
+            Assert.Equal(1, reader.GetInt32(1));
+            Assert.Equal("2026-01-01", reader.GetString(2));
+        }
+
+        query.CommandText = "SELECT schema_version FROM app_settings WHERE key = 'new'";
+        Assert.Equal(5L, query.ExecuteScalar());
+    }
+
     private PlatformDatabase Database()=>new(Path.Combine(_root,"app.db"));
     public void Dispose(){if(Directory.Exists(_root))Directory.Delete(_root,true);}
     private sealed record TestSettings(string Name,int Count);
