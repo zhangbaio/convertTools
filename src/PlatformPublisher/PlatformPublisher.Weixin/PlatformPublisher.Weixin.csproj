@@ -17,11 +17,12 @@
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj" />
-    <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
+    <ProjectReference Include="..\..\PublisherShared\PublisherShared.Certificates\PublisherShared.Certificates.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\ShortDrama\ShortDrama.Desktop\Services\WeixinMaterialChannelVideoDeleteService.cs"
              Link="Publishing\WeixinMaterialChannelVideoDeleteService.cs" />
     <EmbeddedResource Include="Publishing/StoryboardRecording/StoryboardPage.html" />
   </ItemGroup>
+  <Import Project="..\..\PublisherShared\PublisherShared.Certificates\TimestampCertificateAssets.props" />
 </Project>

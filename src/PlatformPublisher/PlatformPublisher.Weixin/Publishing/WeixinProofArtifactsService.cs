@@ -1,13 +1,11 @@
 using PlatformPublisher.Common.Models;
+using PublisherShared.Certificates;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Interfaces;
-using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Queue;
-using TikTokPublisher.Core.Services;
 using System.Diagnostics;
 using System.Security.Cryptography;
 
@@ -22,7 +20,6 @@ public sealed class WeixinProofArtifactsService
 
     public async Task<string> GenerateAiProofAsync(
         PublishJob job,
-        ClientSettings settings,
         bool force,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
@@ -57,25 +54,17 @@ public sealed class WeixinProofArtifactsService
 
     public async Task<string> GenerateTimestampCertificateAsync(
         PublishJob job,
-        ClientSettings settings,
+        string? configuredApplicant,
         bool force,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
         var workflowDir = await ResolveWorkflowDirectoryAsync(job, cancellationToken);
         var info = ParseInfo(Path.Combine(workflowDir, "短剧信息.txt"));
-        var item = new QueueProjectItem
-        {
-            ProjectDir = job.ProjectDirectory,
-            DisplayName = job.ProjectName,
-            OriginalTitle = First(info.GetValueOrDefault("原剧名"), job.ProjectName),
-            NewTitle = First(info.GetValueOrDefault("新剧名"), job.ProjectName),
-            AccountProfileName = job.AccountName,
-        };
-        var path = await TikTokTimestampCertificateService.GenerateAsync(
-            item,
-            settings,
-            account: null,
+        var path = TimestampCertificateService.Generate(
+            workflowDir,
+            First(info.GetValueOrDefault("新剧名"), job.ProjectName),
+            TimestampCertificateService.ResolveApplicant(workflowDir, configuredApplicant),
             force,
             message => progress?.Report(message),
             cancellationToken);

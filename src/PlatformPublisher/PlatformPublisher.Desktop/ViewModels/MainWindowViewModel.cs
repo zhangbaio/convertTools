@@ -1938,14 +1938,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             if (key == "ai-proof")
                                 await _proofArtifactsService.GenerateAiProofAsync(
                                     trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
-                                    options.RuntimeSettings,
                                     options.Force,
                                     artifactProgress,
                                     cancellationToken);
                             else
                                 await _proofArtifactsService.GenerateTimestampCertificateAsync(
                                     trackedJob ?? new PublishJob { ProjectDirectory = projectDirectory, ProjectName = Path.GetFileName(projectDirectory) },
-                                    options.RuntimeSettings,
+                                    options.RuntimeSettings.TiktokProofDeclarantCompanyName,
                                     options.Force,
                                     artifactProgress,
                                     cancellationToken);

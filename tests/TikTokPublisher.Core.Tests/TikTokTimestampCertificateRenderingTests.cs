@@ -1,5 +1,6 @@
 using FluentAssertions;
 using PdfSharp.Pdf.IO;
+using PublisherShared.Certificates;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -34,19 +35,18 @@ public sealed class TikTokTimestampCertificateRenderingTests
     [Fact]
     public void Render_UsesBundledTemplateAndCreatesChineseEnglishPages()
     {
-        var root = FindRepositoryRoot();
-        var assets = Path.Combine(root, "src", "TikTokPublisher", "TikTokPublisher.Core", "Resources", "TimestampCertificate");
+        var assets = Path.Combine(AppContext.BaseDirectory, "timestamp-certificate");
         var keepSample = string.Equals(Environment.GetEnvironmentVariable("KEEP_TIMESTAMP_SAMPLE"), "1", StringComparison.Ordinal);
         var output = keepSample
-            ? Path.Combine(root, "tmp", "pdfs", "timestamp-certificate-sample.pdf")
+            ? Path.Combine(FindRepositoryRoot(), "tmp", "pdfs", "timestamp-certificate-sample.pdf")
             : Path.Combine(Path.GetTempPath(), $"timestamp-certificate-{Guid.NewGuid():N}.pdf");
         try
         {
-            TikTokTimestampCertificateService.Render(
+            TimestampCertificateService.Render(
                 Path.Combine(assets, "tsa_certificate_template.pdf"),
                 Path.Combine(assets, "tsa_certificate_layout.json"),
                 output,
-                new TikTokTimestampCertificateService.CertificateFields(
+                new TimestampCertificateService.CertificateFields(
                     "武汉测试科技有限公司",
                     "2026-08-11 13:20:37（UTC+8）",
                     new string('A', 64),
