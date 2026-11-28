@@ -356,6 +356,8 @@
                                 </StackPanel>
                             </UniformGrid>
 
+                            <views:AccountAiEditor x:Name="AccountAi" />
+
                             <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
                             <TextBlock Text="网络 / IP" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
                             <ToggleSwitch x:Name="ProxyEnabledBox" OnContent="启用账号代理" OffContent="启用账号代理"
@@ -409,7 +411,6 @@
                                 <TextBlock Classes="formLabel" Text="CDP 地址" />
                                 <TextBox Classes="configurationInput" x:Name="CdpEndpointBox" />
                             </StackPanel>
-                            <views:AccountAiEditor x:Name="AccountAi" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
