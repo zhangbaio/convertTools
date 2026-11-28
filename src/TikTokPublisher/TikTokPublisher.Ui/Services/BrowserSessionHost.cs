@@ -134,10 +134,11 @@ public sealed class BrowserSessionHost
             _runtimeMissingHint.IsVisible = false;
     }
 
-    private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host)
+    private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host, bool importSavedAuth)
     {
         using var lease = host.AcquireAutomation();
-        await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
+        if (importSavedAuth)
+            await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
         Dispatcher.UIThread.Post(() =>
         {
             if (!_hosts.TryGetValue(account.Id, out var current) || !ReferenceEquals(current, host))
@@ -157,23 +158,23 @@ public sealed class BrowserSessionHost
         }, DispatcherPriority.Loaded);
     }
 
-    public async Task SyncExternalAuthAsync(AccountItemViewModel account)
+    public async Task SyncExternalAuthAsync(AccountItemViewModel account, bool notifyStatus = true)
     {
         if (!_hosts.TryGetValue(account.Id, out var host) || !host.IsEngineReady)
             return;
 
         if (Dispatcher.UIThread.CheckAccess())
         {
-            await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
+            await ImportAuthStateCoreAsync(account, host, notifyStatus).ConfigureAwait(true);
             return;
         }
 
         await Dispatcher.UIThread
-            .InvokeAsync(() => ImportAuthStateCoreAsync(account, host))
+            .InvokeAsync(() => ImportAuthStateCoreAsync(account, host, notifyStatus))
             .ConfigureAwait(false);
     }
 
-    private async Task ImportAuthStateCoreAsync(AccountItemViewModel account, WebView2Host host)
+    private async Task ImportAuthStateCoreAsync(AccountItemViewModel account, WebView2Host host, bool notifyStatus = true)
     {
         var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account.Model);
         if (!File.Exists(authPath))
@@ -186,11 +187,13 @@ public sealed class BrowserSessionHost
                 return;
 
             host.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
-            AuthStatusChanged?.Invoke($"已同步外部浏览器授权到内置浏览器（{cookieCount} 个 Cookie）");
+            if (notifyStatus)
+                AuthStatusChanged?.Invoke($"已同步外部浏览器授权到内置浏览器（{cookieCount} 个 Cookie）");
         }
         catch (Exception ex)
         {
-            AuthStatusChanged?.Invoke($"同步外部浏览器授权失败：{ex.Message}");
+            if (notifyStatus)
+                AuthStatusChanged?.Invoke($"同步外部浏览器授权失败：{ex.Message}");
         }
     }
 
@@ -305,7 +308,7 @@ public sealed class BrowserSessionHost
             _autofillStates[account.Id] = new LoginAutofillState(email, pwd, 0);
         }
 
-        var host = GetOrCreateHost(account);
+        var host = GetOrCreateHost(account, out _, importSavedAuth: !forceRelogin);
         ShowAccount(account);
         _wasOnLoginPage[account.Id] = true;
         host.Navigate(MainViewModel.TikTokLoginUrl);
@@ -465,7 +468,7 @@ public sealed class BrowserSessionHost
     public WebView2Host GetOrCreateHost(AccountItemViewModel account) =>
         GetOrCreateHost(account, out _);
 
-    public WebView2Host GetOrCreateHost(AccountItemViewModel account, out bool created)
+    public WebView2Host GetOrCreateHost(AccountItemViewModel account, out bool created, bool importSavedAuth = true)
     {
         created = false;
         if (_hosts.TryGetValue(account.Id, out var existing))
@@ -492,7 +495,7 @@ public sealed class BrowserSessionHost
         };
         ApplyProxySettings(host, account.Model);
 
-        host.Ready += () => _ = OnHostReadyAsync(account, host);
+        host.Ready += () => _ = OnHostReadyAsync(account, host, importSavedAuth);
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         host.ProcessFailed += message => OnHostProcessFailed(account, message);
         host.RuntimeMissing += () => OnHostRuntimeMissing(account, host);
@@ -641,19 +644,20 @@ public sealed class BrowserSessionHost
         return host;
     }
 
-    public async Task<string> ResetAccountAsync(AccountItemViewModel account, CancellationToken ct = default)
+    public async Task<string> ResetAccountAsync(AccountItemViewModel account, CancellationToken ct = default, bool preserveSavedAuth = false)
     {
         if (!Dispatcher.UIThread.CheckAccess())
         {
-            return await Dispatcher.UIThread.InvokeAsync(() => ResetAccountAsync(account, ct))
+            return await Dispatcher.UIThread.InvokeAsync(() => ResetAccountAsync(account, ct, preserveSavedAuth))
                 .ConfigureAwait(false);
         }
 
+        ct.ThrowIfCancellationRequested();
         if (_hosts.TryRemove(account.Id, out var existing))
         {
             existing.CloseBrowser();
             _container?.Children.Remove(existing);
-            await Task.Delay(250, ct).ConfigureAwait(false);
+            await Task.Delay(250, ct).ConfigureAwait(true);
         }
 
         AccountBrowserPortAllocator.Release(account.Id);
@@ -661,9 +665,18 @@ public sealed class BrowserSessionHost
 
         _autofillStates.Remove(account.Id);
         _wasOnLoginPage.Remove(account.Id);
-        AccountLoginStatusHelper.DeleteAuthState(account.Model);
+        if (!preserveSavedAuth)
+            AccountLoginStatusHelper.DeleteAuthState(account.Model);
 
-        var warning = await TryDeleteProfileDirectoryAsync(account.Model.ProfileDir, ct).ConfigureAwait(false);
+        var profileDir = account.Model.ProfileDir;
+        // The authorization file and account materials can share WebView2's user data folder.
+        var browserDir = preserveSavedAuth ? Path.Combine(profileDir, "EBWebView") : profileDir;
+        if (preserveSavedAuth && Path.GetFullPath(EmbeddedBrowserLoginHelper.ResolveAuthPath(account.Model))
+            .StartsWith(Path.GetFullPath(browserDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return "授权文件位于浏览器数据目录中，已跳过目录清理";
+
+        var warning = await Task.Run(() => TryDeleteProfileDirectoryAsync(browserDir, ct), ct).ConfigureAwait(true);
+        ct.ThrowIfCancellationRequested();
         Directory.CreateDirectory(account.Model.ProfileDir);
         account.Status = AccountStatus.Offline;
         return warning;
@@ -1001,7 +1014,7 @@ public sealed class BrowserSessionHost
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return ex.Message;
         }

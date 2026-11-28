@@ -27,8 +27,7 @@ public partial class MainWindow : Window
     private readonly BrowserSessionHost _browserHost = new();
     private readonly MainViewModel _viewModel;
     private readonly TikTokAccountInventorySyncCoordinator _accountInventorySync;
-    private readonly HashSet<string> _externalLoginsInProgress = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CancellationTokenSource> _apiLoginChecks = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CancellationTokenSource> _accountLoginAttempts = new(StringComparer.Ordinal);
     private string _activeNavTag = "queue";
     private string _tikTokSubPage = "queue";
     private bool _navigationPending;
@@ -362,9 +361,9 @@ public partial class MainWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
-        foreach (var check in _apiLoginChecks.Values.ToArray())
+        foreach (var check in _accountLoginAttempts.Values.ToArray())
             check.Cancel();
-        _apiLoginChecks.Clear();
+        _accountLoginAttempts.Clear();
         SavePlacement();
         StopResourceMonitor();
         _licenseVerifyTimer?.Stop();
@@ -525,76 +524,132 @@ public partial class MainWindow : Window
 
     private async void OnAccountLoginRequested(AccountItemViewModel account, bool forceRelogin)
     {
-        if (_apiLoginChecks.TryGetValue(account.Id, out var pending))
+        if (_accountLoginAttempts.ContainsKey(account.Id))
         {
-            if (!forceRelogin) return;
-            _apiLoginChecks.Remove(account.Id);
-            pending.Cancel();
+            _viewModel.StatusMessage = $"[{account.DisplayName}] 已有登录流程正在进行";
+            return;
         }
 
-        if (!forceRelogin && TikTokUploadChannels.IsApi(account.Model.TiktokUploadStrategy))
+        using var login = new CancellationTokenSource();
+        _accountLoginAttempts.Add(account.Id, login);
+        account.Status = AccountStatus.LoggingIn;
+        _viewModel.BrowserAuthStatus = "正在通过接口登录 TikTok";
+        _viewModel.StatusMessage = $"[{account.DisplayName}] 正在通过接口登录 TikTok";
+        try
         {
-            using var check = new CancellationTokenSource();
-            _apiLoginChecks.Add(account.Id, check);
+            await LoginAccountAsync(account, forceRelogin, login.Token);
+        }
+        catch (OperationCanceledException) when (login.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            account.Status = AccountStatus.Offline;
+            _viewModel.StatusMessage = $"[{account.DisplayName}] 无法打开 TikTok 浏览器登录";
+            _viewModel.AppendLog(_viewModel.StatusMessage);
+        }
+        finally
+        {
+            if (_accountLoginAttempts.TryGetValue(account.Id, out var current) && ReferenceEquals(current, login))
+                _accountLoginAttempts.Remove(account.Id);
+        }
+    }
+
+    private async Task LoginAccountAsync(AccountItemViewModel account, bool forceRelogin, CancellationToken ct)
+    {
+        var profile = account.Model;
+        var email = profile.TiktokLoginEmail.Trim();
+        var site = TikTokApiSites.Normalize(profile.TiktokApiSite);
+        if (!forceRelogin && string.IsNullOrEmpty(profile.TiktokLoginPassword) &&
+            TikTokUploadChannels.IsApi(profile.TiktokUploadStrategy) &&
+            await TikTokApiUploadService.VerifySavedLoginAsync(profile, ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_viewModel.Accounts.Contains(account))
+                _viewModel.HandleApiLoginVerified(account);
+            return;
+        }
+
+        var attempt = await TikTokApiLoginService.TryLoginAsync(profile, ct);
+        ct.ThrowIfCancellationRequested();
+        if (!_viewModel.Accounts.Contains(account))
+            return;
+        if (!string.Equals(email, profile.TiktokLoginEmail.Trim(), StringComparison.Ordinal) ||
+            site != TikTokApiSites.Normalize(profile.TiktokApiSite))
+        {
+            account.Status = AccountStatus.Offline;
+            _viewModel.StatusMessage = $"[{account.DisplayName}] 登录配置已修改，请重新登录";
+            return;
+        }
+
+        var failure = attempt.FailureReason;
+        if (attempt.State is { } state)
+        {
+            TikTokLoginResult? saved = null;
             try
             {
-                var valid = await TikTokApiUploadService.VerifySavedLoginAsync(account.Model, check.Token);
-                if (check.IsCancellationRequested) return;
-                if (valid)
-                {
-                    _viewModel.HandleApiLoginVerified(account);
-                    return;
-                }
-                _viewModel.StatusMessage = $"[{account.DisplayName}] 接口未确认已有会话，正在打开浏览器登录";
+                saved = TikTokApiLoginService.SaveVerifiedLogin(EmbeddedBrowserLoginHelper.ResolveAuthPath(profile), email, state);
             }
-            catch (OperationCanceledException) when (check.IsCancellationRequested) { return; }
-            finally
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
             {
-                if (_apiLoginChecks.TryGetValue(account.Id, out var current) && ReferenceEquals(current, check))
-                    _apiLoginChecks.Remove(account.Id);
+                failure = "无法保存接口登录态";
+            }
+            if (saved is not null)
+            {
+                _viewModel.HandleApiLoginSaved(account, saved);
+                await _browserHost.SyncExternalAuthAsync(account, notifyStatus: false);
+                return;
             }
         }
 
-        if (string.Equals(
-                account.Model.TiktokUploadBrowserMode,
-                "playwright",
-                StringComparison.OrdinalIgnoreCase))
+        _viewModel.StatusMessage = $"[{account.DisplayName}] {failure}，转到浏览器登录";
+        _viewModel.AppendLog(_viewModel.StatusMessage);
+        if (ReferenceEquals(_viewModel.SelectedAccount, account))
+            _viewModel.BrowserAuthStatus = "等待浏览器登录";
+        if (string.Equals(profile.TiktokUploadBrowserMode, "playwright", StringComparison.OrdinalIgnoreCase))
         {
-            await BeginExternalAccountLoginAsync(account);
+            await BeginExternalAccountLoginAsync(account, forceRelogin, ct);
             return;
         }
 
         if (forceRelogin)
         {
-            var resetWarning = await _browserHost.ResetAccountAsync(account);
+            var resetWarning = await _browserHost.ResetAccountAsync(account, ct, preserveSavedAuth: true);
             if (!string.IsNullOrWhiteSpace(resetWarning))
-                _viewModel.StatusMessage += $"；{resetWarning}";
+                _viewModel.AppendLog($"[{account.DisplayName}] {resetWarning}");
         }
 
-        await NavigateAsync("queue", "browser");
-        if (IsTikTokBrowserActive)
-            _browserHost.BeginLogin(account, forceRelogin);
-    }
-
-    private async Task BeginExternalAccountLoginAsync(AccountItemViewModel account)
-    {
-        if (!_externalLoginsInProgress.Add(account.Id))
+        ct.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(_viewModel.SelectedAccount, account))
         {
-            _viewModel.StatusMessage = $"[{account.DisplayName}] 外部浏览器登录正在进行中";
+            account.Status = AccountStatus.Offline;
+            _viewModel.StatusMessage = $"[{account.DisplayName}] 请切回该账号重试登录";
             return;
         }
+        _browserHost.BeginLogin(account, forceRelogin);
+        await NavigateAsync("queue", "browser");
+    }
 
+    private async Task BeginExternalAccountLoginAsync(AccountItemViewModel account, bool forceRelogin, CancellationToken ct)
+    {
         try
         {
-            _viewModel.AppendLog($"[{account.DisplayName}] 发布配置使用外部浏览器，正在启动可见登录窗口…");
             var result = await TikTokLoginService.LoginAsync(
                 account.Model,
                 _viewModel.AppendLog,
-                CancellationToken.None,
+                ct,
                 timeoutSeconds: 300,
-                forceLaunchBrowser: true);
+                forceLaunchBrowser: true,
+                reuseSavedLogin: !forceRelogin);
+            ct.ThrowIfCancellationRequested();
+            if (!_viewModel.Accounts.Contains(account))
+                return;
             _viewModel.HandleExternalAuthSaved(account, result);
             await _browserHost.SyncExternalAuthAsync(account);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -602,10 +657,6 @@ public partial class MainWindow : Window
             _viewModel.BrowserAuthStatus = "外部浏览器登录失败";
             _viewModel.StatusMessage = $"[{account.DisplayName}] 外部浏览器登录失败：{ex.Message}";
             _viewModel.AppendLog(_viewModel.StatusMessage);
-        }
-        finally
-        {
-            _externalLoginsInProgress.Remove(account.Id);
         }
     }
 
@@ -625,7 +676,7 @@ public partial class MainWindow : Window
         if (!confirmed)
             return;
 
-        if (_apiLoginChecks.Remove(account.Id, out var pendingLogin))
+        if (_accountLoginAttempts.Remove(account.Id, out var pendingLogin))
             pendingLogin.Cancel();
         var warning = await _browserHost.ResetAccountAsync(account);
         account.Model.TiktokLastLoginEmail = "";

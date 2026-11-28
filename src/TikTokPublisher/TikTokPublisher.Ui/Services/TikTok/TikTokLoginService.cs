@@ -20,7 +20,8 @@ public static class TikTokLoginService
         Action<string>? log,
         CancellationToken ct,
         int timeoutSeconds = 90,
-        bool forceLaunchBrowser = false)
+        bool forceLaunchBrowser = false,
+        bool reuseSavedLogin = true)
     {
         PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
 
@@ -34,7 +35,7 @@ public static class TikTokLoginService
         if (!forceLaunchBrowser && IsCdpMode(account))
             return await LoginWithCdpAsync(account, email, authPath, log, ct, Math.Max(120, timeoutSeconds));
 
-        return await LoginWithLaunchAsync(account, email, authPath, log, ct, Math.Max(15, timeoutSeconds));
+        return await LoginWithLaunchAsync(account, email, authPath, log, ct, Math.Max(15, timeoutSeconds), reuseSavedLogin);
     }
 
     private static async Task<TikTokLoginResult> LoginWithLaunchAsync(
@@ -43,8 +44,10 @@ public static class TikTokLoginService
         string authPath,
         Action<string>? log,
         CancellationToken ct,
-        int timeoutSeconds)
+        int timeoutSeconds,
+        bool reuseSavedLogin)
     {
+        ct.ThrowIfCancellationRequested();
         log?.Invoke("正在打开 TikTok Drama Center 登录页…");
         var playwright = await Playwright.CreateAsync();
         try
@@ -67,7 +70,7 @@ public static class TikTokLoginService
                     ViewportSize = ViewportSize.NoViewport,
                 };
                 ApplyProxy(contextOptions, account, log);
-                if (File.Exists(authPath))
+                if (reuseSavedLogin && File.Exists(authPath))
                 {
                     contextOptions.StorageStatePath = authPath;
                     log?.Invoke($"已复用 TikTok 登录态文件：{authPath}");
@@ -84,6 +87,7 @@ public static class TikTokLoginService
                     ct.ThrowIfCancellationRequested();
                     if (await IsLoggedInAsync(page))
                     {
+                        ct.ThrowIfCancellationRequested();
                         await context.StorageStateAsync(new() { Path = authPath });
                         log?.Invoke("TikTok 已处于登录状态，登录态已保存。");
                         return BuildResult(email, authPath, page, alreadyLoggedIn: true);
@@ -99,6 +103,7 @@ public static class TikTokLoginService
                     }
 
                     await WaitForLoginSuccessAsync(page, timeoutSeconds, log, ct);
+                    ct.ThrowIfCancellationRequested();
                     await context.StorageStateAsync(new() { Path = authPath });
                     log?.Invoke($"TikTok 登录成功，登录态已保存：{authPath}");
                     return BuildResult(email, authPath, page, alreadyLoggedIn: false);

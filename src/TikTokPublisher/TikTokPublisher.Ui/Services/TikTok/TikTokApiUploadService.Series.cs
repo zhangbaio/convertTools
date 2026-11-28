@@ -10,6 +10,8 @@ namespace TikTokPublisher.Ui.Services.TikTok;
 
 public static partial class TikTokApiUploadService
 {
+    internal const string SessionVerificationPath = "/api/content-partner/series/v2/list";
+
     public static async Task<bool> VerifySavedLoginAsync(TikTokAccountProfile account, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -21,7 +23,7 @@ public static partial class TikTokApiUploadService
         try
         {
             using var session = PartnerSession.Open(path, TikTokPublishOptions.FromAccount(account), allowAutoRedirect: false);
-            var reply = await session.SendAsync("POST", "/api/content-partner/series/v2/list",
+            var reply = await session.SendAsync("POST", SessionVerificationPath,
                 """{"pageIndex":1,"pageSize":1}""", timeout.Token);
             return IsVerifiedLoginReply(reply.Status, reply.Text);
         }
