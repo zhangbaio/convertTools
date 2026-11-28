@@ -41,6 +41,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private int _lifecycleGeneration;
     private bool _closed;
     private string? _pendingUrl;
+    private bool _preparingSession;
+    private readonly SemaphoreSlim _storageStateImport = new(1, 1);
     private string? _lastRequestedUrl;
     private string? _lastInitError;
     private string? _lastProcessFailure;
@@ -87,7 +89,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         }
     }
 
-    public event Action? Ready;
+    internal bool ImportSavedAuthOnReady { get; set; } = true;
+    internal Func<Task>? PrepareSessionAsync { get; set; }
     public event Action<string>? NavigationCompleted;
     public event Action<string>? ProcessFailed;
     /// <summary>初始化时未找到 WebView2 运行时；用于在浏览器区域显示安装引导而非黑屏。</summary>
@@ -301,7 +304,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public void Navigate(string url)
     {
         _lastRequestedUrl = url;
-        if (_controller?.CoreWebView2 != null)
+        if (!_preparingSession && _controller?.CoreWebView2 != null)
         {
             WakeForCall();
             _controller.CoreWebView2.Navigate(url);
@@ -376,6 +379,19 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     public async Task<int> ImportStorageStateAsync(string authPath)
     {
+        await _storageStateImport.WaitAsync().ConfigureAwait(true);
+        try
+        {
+            return await ImportStorageStateCoreAsync(authPath).ConfigureAwait(true);
+        }
+        finally
+        {
+            _storageStateImport.Release();
+        }
+    }
+
+    private async Task<int> ImportStorageStateCoreAsync(string authPath)
+    {
         var webView = _controller?.CoreWebView2
             ?? throw new InvalidOperationException("内置浏览器尚未初始化完成。");
         if (!File.Exists(authPath))
@@ -397,7 +413,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(domain))
                     continue;
 
-                var cookie = manager.CreateCookie(name, value ?? "", domain, string.IsNullOrWhiteSpace(path) ? "/" : path);
+                var cookie = manager.CreateCookie(name, value ?? "", EmbeddedAuthExportService.NormalizeCookieDomain(domain),
+                    string.IsNullOrWhiteSpace(path) ? "/" : path);
                 cookie.IsHttpOnly = item.TryGetProperty("httpOnly", out var httpOnly) && httpOnly.ValueKind == JsonValueKind.True;
                 cookie.IsSecure = item.TryGetProperty("secure", out var secure) && secure.ValueKind == JsonValueKind.True;
                 if (item.TryGetProperty("expires", out var expires) && expires.TryGetDouble(out var epochSeconds) && epochSeconds > 0)
@@ -635,7 +652,16 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             }
 
             Log($"ready udf={udf} port={RemoteDebuggingPort} proxy={ProxyServer} cdp={CdpEndpoint}");
-            Ready?.Invoke();
+            _preparingSession = true;
+            try
+            {
+                if (PrepareSessionAsync is { } prepareSession)
+                    await prepareSession().ConfigureAwait(true);
+            }
+            finally
+            {
+                _preparingSession = false;
+            }
 
             if (_pendingUrl != null && createdController.CoreWebView2 is not null &&
                 IsLifecycleCurrent(generation))

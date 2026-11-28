@@ -70,7 +70,7 @@ public static class EmbeddedAuthExportService
       {
         Name = c.Name,
         Value = c.Value,
-        Domain = string.IsNullOrWhiteSpace(c.Domain) ? "www.tiktokdramacenter.com" : c.Domain,
+        Domain = string.IsNullOrWhiteSpace(c.Domain) ? "www.tiktokdramacenter.com" : NormalizeCookieDomain(c.Domain),
         Path = string.IsNullOrWhiteSpace(c.Path) ? "/" : c.Path,
         Expires = c.Expires,
         HttpOnly = c.HttpOnly,
@@ -99,6 +99,12 @@ public static class EmbeddedAuthExportService
 
     return new PlaywrightStorageState(cookiePayloads, origins);
   }
+
+  // The HTTP client can expose an explicit Domain attribute without Chromium's leading dot.
+  public static string NormalizeCookieDomain(string domain) =>
+    string.Equals(domain, "tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase)
+      ? ".tiktokdramacenter.com"
+      : domain;
 
   public static IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ParseLocalStorageExport(string? json)
   {

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Core.Tests;
@@ -30,7 +31,7 @@ public sealed class TikTokApiLoginServiceTests
                 var form = await request.Content!.ReadAsStringAsync(ct);
                 Assert.Contains("email=6445607d64687569602b666a68", form);
                 Assert.Contains("password=4467663437362b", form);
-                cookies.Add(Origin, new Cookie("sessionid", "synthetic-session", "/") { Secure = true, HttpOnly = true });
+                cookies.SetCookies(Origin, "sessionid=synthetic-session; Domain=tiktokdramacenter.com; Path=/; Secure; HttpOnly");
                 return Reply("""{"message":"success"}""");
             }
 
@@ -55,6 +56,7 @@ public sealed class TikTokApiLoginServiceTests
             using var state = JsonDocument.Parse(File.ReadAllText(path));
             var cookie = Assert.Single(state.RootElement.GetProperty("cookies").EnumerateArray());
             Assert.Equal("sessionid", cookie.GetProperty("name").GetString());
+            Assert.Equal(".tiktokdramacenter.com", cookie.GetProperty("domain").GetString());
             Assert.True(cookie.GetProperty("httpOnly").GetBoolean());
             Assert.True(cookie.GetProperty("secure").GetBoolean());
             Assert.Empty(state.RootElement.GetProperty("origins").EnumerateArray());
@@ -64,6 +66,16 @@ public sealed class TikTokApiLoginServiceTests
         {
             folder.Delete(recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData("tiktokdramacenter.com", ".tiktokdramacenter.com")]
+    [InlineData(".tiktokdramacenter.com", ".tiktokdramacenter.com")]
+    [InlineData("www.tiktokdramacenter.com", "www.tiktokdramacenter.com")]
+    [InlineData("drama.tiktok.com", "drama.tiktok.com")]
+    public void Browser_import_corrects_legacy_domain_cookies_and_preserves_other_scopes(string domain, string expected)
+    {
+        Assert.Equal(expected, EmbeddedAuthExportService.NormalizeCookieDomain(domain));
     }
 
     [Theory]

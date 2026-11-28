@@ -134,11 +134,10 @@ public sealed class BrowserSessionHost
             _runtimeMissingHint.IsVisible = false;
     }
 
-    private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host, bool importSavedAuth)
+    private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host)
     {
-        using var lease = host.AcquireAutomation();
-        if (importSavedAuth)
-            await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
+        if (host.ImportSavedAuthOnReady)
+            await ImportAuthStateCoreAsync(account, host, navigateHome: false).ConfigureAwait(true);
         Dispatcher.UIThread.Post(() =>
         {
             if (!_hosts.TryGetValue(account.Id, out var current) || !ReferenceEquals(current, host))
@@ -160,33 +159,43 @@ public sealed class BrowserSessionHost
 
     public async Task SyncExternalAuthAsync(AccountItemViewModel account, bool notifyStatus = true)
     {
-        if (!_hosts.TryGetValue(account.Id, out var host) || !host.IsEngineReady)
-            return;
-
-        if (Dispatcher.UIThread.CheckAccess())
+        if (!Dispatcher.UIThread.CheckAccess())
         {
-            await ImportAuthStateCoreAsync(account, host, notifyStatus).ConfigureAwait(true);
+            await Dispatcher.UIThread.InvokeAsync(() => SyncExternalAuthAsync(account, notifyStatus)).ConfigureAwait(false);
             return;
         }
 
-        await Dispatcher.UIThread
-            .InvokeAsync(() => ImportAuthStateCoreAsync(account, host, notifyStatus))
-            .ConfigureAwait(false);
+        if (!_hosts.TryGetValue(account.Id, out var host))
+            return;
+
+        host.ImportSavedAuthOnReady = true;
+        if (!host.IsEngineReady)
+        {
+            host.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
+            return;
+        }
+
+        await ImportAuthStateCoreAsync(account, host, notifyStatus).ConfigureAwait(true);
     }
 
-    private async Task ImportAuthStateCoreAsync(AccountItemViewModel account, WebView2Host host, bool notifyStatus = true)
+    private async Task ImportAuthStateCoreAsync(
+        AccountItemViewModel account, WebView2Host host, bool notifyStatus = true, bool navigateHome = true)
     {
         var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account.Model);
         if (!File.Exists(authPath))
             return;
 
+        using var lease = host.AcquireAutomation();
         try
         {
             var cookieCount = await host.ImportStorageStateAsync(authPath).ConfigureAwait(true);
-            if (cookieCount <= 0)
+            if (cookieCount <= 0 || !_hosts.TryGetValue(account.Id, out var current) || !ReferenceEquals(current, host))
                 return;
 
-            host.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
+            _autofillStates.Remove(account.Id);
+            _wasOnLoginPage.Remove(account.Id);
+            if (navigateHome)
+                host.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
             if (notifyStatus)
                 AuthStatusChanged?.Invoke($"已同步外部浏览器授权到内置浏览器（{cookieCount} 个 Cookie）");
         }
@@ -488,6 +497,7 @@ public sealed class BrowserSessionHost
         var host = new WebView2Host
         {
             UserDataFolder = account.Model.ProfileDir,
+            ImportSavedAuthOnReady = importSavedAuth,
             RemoteDebuggingPort = AccountBrowserPortAllocator.Allocate(account.Id),
             IsVisible = true,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
@@ -495,7 +505,7 @@ public sealed class BrowserSessionHost
         };
         ApplyProxySettings(host, account.Model);
 
-        host.Ready += () => _ = OnHostReadyAsync(account, host, importSavedAuth);
+        host.PrepareSessionAsync = () => OnHostReadyAsync(account, host);
         host.NavigationCompleted += url => _ = OnNavigationCompletedAsync(account, url);
         host.ProcessFailed += message => OnHostProcessFailed(account, message);
         host.RuntimeMissing += () => OnHostRuntimeMissing(account, host);
@@ -517,7 +527,7 @@ public sealed class BrowserSessionHost
         ApplyHostVisibility(
             host,
             rendered: _presentationVisible && string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal));
-        host.Navigate(TikTokUrls.DefaultSeriesListUrl);
+        host.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
         return host;
     }
 
