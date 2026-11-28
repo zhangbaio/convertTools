@@ -48,7 +48,7 @@ public sealed class KuaishouExportedSettingsImporter
         _dataRoot = Path.GetFullPath(string.IsNullOrWhiteSpace(dataRoot) ? PlatformPublisherPaths.DataRoot : dataRoot);
     }
 
-    public KuaishouExportPreview Preview(KuaishouSettingsExportPackage package)
+    public Task<KuaishouExportPreview> PreviewAsync(KuaishouSettingsExportPackage package)
     {
         _accounts.Load();
         var rows = new List<KuaishouExportAccountPreview>();
@@ -71,15 +71,15 @@ public sealed class KuaishouExportedSettingsImporter
                 package.FindAuth(id, personal: false) is not null,
                 MissingPaths(package, profile, existing)));
         }
-        var personalUploads = CollectUploads(package, personal: true, useLiveAccounts: false, out var unmatchedPersonal);
-        var enterpriseUploads = CollectUploads(package, personal: false, useLiveAccounts: false, out var unmatchedEnterprise);
-        return new KuaishouExportPreview(
-            package.ExportMode,
-            rows,
-            skipped,
-            personalUploads.Count,
-            enterpriseUploads.Count,
-            unmatchedPersonal + unmatchedEnterprise);
+        return Task.Run(() =>
+        {
+            var owners = PackageOwners(package);
+            var personalUploads = CollectUploads(package, owners, personal: true, useLiveAccounts: false, out var unmatchedPersonal);
+            var enterpriseUploads = CollectUploads(package, owners, personal: false, useLiveAccounts: false, out var unmatchedEnterprise);
+            return new KuaishouExportPreview(
+                package.ExportMode, rows, skipped, personalUploads.Count, enterpriseUploads.Count,
+                unmatchedPersonal + unmatchedEnterprise);
+        });
     }
 
     public string Describe(KuaishouExportPreview preview)
@@ -194,12 +194,12 @@ public sealed class KuaishouExportedSettingsImporter
             if (!string.IsNullOrWhiteSpace(enterpriseAccount))
                 account.KuaishouEnterpriseAccount = enterpriseAccount;
 
-            assets += RewriteAsset(package, id, personal.CommitmentPdfPath, value => personal.CommitmentPdfPath = value, missing);
-            assets += RewriteAsset(package, id, personal.CommitmentSealPath, value => personal.CommitmentSealPath = value, missing);
-            assets += RewriteAsset(package, id, personal.CommitmentTemplateDocxPath, value => personal.CommitmentTemplateDocxPath = value, missing);
-            assets += RewriteAsset(package, id, enterprise.CommitmentPdfPath, value => enterprise.CommitmentPdfPath = value, missing);
-            assets += RewriteAsset(package, id, enterprise.CommitmentSealPath, value => enterprise.CommitmentSealPath = value, missing);
-            assets += RewriteAsset(package, id, enterprise.CommitmentTemplateDocxPath, value => enterprise.CommitmentTemplateDocxPath = value, missing);
+            assets += await RewriteAssetAsync(package, id, personal.CommitmentPdfPath, value => personal.CommitmentPdfPath = value, missing, cancellationToken);
+            assets += await RewriteAssetAsync(package, id, personal.CommitmentSealPath, value => personal.CommitmentSealPath = value, missing, cancellationToken);
+            assets += await RewriteAssetAsync(package, id, personal.CommitmentTemplateDocxPath, value => personal.CommitmentTemplateDocxPath = value, missing, cancellationToken);
+            assets += await RewriteAssetAsync(package, id, enterprise.CommitmentPdfPath, value => enterprise.CommitmentPdfPath = value, missing, cancellationToken);
+            assets += await RewriteAssetAsync(package, id, enterprise.CommitmentSealPath, value => enterprise.CommitmentSealPath = value, missing, cancellationToken);
+            assets += await RewriteAssetAsync(package, id, enterprise.CommitmentTemplateDocxPath, value => enterprise.CommitmentTemplateDocxPath = value, missing, cancellationToken);
 
             if (await CopyAuthAsync(package, account, personal, personal: true, cancellationToken))
                 authFiles++;
@@ -223,14 +223,36 @@ public sealed class KuaishouExportedSettingsImporter
             changed.Add(account);
         }
 
+        // Snapshot the shared account store on the caller's thread before doing bulk database IO.
+        var owners = LiveOwners();
+        var (imported, merged, skipped, unmatched) = await Task.Run(
+            () => ImportUploadRecords(package, owners, cancellationToken), cancellationToken);
+
+        return new KuaishouExportApplyResult(
+            created,
+            updated,
+            authFiles,
+            assets,
+            missing.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            changed,
+            imported,
+            merged,
+            skipped,
+            unmatched);
+    }
+
+    private (int Imported, int Merged, int Skipped, int Unmatched) ImportUploadRecords(
+        KuaishouSettingsExportPackage package, IReadOnlyList<UploadOwner> owners, CancellationToken cancellationToken)
+    {
         KuaishouTodayUploadCounter.EnsureStore(_dataRoot);
-        var personalUploads = CollectUploads(package, personal: true, useLiveAccounts: true, out var unmatchedPersonal);
-        var enterpriseUploads = CollectUploads(package, personal: false, useLiveAccounts: true, out var unmatchedEnterprise);
+        var personalUploads = CollectUploads(package, owners, personal: true, useLiveAccounts: true, out var unmatchedPersonal);
+        var enterpriseUploads = CollectUploads(package, owners, personal: false, useLiveAccounts: true, out var unmatchedEnterprise);
         var imported = 0;
         var merged = 0;
         var skipped = 0;
         foreach (var upload in personalUploads.Concat(enterpriseUploads))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             switch (KuaishouUploadRecordStore.ImportSuccess(upload, _dataRoot))
             {
                 case KuaishouUploadImportResult.Inserted:
@@ -245,23 +267,15 @@ public sealed class KuaishouExportedSettingsImporter
             }
         }
 
-        return new KuaishouExportApplyResult(
-            created,
-            updated,
-            authFiles,
-            assets,
-            missing.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            changed,
-            imported,
-            merged,
-            skipped,
-            unmatchedPersonal + unmatchedEnterprise);
+        return (imported, merged, skipped, unmatchedPersonal + unmatchedEnterprise);
     }
 
-    private readonly record struct UploadOwner(string ProfileId, string Name, string PersonalNickname, string EnterpriseNickname);
+    private readonly record struct UploadOwner(
+        string ProfileId, string Name, string PersonalNickname, string EnterpriseNickname, string AccountId = "");
 
     private List<KuaishouUploadRecord> CollectUploads(
         KuaishouSettingsExportPackage package,
+        IReadOnlyList<UploadOwner> owners,
         bool personal,
         bool useLiveAccounts,
         out int unmatched)
@@ -286,7 +300,6 @@ public sealed class KuaishouExportedSettingsImporter
         {
             if (document.RootElement.ValueKind != JsonValueKind.Array)
                 return [];
-            var owners = useLiveAccounts ? LiveOwners() : PackageOwners(package);
             var collapsed = new Dictionary<string, KuaishouUploadRecord>(StringComparer.OrdinalIgnoreCase);
             var unmatchedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in document.RootElement.EnumerateArray())
@@ -316,7 +329,7 @@ public sealed class KuaishouExportedSettingsImporter
                     continue;
                 }
 
-                var accountId = useLiveAccounts ? LiveAccountId(owner.Value) : owner.Value.ProfileId;
+                var accountId = useLiveAccounts ? LiveAccountId(owner.Value, owners) : owner.Value.ProfileId;
                 if (string.IsNullOrWhiteSpace(accountId))
                 {
                     unmatchedKeys.Add(projectKey);
@@ -393,24 +406,25 @@ public sealed class KuaishouExportedSettingsImporter
             account.LegacyProfileId,
             account.Name,
             FirstNonEmpty(account.Nickname, account.KuaishouPersonalAccount),
-            FirstNonEmpty(account.KuaishouEnterpriseAccount, account.Nickname))).ToList();
+            FirstNonEmpty(account.KuaishouEnterpriseAccount, account.Nickname),
+            account.Id)).ToList();
     }
 
-    private string LiveAccountId(UploadOwner owner)
+    private static string LiveAccountId(UploadOwner owner, IReadOnlyList<UploadOwner> owners)
     {
         if (!string.IsNullOrWhiteSpace(owner.ProfileId))
         {
-            var byId = _accounts.Accounts.FirstOrDefault(item =>
-                string.Equals(item.LegacyProfileId, owner.ProfileId, StringComparison.OrdinalIgnoreCase));
-            if (byId is not null)
-                return byId.Id;
+            var accountId = owners.Where(item => string.Equals(item.ProfileId, owner.ProfileId, StringComparison.OrdinalIgnoreCase))
+                .Select(item => item.AccountId).FirstOrDefault();
+            if (accountId is not null)
+                return accountId;
         }
 
         if (string.IsNullOrWhiteSpace(owner.Name))
             return "";
-        var byName = _accounts.Accounts.Where(item =>
+        var byName = owners.Where(item =>
             string.Equals(item.Name, owner.Name, StringComparison.CurrentCultureIgnoreCase)).ToList();
-        return byName.Count == 1 ? byName[0].Id : "";
+        return byName.Count == 1 ? byName[0].AccountId : "";
     }
 
     private static UploadOwner? MatchOwner(
@@ -493,12 +507,13 @@ public sealed class KuaishouExportedSettingsImporter
         return true;
     }
 
-    private int RewriteAsset(
+    private async Task<int> RewriteAssetAsync(
         KuaishouSettingsExportPackage package,
         string profileId,
         string? current,
         Action<string> assign,
-        List<string> missing)
+        List<string> missing,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(current) || File.Exists(current))
             return 0;
@@ -509,7 +524,7 @@ public sealed class KuaishouExportedSettingsImporter
         }
         var destination = Path.Combine(_dataRoot, "imported-kuaishou-assets", Safe(profileId), Safe(asset.FileName));
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        File.WriteAllBytes(destination, asset.Bytes);
+        await File.WriteAllBytesAsync(destination, asset.Bytes, cancellationToken);
         assign(destination);
         return 1;
     }

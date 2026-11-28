@@ -23,7 +23,7 @@ public sealed class KuaishouExportedSettingsImporterTests
             var importer = new KuaishouExportedSettingsImporter(store, Path.Combine(root, "yunfan"));
             using var package = PlatformPublisher.Kuaishou.Publishing.KuaishouSettingsExportPackage.Open(packagePath);
 
-            var preview = importer.Preview(package);
+            var preview = await importer.PreviewAsync(package);
             var row = Assert.Single(preview.Accounts);
             Assert.True(row.IsNew);
             Assert.True(row.HasPersonalLogin);
@@ -75,7 +75,7 @@ public sealed class KuaishouExportedSettingsImporterTests
             var importer = new KuaishouExportedSettingsImporter(store, dataRoot);
             using var package = PlatformPublisher.Kuaishou.Publishing.KuaishouSettingsExportPackage.Open(packagePath);
 
-            var preview = importer.Preview(package);
+            var preview = await importer.PreviewAsync(package);
             Assert.Equal(2, preview.PersonalUploads);
             Assert.Equal(1, preview.EnterpriseUploads);
             Assert.Equal(1, preview.UnmatchedUploads);

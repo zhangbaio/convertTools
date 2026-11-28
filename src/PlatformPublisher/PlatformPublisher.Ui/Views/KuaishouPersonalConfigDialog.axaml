@@ -249,7 +249,7 @@
         <Border Grid.Row="2" BorderBrush="#E5E7EB" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="12,10"
                 IsVisible="{Binding !IsSelected, ElementName=StandaloneDedupTab}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                <Button Content="导入配置">
+                <Button x:Name="ImportConfigButton" Content="导入配置">
                     <Button.Flyout>
                         <MenuFlyout>
                             <MenuItem Header="导入微信工具配置" Click="ImportExportedSettings_Click" />
@@ -257,9 +257,13 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
-                <TextBlock Grid.Column="1" x:Name="ValidationText" Foreground="#DC2626" VerticalAlignment="Center" TextWrapping="Wrap" />
-                <Button Grid.Column="2" Content="放弃修改" Click="Cancel_Click" />
-                <Button Grid.Column="3" Classes="primaryAction" Content="保存配置" Click="Save_Click" />
+                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="ValidationText" Foreground="#DC2626" TextWrapping="Wrap" />
+                    <ProgressBar x:Name="ImportProgress" IsVisible="False" IsIndeterminate="True" Width="160" Height="4"
+                                 HorizontalAlignment="Left" AutomationProperties.Name="导入配置进度" />
+                </StackPanel>
+                <Button x:Name="DiscardConfigButton" Grid.Column="2" Content="放弃修改" Click="Cancel_Click" />
+                <Button x:Name="SaveConfigButton" Grid.Column="3" Classes="primaryAction" Content="保存配置" Click="Save_Click" />
             </Grid>
         </Border>
     </Grid>

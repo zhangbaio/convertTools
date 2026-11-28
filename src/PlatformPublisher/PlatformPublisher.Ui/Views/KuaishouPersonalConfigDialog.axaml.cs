@@ -24,6 +24,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private bool _legacyImportPending;
     private bool _usesWorkspaceNavigation;
     private bool _saving;
+    private bool _importing;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
     public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
@@ -65,7 +66,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     public async Task<bool> TryLeaveAsync(Window owner)
     {
-        if (_saving) return false;
+        if (_saving || _importing) return false;
         if (StandaloneDedupHost.Content is KuaishouVideoDedupView dedup && !await dedup.TryLeaveAsync(owner))
             return false;
         if (!HasUnsavedChanges()) return true;
@@ -203,6 +204,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private async void ImportLegacy_Click(object? sender, RoutedEventArgs e)
     {
+        if (_importing || _saving) return;
         var path = KuaishouLegacyConfigImporter.DefaultSettingsPath;
         if (!File.Exists(path))
         {
@@ -234,6 +236,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private async void ImportExportedSettings_Click(object? sender, RoutedEventArgs e)
     {
+        if (_importing || _saving) return;
         if (_accountStore is null)
         {
             ValidationText.Text = "账号库尚未就绪，不能导入配置。";
@@ -245,28 +248,45 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             return;
         }
 
-        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择微信工具导出的快手分账配置",
-            AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("微信工具配置") { Patterns = ["*.json", "*.zip"] }],
-        });
-        if (files.Count == 0) return;
-
-        var owner = TopLevel.GetTopLevel(this) as Window;
+        var enabled = ConfigurationTabs.IsEnabled;
+        _importing = true;
+        UpdateImportControls();
         try
         {
-            using var package = KuaishouSettingsExportPackage.Open(files[0].Path.LocalPath);
+            var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "选择微信工具导出的快手分账配置",
+                AllowMultiple = false,
+                FileTypeFilter = [new FilePickerFileType("微信工具配置") { Patterns = ["*.json", "*.zip"] }],
+            });
+            if (files.Count == 0) return;
+
+            var owner = TopLevel.GetTopLevel(this) as Window;
+            ValidationText.Foreground = Avalonia.Media.Brushes.SlateGray;
+            ValidationText.Text = "导入中…正在读取备份";
+            ImportProgress.IsVisible = true;
+            var path = files[0].Path.LocalPath;
+            using var package = await Task.Run(() => KuaishouSettingsExportPackage.Open(path));
             var importer = new KuaishouExportedSettingsImporter(_accountStore);
-            var preview = importer.Preview(package);
+            var preview = await importer.PreviewAsync(package);
             if (preview.Accounts.Count == 0)
             {
                 ValidationText.Foreground = Avalonia.Media.Brushes.Red;
                 ValidationText.Text = importer.Describe(preview);
                 return;
             }
+
+            ImportProgress.IsVisible = false;
+            ValidationText.Text = "等待确认导入";
             var confirmed = await ConfirmDialog.ShowAsync(owner, "导入微信工具配置", importer.Describe(preview), 680, 460);
-            if (!confirmed) return;
+            if (!confirmed)
+            {
+                ValidationText.Text = "已取消导入";
+                return;
+            }
+
+            ValidationText.Text = "导入中…正在写入账号配置和上传记录";
+            ImportProgress.IsVisible = true;
             var result = await importer.ApplyAsync(package);
             AccountsImported?.Invoke(result.Accounts);
             LoadAccount(_account, _platform);
@@ -280,6 +300,19 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             ValidationText.Foreground = Avalonia.Media.Brushes.Red;
             ValidationText.Text = "导入微信工具配置失败：" + ex.Message;
         }
+        finally
+        {
+            _importing = false;
+            ImportProgress.IsVisible = false;
+            UpdateImportControls();
+            ConfigurationTabs.IsEnabled = enabled;
+        }
+    }
+
+    private void UpdateImportControls()
+    {
+        ConfigurationTabs.IsEnabled = ImportConfigButton.IsEnabled =
+            DiscardConfigButton.IsEnabled = SaveConfigButton.IsEnabled = !_importing;
     }
 
     private async void Save_Click(object? sender, RoutedEventArgs e) => await SaveCurrentAsync();
@@ -468,7 +501,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private async Task<bool> SaveCurrentAsync()
     {
-        if (_saving) return false;
+        if (_saving || _importing) return false;
         _saving = true;
         var enabled = IsEnabled;
         IsEnabled = false;
