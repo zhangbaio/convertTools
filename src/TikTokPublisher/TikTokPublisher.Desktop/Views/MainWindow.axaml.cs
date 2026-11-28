@@ -112,11 +112,6 @@ public partial class MainWindow : Window
             KuaishouWorkspace.GetDownloadTargets, KuaishouWorkspace.ImportDownloadedProjectsAsync);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
         AnalyticsView.Bind(_viewModel.Accounts, _viewModel.AppendLog);
-        AnalyticsView.SearchOriginalRequested += keyword =>
-        {
-            NavigateTo("download");
-            DownloadView.SearchByKeyword(keyword);
-        };
         _viewModel.SystemSettings.SettingsSaved += settings =>
             ApplyAccountAnalytics(settings.TiktokAccountAnalyticsEnabled);
         ApplyAccountAnalytics(_viewModel.SystemSettings.TiktokAccountAnalyticsEnabled);

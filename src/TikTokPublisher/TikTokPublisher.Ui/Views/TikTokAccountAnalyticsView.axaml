@@ -4,7 +4,7 @@
              x:Class="TikTokPublisher.Ui.Views.TikTokAccountAnalyticsView"
              Background="{StaticResource PythonPanelBgBrush}">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="16" RowSpacing="12">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="16" RowSpacing="12">
         <Grid ColumnDefinitions="*,Auto,Auto">
             <StackPanel>
                 <TextBlock Text="数据统计" FontSize="20" FontWeight="SemiBold" />
@@ -51,21 +51,7 @@
             <StackPanel x:Name="RevenuePanel" />
         </Expander>
 
-        <Border Grid.Row="4" Background="White" CornerRadius="8" Padding="12" Height="480">
-            <TabControl x:Name="SeriesTabs" />
-        </Border>
-
-        <Border Grid.Row="5" Background="White" CornerRadius="8" Padding="12" Margin="0,8,0,0" Height="200">
-            <DockPanel>
-                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
-                    <TextBlock x:Name="GrowthTitle" Text="点一部剧，查看每日增长" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                    <StackPanel x:Name="GrowthMetricPanel" Grid.Column="1" Orientation="Horizontal" Spacing="6" />
-                </Grid>
-                <controls:AnalyticsLineChart x:Name="GrowthChart" />
-            </DockPanel>
-        </Border>
-
-        <TextBlock x:Name="ErrorText" Grid.Row="6" Foreground="#B45309" Margin="0,8,0,0" TextWrapping="Wrap" />
+        <TextBlock x:Name="ErrorText" Grid.Row="4" Foreground="#B45309" TextWrapping="Wrap" />
     </Grid>
     </ScrollViewer>
 </UserControl>
