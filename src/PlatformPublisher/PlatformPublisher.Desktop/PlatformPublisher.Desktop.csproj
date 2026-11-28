@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\yunfan-logo.ico</ApplicationIcon>
+    <ApplicationIcon>..\PlatformPublisher.Ui\Assets\yunfan-logo.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>YunfanPlatformPublisher</AssemblyName>
     <Product>云帆多平台发布助手</Product>
@@ -17,54 +17,9 @@
     <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
   </ItemGroup>
   <ItemGroup>
-    <AvaloniaResource Include="Assets\**" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.12" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.12" />
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <ProjectReference Include="..\PlatformPublisher.Ui\PlatformPublisher.Ui.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\LicenseTranslate\LicenseTranslate.Core\LicenseTranslate.Core.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Analytics\PlatformPublisher.Analytics.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Persistence\PlatformPublisher.Persistence.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Publishing\PlatformPublisher.Publishing.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Materials\PlatformPublisher.Materials.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Weixin\PlatformPublisher.Weixin.csproj" />
-    <ProjectReference Include="..\PlatformPublisher.Kuaishou\PlatformPublisher.Kuaishou.csproj" />
-    <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />
-    <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
-    <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="$(MSBuildThisFileDirectory)..\..\ShortDrama\ShortDrama.Infrastructure\Tools\hongguo-high\provision_startup_masters.py">
-      <Link>tools\hongguo-high\provision_startup_masters.py</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
-  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\python\python.exe')">
-    <Content Include="$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\python\**\*">
-      <Link>tools\win-x64\python\%(RecursiveDir)%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
-  <!-- PreserveNewest keeps leftover Frida 17 files when the cache is pinned back to 16.7.19. -->
-  <Target Name="ResetStaleBundledFrida17" BeforeTargets="BeforeBuild">
-    <PropertyGroup>
-      <_BundledPythonOut>$(OutputPath)tools\win-x64\python</_BundledPythonOut>
-    </PropertyGroup>
-    <ItemGroup>
-      <_StaleFrida17 Include="$(_BundledPythonOut)\Lib\site-packages\frida-17.*" />
-    </ItemGroup>
-    <RemoveDir Directories="$(_BundledPythonOut)"
-               Condition="'@(_StaleFrida17)' != '' or Exists('$(_BundledPythonOut)\Lib\site-packages\frida-17.17.0.dist-info')" />
-  </Target>
 </Project>

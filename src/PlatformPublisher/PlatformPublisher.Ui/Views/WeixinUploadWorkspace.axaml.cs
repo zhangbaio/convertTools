@@ -86,7 +86,7 @@ public partial class WeixinUploadWorkspace : UserControl
                 throw new InvalidOperationException("平台工作区初始化失败。请确认独立云帆客户端已退出后重试。");
 
             lease = ChannelsWorkspaceLease.Acquire();
-            workflowServices = App.BuildServices(embeddedInTikTok: true, embeddedKuaishou: services);
+            workflowServices = PlatformPublisherServices.Build(embeddedInTikTok: true, embeddedKuaishou: services);
             viewModel = workflowServices.GetRequiredService<MainWindowViewModel>();
             await viewModel.Initialization;
             if (_closed)

@@ -6,7 +6,7 @@
         <FluentTheme />
         <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/PythonAppTheme.axaml" />
         <Style Selector=":is(Window)">
-            <Setter Property="Icon" Value="/Assets/yunfan-logo.ico" />
+            <Setter Property="Icon" Value="avares://PlatformPublisher.Ui/Assets/yunfan-logo.ico" />
         </Style>
         <Style Selector="Grid.platformPipeline Button">
             <Setter Property="CornerRadius" Value="6" />

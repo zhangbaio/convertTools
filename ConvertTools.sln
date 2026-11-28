@@ -113,6 +113,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "PublisherShared", "Publishe
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PublisherShared.Certificates", "src\PublisherShared\PublisherShared.Certificates\PublisherShared.Certificates.csproj", "{3B47F1A6-1028-4C2E-911C-895558C3EDDD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Ui", "src\PlatformPublisher\PlatformPublisher.Ui\PlatformPublisher.Ui.csproj", "{93C1EDA9-B2D1-4EFE-A2F7-55D903C087ED}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -122,6 +124,10 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{93C1EDA9-B2D1-4EFE-A2F7-55D903C087ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{93C1EDA9-B2D1-4EFE-A2F7-55D903C087ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{93C1EDA9-B2D1-4EFE-A2F7-55D903C087ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{93C1EDA9-B2D1-4EFE-A2F7-55D903C087ED}.Release|Any CPU.Build.0 = Release|Any CPU
 		{3B47F1A6-1028-4C2E-911C-895558C3EDDD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3B47F1A6-1028-4C2E-911C-895558C3EDDD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3B47F1A6-1028-4C2E-911C-895558C3EDDD}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -308,6 +314,7 @@ Global
 		{DD8093FB-C858-425B-90EF-43CAB33CACB0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{93C1EDA9-B2D1-4EFE-A2F7-55D903C087ED} = {31320864-2C29-492F-B38B-C2DBF8B112D4}
 		{75ED24B9-C567-479C-A8E1-42403A21F92A} = {A0101284-1595-4E12-937E-17DFB8EF8740}
 		{3B47F1A6-1028-4C2E-911C-895558C3EDDD} = {75ED24B9-C567-479C-A8E1-42403A21F92A}
 		{8E3335D2-1EB3-4188-85CB-67F6057886A0} = {10871E69-F49D-4411-B029-CE261D01D6D5}

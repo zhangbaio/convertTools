@@ -149,7 +149,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
                 ServiceProvider? provider = null;
                 try
                 {
-                    provider = App.BuildServices(embeddedInTikTok: true);
+                    provider = PlatformPublisherServices.Build(embeddedInTikTok: true);
                     _ = provider.GetRequiredService<AnalyticsRepository>();
                     provider.GetRequiredService<LegacyDatabaseImporter>().Import(
                         PlatformPublisherPaths.LegacySettingsDatabasePath,

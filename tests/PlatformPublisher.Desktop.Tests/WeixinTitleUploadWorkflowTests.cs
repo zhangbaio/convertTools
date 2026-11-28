@@ -58,8 +58,8 @@ public sealed class WeixinTitleUploadWorkflowTests
             };
             await jobs.SaveAsync([existing], PublishJobScope.Weixin);
             using var shared = new ServiceCollection().AddSingleton(database).AddSingleton(accounts).AddSingleton(jobs).BuildServiceProvider();
-            var providerType = typeof(MainWindowViewModel).Assembly.GetType("PlatformPublisher.Desktop.App")!;
-            using var services = (ServiceProvider)providerType.GetMethod("BuildServices", BindingFlags.Static | BindingFlags.NonPublic)!
+            var providerType = typeof(MainWindowViewModel).Assembly.GetType("PlatformPublisher.Desktop.Services.PlatformPublisherServices")!;
+            using var services = (ServiceProvider)providerType.GetMethod("Build", BindingFlags.Static | BindingFlags.NonPublic)!
                 .Invoke(null, [true, shared])!;
             var settingsPath = Path.Combine(root.FullName, "settings.db");
             ClientSettingsStore.Save(new TikTokPublisher.Core.Models.ClientSettings { DramaSourceChain = "hongguoapp" }, settingsPath);
