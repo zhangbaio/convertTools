@@ -22,10 +22,11 @@
             <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
                 <TextBlock Text="账号" Classes="pageSummary accountSidebarHeading" />
 
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="添加账号" Click="OnAddClick" />
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="添加账号" Click="OnAddClick" Margin="0,0,4,4" />
+                    <Button Content="批量添加" Click="OnBatchAddClick" Classes="secondaryAction" Margin="0,0,4,4" />
                     <Button Content="删除" Classes="dangerAction" Click="OnDeleteClick" />
-                </StackPanel>
+                </WrapPanel>
                 <TextBox Watermark="昵称/ID/邮箱" Text="{Binding AccountSearchText, Mode=TwoWay}" />
             </StackPanel>
 

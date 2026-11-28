@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TikTokPublisher.Ui.Views.TikTokAccountBatchImportDialog"
+        Title="批量添加 TikTok 账号" Width="900" Height="710" MinWidth="650" MinHeight="510"
+        WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,*,Auto" Margin="16" RowSpacing="12">
+        <TextBlock x:Name="StageHeading" Text="批量添加账号" FontSize="18" FontWeight="SemiBold" />
+        <ScrollViewer x:Name="InputPane" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="10" Margin="0,0,8,0">
+                <TextBlock Text="粘贴账号文本，每组之间留一个空行。" />
+                <TextBox x:Name="InputText" AcceptsReturn="True" TextWrapping="Wrap" Height="175"
+                         Watermark="公司名称&#10;name@example.com&#10;邮箱密码：&lt;可省略&gt;&#10;TT密码：&lt;TikTok 密码&gt;" />
+                <TextBlock Text="发布配置与去重模板" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="剧集类型" />
+                        <ComboBox x:Name="MarketBox" SelectedIndex="0" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="local">本土剧</ComboBoxItem>
+                            <ComboBoxItem Tag="overseas">海外剧</ComboBoxItem>
+                        </ComboBox>
+                        <CheckBox x:Name="EnglishBox" Content="新剧名和简介使用英文" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="5">
+                        <TextBlock Text="源语言" />
+                        <ComboBox x:Name="LanguageBox" SelectedIndex="1" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Tag="auto">AI识别语言</ComboBoxItem>
+                            <ComboBoxItem Tag="zh">中文</ComboBoxItem>
+                            <ComboBoxItem Tag="en">英语 / English</ComboBoxItem>
+                            <ComboBoxItem Tag="id">印尼语 / Indonesian</ComboBoxItem>
+                            <ComboBoxItem Tag="pt">葡语 / Portuguese</ComboBoxItem>
+                            <ComboBoxItem Tag="ja">日语 / Japanese</ComboBoxItem>
+                            <ComboBoxItem Tag="th">泰语 / Thai</ComboBoxItem>
+                            <ComboBoxItem Tag="es">西语 / Spanish</ComboBoxItem>
+                            <ComboBoxItem Tag="ko">韩语 / Korean</ComboBoxItem>
+                            <ComboBoxItem Tag="tr">土耳其语 / Turkish</ComboBoxItem>
+                            <ComboBoxItem Tag="hi">印地语 / Hindi</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="5">
+                        <TextBlock Text="视频去重模板" />
+                        <ComboBox x:Name="TemplateBox" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="合作协议配置" FontWeight="SemiBold" />
+                <TextBlock Text="本公司／声明人" />
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <ComboBox x:Name="DeclarantPicker" HorizontalAlignment="Stretch" SelectionChanged="OnDeclarantChanged" />
+                    <TextBox x:Name="DeclarantBox" Grid.Column="1" Watermark="可选，可手动填写" />
+                </Grid>
+                <TextBlock Text="印章图片" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBox x:Name="SealBox" Watermark="可选，PNG、JPG、JPEG 或 BMP" />
+                    <Button Grid.Column="1" Content="选择图片…" Click="OnChooseSeal" />
+                </Grid>
+
+                <CheckBox x:Name="AutoWorkspace" Content="自动创建工作目录" IsCheckedChanged="OnWorkspaceModeChanged" />
+                <Grid x:Name="WorkspaceRootPanel" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="False">
+                    <TextBox x:Name="WorkspaceRootBox" Watermark="选择父目录，子目录按公司名称创建" />
+                    <Button Grid.Column="1" Content="选择父目录…" Click="OnChooseRoot" />
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+        <Grid x:Name="RowsPane" Grid.Row="1" IsVisible="False" RowDefinitions="Auto,Auto,*">
+            <TextBlock x:Name="PreviewSettings" Margin="0,0,0,8" TextWrapping="Wrap" Classes="pageSummary" />
+            <Border Grid.Row="1" Background="#EEF4FB" Padding="5,6">
+                <Grid ColumnDefinitions="2*,1.2*,2*,70,2*" ColumnSpacing="8">
+                    <TextBlock Text="公司名称" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1" Text="邮箱" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="2" Text="上传工作目录" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="3" Text="状态" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="4" Text="原因" FontWeight="SemiBold" />
+                </Grid>
+            </Border>
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="RowsPanel" />
+            </ScrollViewer>
+        </Grid>
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <Button x:Name="BackButton" Grid.Column="1" Content="返回修改" IsVisible="False" Click="OnBackClick" />
+            <Button x:Name="NextButton" Grid.Column="2" Content="预览" Classes="primaryAction" Click="OnNextClick" />
+        </Grid>
+    </Grid>
+</Window>

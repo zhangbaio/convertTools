@@ -147,6 +147,15 @@ public sealed class AccountStore
         return account;
     }
 
+    internal void AppendImportedAccounts(IReadOnlyList<TikTokAccountProfile> accounts)
+    {
+        if (!CanSyncAccountSnapshot)
+            throw new InvalidOperationException("账号档案正在隔离，请先完成账号恢复。");
+        SaveAccounts([.. _accounts, .. accounts]);
+        _accounts.AddRange(accounts);
+        NotifyAccountsChanged();
+    }
+
     public int? MoveRelativeTo(string accountId, string targetId, bool after)
     {
         var source = _accounts.FindIndex(account => account.Id == accountId);
@@ -318,7 +327,7 @@ public sealed class AccountStore
         }
     }
 
-    private static TikTokAccountProfile CreateProfileSkeleton(string id, string name)
+    internal static TikTokAccountProfile CreateProfileSkeleton(string id, string name)
     {
         var now = DateTimeOffset.Now.ToString("o");
         return new TikTokAccountProfile

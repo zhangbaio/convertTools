@@ -88,6 +88,22 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
     public void SetDefault(string accountId, string templateId) =>
         SaveAccountConfiguration(accountId, templateId);
 
+    internal void BindImportedAccounts(string templateId, IReadOnlyList<string> accountIds) => Edit(state =>
+    {
+        RequireTemplate(state, templateId);
+        foreach (var id in accountIds)
+            state.AccountDefaults[id] = templateId;
+        return (0, accountIds.Count > 0);
+    });
+
+    internal void RemoveImportedAccountBindings(IReadOnlyList<string> accountIds) => Edit(state =>
+    {
+        var changed = false;
+        foreach (var id in accountIds)
+            changed |= state.AccountDefaults.Remove(id);
+        return (0, changed);
+    });
+
     public void Delete(string id, string? replacementId = null)
     {
         if (id == SystemId) throw new InvalidOperationException("系统默认模板不能删除。");

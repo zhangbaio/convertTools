@@ -146,6 +146,25 @@ public partial class AccountSidebarView : UserControl
             vm.AddAccountCommand.Execute(null);
     }
 
+    private async void OnBatchAddClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainViewModel vm || TopLevel.GetTopLevel(this) is not Window owner ||
+            !await ConfirmAccountChangeAsync())
+            return;
+
+        try
+        {
+            var dialog = new TikTokAccountBatchImportDialog();
+            dialog.Bind(vm.CreateAccountBatchImporter(), vm.LoadVideoDedupTemplates(),
+                vm.Accounts.Select(account => account.Model).ToArray(), vm.ApplyAccountBatchImport);
+            await dialog.ShowDialog(owner);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            vm.StatusMessage = "无法读取去重模板库，请检查后再批量添加账号。";
+        }
+    }
+
     private async void OnAccountSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_changingAccount || DataContext is not MainViewModel vm ||

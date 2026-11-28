@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 using TikTokPublisher.Core.Models;
 
@@ -24,8 +26,67 @@ public sealed class TikTokAccountProfile
 
     // 登录 / 会话
     public string TiktokAccountNickname { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TiktokImportedCompanyName { get; set; }
     public string TiktokLoginEmail { get; set; } = "";
-    public string TiktokLoginPassword { get; set; } = "";
+    private string _legacyLoginPassword = "";
+
+    [JsonIgnore]
+    public string TiktokLoginPassword
+    {
+        get => TiktokProtectedLoginPassword is { Length: > 0 } encrypted
+            ? ReadProtectedLoginPassword(encrypted) : _legacyLoginPassword;
+        set
+        {
+            if (TiktokProtectedLoginPassword is not null)
+                SetProtectedLoginPassword(value);
+            else
+                _legacyLoginPassword = value ?? "";
+        }
+    }
+
+    [JsonPropertyName("tiktokLoginPassword")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegacyLoginPassword
+    {
+        get => TiktokProtectedLoginPassword is null ? _legacyLoginPassword : null;
+        set => _legacyLoginPassword = value ?? "";
+    }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TiktokProtectedLoginPassword { get; set; }
+
+    internal void SetProtectedLoginPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password))
+        {
+            TiktokProtectedLoginPassword = "";
+            _legacyLoginPassword = "";
+            return;
+        }
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("批量账号密码保护需要 Windows。");
+        var bytes = Encoding.UTF8.GetBytes(password);
+        try
+        {
+            TiktokProtectedLoginPassword = Convert.ToBase64String(
+                ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser));
+            _legacyLoginPassword = "";
+        }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    private static string ReadProtectedLoginPassword(string encrypted)
+    {
+        if (!OperatingSystem.IsWindows()) return "";
+        try
+        {
+            var bytes = ProtectedData.Unprotect(Convert.FromBase64String(encrypted), null, DataProtectionScope.CurrentUser);
+            try { return Encoding.UTF8.GetString(bytes); }
+            finally { CryptographicOperations.ZeroMemory(bytes); }
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException) { return ""; }
+    }
     public string TiktokLastLoginEmail { get; set; } = "";
     public string TiktokLastLoginAt { get; set; } = "";
     public string TiktokStorageStatePath { get; set; } = "";
