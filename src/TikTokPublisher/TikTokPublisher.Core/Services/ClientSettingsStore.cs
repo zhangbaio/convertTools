@@ -212,6 +212,10 @@ public static class ClientSettingsStore
         existing.Remove("tiktok_project_image_generation_mode");
         existing.Remove("tiktok_project_image_fable_cut_root");
         existing.Remove("tiktok_project_image_fable_cut_clip_count");
+        existing.Remove("tiktok_proof_pdf_renderer");
+        existing.Remove("tiktok_minimum_episode_count");
+        existing.Remove("tiktok_maximum_episode_count");
+        existing.Remove("tiktok_over_limit_download_episode_count");
     }
 
     public static void ResetInstallerDataSecrets(string? databasePath = null)
@@ -657,7 +661,6 @@ public static class ClientSettingsStore
             settings.TiktokProofTemplateLanguage);
         settings.TiktokProofDeclarantCompanyName = (settings.TiktokProofDeclarantCompanyName ?? "").Trim();
         settings.TiktokProofSealPath = (settings.TiktokProofSealPath ?? "").Trim();
-        settings.TiktokProofPdfRenderer = NormalizeProofPdfRenderer(settings.TiktokProofPdfRenderer);
         settings.TiktokProofWpsPath = (settings.TiktokProofWpsPath ?? "").Trim();
         settings.AuthServerUrl = (settings.AuthServerUrl ?? "").Trim().TrimEnd('/');
         settings.AuthAccount = (settings.AuthAccount ?? "").Trim();
@@ -889,14 +892,6 @@ public static class ClientSettingsStore
         {
             "accurate" or "fast" or "off" => (value ?? ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode).Trim().ToLowerInvariant(),
             _ => ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode
-        };
-
-    private static string NormalizeProofPdfRenderer(string? value) =>
-        (value ?? ClientSettingsDefaults.TiktokProofPdfRenderer).Trim().ToLowerInvariant() switch
-        {
-            "wps" => "wps",
-            "libreoffice" => "libreoffice",
-            _ => ClientSettingsDefaults.TiktokProofPdfRenderer,
         };
 
     private static string NormalizeManagementDedupScope(string? value)

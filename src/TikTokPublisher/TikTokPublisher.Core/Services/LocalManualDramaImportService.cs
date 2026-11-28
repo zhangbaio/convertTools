@@ -180,6 +180,17 @@ public static class LocalManualDramaImportService
         if (videos.Count == 0)
             throw new InvalidOperationException("本地剧集目录未找到视频文件，请选择包含 mp4/mov 等剧集视频的文件夹");
 
+        var sourceEpisodeCount = videos.Count;
+        var truncate = OverLimitEpisodePolicy.ShouldTruncate(sourceEpisodeCount, settings);
+        if (settings is not null)
+        {
+            var (minimum, maximum) = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
+            if (sourceEpisodeCount < minimum)
+                throw new InvalidOperationException($"本地剧集共 {sourceEpisodeCount} 集，低于最小限制 {minimum} 集。");
+            if (!truncate && sourceEpisodeCount > maximum)
+                throw new InvalidOperationException($"本地剧集共 {sourceEpisodeCount} 集，超过最大限制 {maximum} 集。");
+        }
+
         var metadataPath = Path.Combine(source, MetadataFile);
         var metadata = ReadMetadata(metadataPath);
         var externalInfo = ExternalDramaInfoReader.Read(source, metadata);
@@ -188,8 +199,6 @@ public static class LocalManualDramaImportService
         var workflowDir = ResolveWorkflowProjectDir(workspace, source, displayName, metadata);
         Directory.CreateDirectory(workflowDir);
 
-        var sourceEpisodeCount = videos.Count;
-        var truncate = OverLimitEpisodePolicy.ShouldTruncate(sourceEpisodeCount, settings);
         var effectiveEpisodeCount = truncate
             ? OverLimitEpisodePolicy.ResolveKeepCount(settings!)
             : sourceEpisodeCount;

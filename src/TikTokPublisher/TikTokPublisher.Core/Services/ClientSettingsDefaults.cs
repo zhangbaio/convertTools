@@ -80,8 +80,8 @@ public static class ClientSettingsDefaults
     public const string FrameExtractFallbackPercents = "10,25,50,75";
     public const bool TiktokAccountAnalyticsEnabled = false;
     public const bool TiktokAllowOverLimitUploadImport = true;
-    public const int TiktokMinimumEpisodeCount = 30;
-    public const int TiktokMaximumEpisodeCount = 120;
+    public const int TiktokMinimumEpisodeCount = TikTokAccountProfile.DefaultMinimumEpisodeCount;
+    public const int TiktokMaximumEpisodeCount = TikTokAccountProfile.DefaultMaximumEpisodeCount;
     public const int TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount;
     public const string TiktokProjectImageTemplateId = "image-template-project-image-10";
     public const string TiktokProjectImageTemplateName = "图片模板工程图10";
@@ -95,7 +95,6 @@ public static class ClientSettingsDefaults
     public const string TiktokProofTemplateDocxPath = "";
     public const string TiktokProofTemplateLanguage = "zh";
     public const string TiktokProofWpsPath = "";
-    public const string TiktokProofPdfRenderer = "wps";
     public const bool TiktokProofKeepDocx = false;
 
     public const string RemoteCommandHelpText = """

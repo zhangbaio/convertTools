@@ -170,7 +170,6 @@ public sealed class ClientSettings
     // New runtime configuration belongs to TikTokAccountProfile.
     public string TiktokProofDeclarantCompanyName { get; set; } = "";
     public string TiktokProofSealPath { get; set; } = "";
-    public string TiktokProofPdfRenderer { get; set; } = ClientSettingsDefaults.TiktokProofPdfRenderer;
     public bool TiktokProofKeepDocx { get; set; } = ClientSettingsDefaults.TiktokProofKeepDocx;
 
     public string LastDownloadWorkspace { get; set; } = "";
@@ -187,8 +186,12 @@ public sealed class ClientSettings
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
     public bool TiktokAllowOverLimitUploadImport { get; set; } = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
+    // Runtime limits used by the existing download truncation flow.
+    [System.Text.Json.Serialization.JsonIgnore]
     public int TiktokMinimumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
+    [System.Text.Json.Serialization.JsonIgnore]
     public int TiktokMaximumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
+    [System.Text.Json.Serialization.JsonIgnore]
     public int TiktokOverLimitDownloadEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
     public bool XingeRemoteEnabled { get; set; }
     public string XingeConnectionMode { get; set; } = "";
@@ -344,7 +347,6 @@ public sealed class ClientSettings
         TiktokProofWpsPath = TiktokProofWpsPath,
         TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName,
         TiktokProofSealPath = TiktokProofSealPath,
-        TiktokProofPdfRenderer = TiktokProofPdfRenderer,
         TiktokProofKeepDocx = TiktokProofKeepDocx,
         LastDownloadWorkspace = LastDownloadWorkspace,
         ArchiveRootDir = ArchiveRootDir,

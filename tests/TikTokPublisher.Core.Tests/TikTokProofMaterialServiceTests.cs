@@ -1,6 +1,7 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using FluentAssertions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -31,10 +32,28 @@ public sealed class TikTokProofMaterialServiceTests
 
         request.PreferredPdfRenderer.Should().Be(TikTokProofMaterialPdfRendererPreference.Wps);
         request.RenderTimeout.Should().Be(TimeSpan.FromSeconds(180));
-        TikTokProofMaterialPdfRendererPreferenceExtensions.Parse(null)
-            .Should().Be(TikTokProofMaterialPdfRendererPreference.Wps);
-        TikTokProofMaterialPdfRendererPreferenceExtensions.Parse("libreoffice")
-            .Should().Be(TikTokProofMaterialPdfRendererPreference.LibreOffice);
+    }
+
+    [Fact]
+    public void Queue_request_prefers_wps_when_loading_legacy_libreoffice_settings()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var wpsPath = Path.Combine(fixture.DirectoryPath, "wps.exe");
+        var legacy = new JsonObject
+        {
+            ["tiktok_proof_pdf_renderer"] = "libreoffice",
+            ["tiktok_proof_template_docx_path"] = fixture.CreateTemplate(),
+            ["tiktok_proof_wps_path"] = wpsPath,
+            ["tiktok_proof_keep_docx"] = true,
+        };
+        var settings = legacy.Deserialize<ClientSettings>(
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower })!;
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            new QueueProjectItem { NewTitle = "测试剧名" }, settings, new TikTokAccountProfile(), fixture.DirectoryPath);
+
+        request.PreferredPdfRenderer.Should().Be(TikTokProofMaterialPdfRendererPreference.Wps);
+        request.WpsExecutablePath.Should().Be(wpsPath);
+        request.KeepIntermediateDocx.Should().BeTrue();
     }
 
     [Fact]

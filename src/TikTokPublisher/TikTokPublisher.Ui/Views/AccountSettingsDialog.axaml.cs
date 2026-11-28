@@ -52,7 +52,6 @@ public partial class AccountSettingsDialog : Window
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(p.TiktokUploadProfilePath) ? p.TiktokUploadProfilePath : p.LastWorkspace;
         ArchiveRootBox.Text = p.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
-        DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
         ContractIdBox.Text = p.TiktokContractId;
         RequestContractAutofill();
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
@@ -208,8 +207,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokArchiveRootDir = ArchiveRootBox.Text?.Trim() ?? "";
         p.TiktokArchiveRootConfigMigrated = true;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
-        p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
-        p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
         p.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;

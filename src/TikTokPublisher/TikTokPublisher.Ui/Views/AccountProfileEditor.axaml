@@ -411,6 +411,23 @@
                                 <TextBlock Classes="formLabel" Text="CDP 地址" />
                                 <TextBox Classes="configurationInput" x:Name="CdpEndpointBox" />
                             </StackPanel>
+
+                            <Border Height="1" Background="#E4E9F0" Margin="0,8,0,0" />
+                            <TextBlock Classes="configurationHeading" Text="剧集集数限制" />
+                            <WrapPanel>
+                                <StackPanel Classes="publishField" Spacing="5" Margin="0,0,16,0">
+                                    <TextBlock Classes="formLabel" Text="剧集最小集数" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="MinimumEpisodeCountBox"
+                                                   Minimum="1" Maximum="9999" Value="30" FormatString="0" Width="120"
+                                                   AutomationProperties.Name="剧集最小集数" />
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="剧集最大集数" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="MaximumEpisodeCountBox"
+                                                   Minimum="1" Maximum="9999" Value="300" FormatString="0" Width="120"
+                                                   AutomationProperties.Name="剧集最大集数" />
+                                </StackPanel>
+                            </WrapPanel>
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
@@ -462,15 +479,6 @@
                                 </Grid>
                             </StackPanel>
 
-                            <Border Height="1" Background="#E4E9F0" Margin="0,8,0,0" />
-
-                            <TextBlock Classes="configurationHeading" Text="归档" />
-
-                            <WrapPanel>
-                                <ToggleSwitch x:Name="DeleteVideosOnArchiveBox" OnContent="归档时删除视频文件" OffContent="归档时删除视频文件" />
-                            </WrapPanel>
-
-                            <TextBlock Classes="pageSummary" TextWrapping="Wrap" Text="关闭后归档目录会保留视频，占用更多磁盘。" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>

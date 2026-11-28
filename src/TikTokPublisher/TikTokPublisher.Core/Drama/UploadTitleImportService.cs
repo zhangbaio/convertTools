@@ -34,8 +34,8 @@ public static class UploadTitleImportService
     public const string EmptySearchResultReason = "红果搜索未返回任何结果，请检查密钥绑定和本地/脱机直连服务状态";
     public const string AuthorExcludedFailurePrefix = "命中作者排除：";
     public const string UnknownAuthorFailurePrefix = "作者信息为空，无法执行作者排除校验：";
-    public const int DefaultEpisodeMin = 10;
-    public const int DefaultEpisodeMax = 120;
+    public const int DefaultEpisodeMin = TikTokAccountProfile.DefaultMinimumEpisodeCount;
+    public const int DefaultEpisodeMax = TikTokAccountProfile.DefaultMaximumEpisodeCount;
 
     private static readonly JsonSerializerOptions MetadataJsonOptions = new()
     {

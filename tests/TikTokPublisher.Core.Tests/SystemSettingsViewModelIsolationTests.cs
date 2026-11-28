@@ -45,13 +45,11 @@ public sealed class SystemSettingsViewModelIsolationTests
             {
                 settings.TiktokGlobalProjectConcurrency = 3;
                 settings.TiktokProofKeepDocx = false;
-                settings.TiktokMinimumEpisodeCount = 30;
             }, databasePath);
 
             var viewModel = new SystemSettingsViewModel(databasePath);
             viewModel.Load();
             viewModel.TiktokProofKeepDocx = true;
-            viewModel.TiktokMinimumEpisodeCount = 42;
             viewModel.ProjectConcurrencySettings.TikTokProjectConcurrency = 2.5m;
             ClientSettings? applied = null;
             viewModel.ProjectConcurrencySettings.TikTokLimitSaved += settings => applied = settings;
@@ -64,7 +62,6 @@ public sealed class SystemSettingsViewModelIsolationTests
             var saved = ClientSettingsStore.Load(databasePath);
             Assert.Equal(3, saved.TiktokGlobalProjectConcurrency);
             Assert.False(saved.TiktokProofKeepDocx);
-            Assert.Equal(30, saved.TiktokMinimumEpisodeCount);
 
             viewModel.ProjectConcurrencySettings.TikTokProjectConcurrency = 4;
             await viewModel.SaveSettingsCommand.ExecuteAsync(true);
@@ -73,7 +70,6 @@ public sealed class SystemSettingsViewModelIsolationTests
             saved = ClientSettingsStore.Load(databasePath);
             Assert.Equal(4, saved.TiktokGlobalProjectConcurrency);
             Assert.True(saved.TiktokProofKeepDocx);
-            Assert.Equal(42, saved.TiktokMinimumEpisodeCount);
             Assert.NotNull(applied);
             Assert.Equal(4, applied.TiktokGlobalProjectConcurrency);
             Assert.True(applied.TiktokProofKeepDocx);

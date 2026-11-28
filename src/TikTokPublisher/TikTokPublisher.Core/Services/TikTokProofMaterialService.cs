@@ -1057,8 +1057,6 @@ public sealed class TikTokProofMaterialService
         {
             GenerateProductionAgreement = generateProductionAgreement,
             SealImagePath = sealPath,
-            PreferredPdfRenderer = TikTokProofMaterialPdfRendererPreferenceExtensions.Parse(
-                settings.TiktokProofPdfRenderer),
             WpsExecutablePath = settings.TiktokProofWpsPath,
             KeepIntermediateDocx = settings.TiktokProofKeepDocx,
             GenerateSourceFileScreenshots = materialTypes.Contains(

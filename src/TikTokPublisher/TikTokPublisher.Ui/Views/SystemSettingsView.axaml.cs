@@ -100,7 +100,6 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageTemplateId)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageSubtitleAiMode)
-                or nameof(SystemSettingsViewModel.TiktokProofPdfRenderer)
                 or nameof(SystemSettingsViewModel.ManagementDedupScope))
             {
                 SyncCombosFromVm();
@@ -229,11 +228,6 @@ public partial class SystemSettingsView : UserControl
         ProjectImageSubtitleAiModeCombo.Items.Add(CreateItem("关闭", "off"));
         ProjectImageSubtitleAiModeCombo.SelectionChanged += OnProjectImageSubtitleAiModeChanged;
 
-        ProofPdfRendererCombo.Items.Clear();
-        ProofPdfRendererCombo.Items.Add(CreateItem("WPS（默认）", "wps"));
-        ProofPdfRendererCombo.Items.Add(CreateItem("LibreOffice", "libreoffice"));
-        ProofPdfRendererCombo.SelectionChanged += OnProofPdfRendererChanged;
-
         ManagementDedupScopeCombo.Items.Clear();
         ManagementDedupScopeCombo.Items.Add(CreateItem("按 TIKTOK用户名", "tiktok_username"));
         ManagementDedupScopeCombo.Items.Add(CreateItem("按软件账号", "software_user"));
@@ -262,7 +256,6 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
         SyncProjectImageTemplateComboFromVm();
         SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
-        SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
         UpdatePosterModeUi();
     }
@@ -438,12 +431,6 @@ public partial class SystemSettingsView : UserControl
         {
             _syncingProjectImageTemplateCombo = false;
         }
-    }
-
-    private void OnProofPdfRendererChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || ProofPdfRendererCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.TiktokProofPdfRenderer = item.Tag as string ?? ClientSettingsDefaults.TiktokProofPdfRenderer;
     }
 
     private async void OnBrowseSyncWorkspaceRootClick(object? sender, RoutedEventArgs e)

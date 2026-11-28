@@ -17,7 +17,7 @@ public sealed class TikTokAccountProfile
     public const int DefaultRoleVectorMinimumCharacterCount = 3;
     public const int DefaultMinimumEpisodeCount = 30;
     public const int MaxMinimumEpisodeCount = 9999;
-    public const int DefaultMaximumEpisodeCount = 120;
+    public const int DefaultMaximumEpisodeCount = 300;
     public const int MaxMaximumEpisodeCount = 9999;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
@@ -279,8 +279,8 @@ public sealed class TikTokAccountProfile
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }
     public bool? TiktokQueueSyncManagementAfterUpload { get; set; }
-    public bool TiktokDeleteVideosOnArchive { get; set; } = true;
-    public bool TiktokDeleteVideosOnArchiveConfigured { get; set; }
+    public int TiktokMinimumEpisodeCount { get; set; } = DefaultMinimumEpisodeCount;
+    public int TiktokMaximumEpisodeCount { get; set; } = DefaultMaximumEpisodeCount;
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
 

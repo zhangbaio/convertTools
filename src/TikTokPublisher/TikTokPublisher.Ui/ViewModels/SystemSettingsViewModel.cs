@@ -253,7 +253,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
     [ObservableProperty] private string _tiktokProofDeclarantCompanyName = "";
     [ObservableProperty] private string _tiktokProofSealPath = "";
-    [ObservableProperty] private string _tiktokProofPdfRenderer = ClientSettingsDefaults.TiktokProofPdfRenderer;
     [ObservableProperty] private bool _tiktokProofKeepDocx = ClientSettingsDefaults.TiktokProofKeepDocx;
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _tiktokAccountAnalyticsEnabled = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
@@ -261,8 +260,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
     [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
-    [ObservableProperty] private int _tiktokMinimumEpisodeCount = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
-    [ObservableProperty] private int _tiktokMaximumEpisodeCount = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
@@ -462,7 +459,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokProofWpsPath = TiktokProofWpsPath.Trim();
         settings.TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim();
         settings.TiktokProofSealPath = TiktokProofSealPath.Trim();
-        settings.TiktokProofPdfRenderer = TiktokProofPdfRenderer;
         settings.TiktokProofKeepDocx = TiktokProofKeepDocx;
         settings.TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled;
         settings.TiktokAccountAnalyticsEnabled = TiktokAccountAnalyticsEnabled;
@@ -470,9 +466,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.ManagementDedupEnabled = ManagementDedupEnabled;
         settings.ManagementDedupScope = ManagementDedupScope;
         settings.TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport;
-        settings.TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount;
-        settings.TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount;
-        settings.TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount;
         return settings;
     }
 
@@ -1279,7 +1272,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProofWpsPath = settings.TiktokProofWpsPath;
         TiktokProofDeclarantCompanyName = settings.TiktokProofDeclarantCompanyName;
         TiktokProofSealPath = settings.TiktokProofSealPath;
-        TiktokProofPdfRenderer = settings.TiktokProofPdfRenderer;
         TiktokProofKeepDocx = settings.TiktokProofKeepDocx;
         TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
         TiktokAccountAnalyticsEnabled = settings.TiktokAccountAnalyticsEnabled;
@@ -1287,8 +1279,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;
         TiktokAllowOverLimitUploadImport = settings.TiktokAllowOverLimitUploadImport;
-        TiktokMinimumEpisodeCount = settings.TiktokMinimumEpisodeCount;
-        TiktokMaximumEpisodeCount = settings.TiktokMaximumEpisodeCount;
     }
 
     private static string NormalizeHghighClientVersion(string? value, string fallback)

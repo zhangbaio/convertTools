@@ -92,9 +92,7 @@ public sealed class TikTokPublishDefaultsTests
         settings.TiktokProofTemplateLanguage.Should().Be("zh");
         settings.TiktokProofDeclarantCompanyName.Should().BeEmpty();
         settings.TiktokProofSealPath.Should().BeEmpty();
-        settings.TiktokProofPdfRenderer.Should().Be("wps");
         settings.TiktokProofWpsPath.Should().BeEmpty();
-        ClientSettingsDefaults.TiktokProofPdfRenderer.Should().Be("wps");
         settings.TiktokProofKeepDocx.Should().BeFalse();
     }
 
@@ -326,7 +324,6 @@ public sealed class TikTokPublishDefaultsTests
                 TiktokProofTemplateDocxPath = "",
                 TiktokProofDeclarantCompanyName = "  武汉速视科技有限公司  ",
                 TiktokProofSealPath = "  C:\\proof\\seal.png  ",
-                TiktokProofPdfRenderer = "invalid",
                 TiktokProofWpsPath = "  C:\\WPS\\wps.exe  ",
             }, databasePath);
 
@@ -362,7 +359,6 @@ public sealed class TikTokPublishDefaultsTests
             loaded.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
             loaded.TiktokProofDeclarantCompanyName.Should().Be("武汉速视科技有限公司");
             loaded.TiktokProofSealPath.Should().Be("C:\\proof\\seal.png");
-            loaded.TiktokProofPdfRenderer.Should().Be("wps");
             loaded.TiktokProofWpsPath.Should().Be("C:\\WPS\\wps.exe");
         }
         finally
@@ -748,7 +744,6 @@ public sealed class TikTokPublishDefaultsTests
             TiktokProofTemplateLanguage = "en",
             TiktokProofDeclarantCompanyName = "声明公司",
             TiktokProofSealPath = @"D:\templates\seal.png",
-            TiktokProofPdfRenderer = "libreoffice",
             TiktokProofWpsPath = @"D:\apps\wps.exe",
             TiktokProofKeepDocx = true,
         };
@@ -759,38 +754,8 @@ public sealed class TikTokPublishDefaultsTests
         clone.TiktokProofTemplateLanguage.Should().Be("en");
         clone.TiktokProofDeclarantCompanyName.Should().Be(settings.TiktokProofDeclarantCompanyName);
         clone.TiktokProofSealPath.Should().Be(settings.TiktokProofSealPath);
-        clone.TiktokProofPdfRenderer.Should().Be("libreoffice");
         clone.TiktokProofWpsPath.Should().Be(settings.TiktokProofWpsPath);
         clone.TiktokProofKeepDocx.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Client_settings_store_preserves_explicit_libreoffice_renderer()
-    {
-        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-proof-{Guid.NewGuid():N}.db");
-        try
-        {
-            ClientSettingsStore.Save(new ClientSettings
-            {
-                TiktokProofPdfRenderer = " LibreOffice ",
-                TiktokProofKeepDocx = true,
-            }, databasePath);
-
-            var loaded = ClientSettingsStore.Load(databasePath);
-
-            loaded.TiktokProofPdfRenderer.Should().Be("libreoffice");
-            loaded.TiktokProofKeepDocx.Should().BeTrue();
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(databasePath);
-            }
-            catch (IOException)
-            {
-            }
-        }
     }
 
     [Fact]
@@ -968,7 +933,8 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokUploadBatchSize.Should().Be(3);
         account.TiktokUploadBatchStallSeconds.Should().Be(75);
         account.TiktokUploadBatchMaxRetries.Should().Be(3);
-        account.TiktokDeleteVideosOnArchive.Should().BeTrue();
+        account.TiktokMinimumEpisodeCount.Should().Be(30);
+        account.TiktokMaximumEpisodeCount.Should().Be(300);
     }
 
     [Fact]
@@ -1054,32 +1020,6 @@ public sealed class TikTokPublishDefaultsTests
         method!.Invoke(null, ["external"]).Should().Be("embedded");
         method.Invoke(null, ["playwright"]).Should().Be("playwright");
         method.Invoke(null, ["embedded"]).Should().Be("embedded");
-    }
-
-    [Fact]
-    public void Account_store_defaults_unconfigured_archive_video_deletion_to_enabled()
-    {
-        var method = typeof(AccountStore).GetMethod(
-            "NormalizeProfileDefaults",
-            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-
-        method.Should().NotBeNull();
-
-        var legacyAccount = new TikTokAccountProfile
-        {
-            TiktokDeleteVideosOnArchive = false,
-            TiktokDeleteVideosOnArchiveConfigured = false,
-        };
-        method!.Invoke(null, [legacyAccount]);
-        legacyAccount.TiktokDeleteVideosOnArchive.Should().BeTrue();
-
-        var explicitlyDisabledAccount = new TikTokAccountProfile
-        {
-            TiktokDeleteVideosOnArchive = false,
-            TiktokDeleteVideosOnArchiveConfigured = true,
-        };
-        method.Invoke(null, [explicitlyDisabledAccount]);
-        explicitlyDisabledAccount.TiktokDeleteVideosOnArchive.Should().BeFalse();
     }
 
     [Fact]

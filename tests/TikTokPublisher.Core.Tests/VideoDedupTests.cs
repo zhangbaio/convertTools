@@ -6,17 +6,12 @@ using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Tests;
 
-public sealed class VideoDedupTests : IDisposable
+public sealed class VideoDedupTests
 {
-    private readonly IDisposable _settings = ClientSettingsStore.UseSettingsForTests(
-        () => new ClientSettings { TiktokMinimumEpisodeCount = 1 });
-
-    public void Dispose() => _settings.Dispose();
-
     private static Task RunWithTestPresetAsync(QueueProjectItem item, TikTokAccountProfile account, bool force,
-        Action<string>? log, CancellationToken ct) =>
+        Action<string>? log, CancellationToken ct, int minimumEpisodeCount = 1) =>
         VideoDedupService.RunWithPresetAsync(item, account, account.VideoDedupPreset?.Clone(),
-            OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum, force, log, ct);
+            minimumEpisodeCount, force, log, ct);
 
     [Fact]
     public void Step_order_puts_dedup_after_download_and_retires_source_deletion()
@@ -907,7 +902,6 @@ public sealed class VideoDedupTests : IDisposable
     public async Task Minimum_episode_check_uses_the_resegmented_count_before_archiving_or_encoding(
         int sourceCount, int plannedCount)
     {
-        using var settings = ClientSettingsStore.UseSettingsForTests(() => new ClientSettings());
         var project = Directory.CreateTempSubdirectory("video-dedup-count-");
         try
         {
@@ -933,12 +927,13 @@ public sealed class VideoDedupTests : IDisposable
             preset.MaximumDurationSeconds = 40;
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
             var item = new QueueProjectItem { ProjectDir = project.FullName, EpisodeCount = sourceCount };
-            Func<Task> run = () => RunWithTestPresetAsync(item, account, force: false, null, CancellationToken.None);
+            Func<Task> run = () => RunWithTestPresetAsync(item, account, force: false, null, CancellationToken.None,
+                minimumEpisodeCount: TikTokAccountProfile.DefaultMinimumEpisodeCount);
 
             if (plannedCount < 30)
             {
                 await run.Should().ThrowAsync<InvalidOperationException>()
-                    .WithMessage("预计去重后 27 集，低于系统设置的最小集数 30，未开始编码。");
+                    .WithMessage("预计去重后 27 集，低于账号配置的最小集数 30，未开始编码。");
                 encoded.Should().Be(0);
                 item.EpisodeCount.Should().Be(sourceCount);
                 Directory.GetFileSystemEntries(project.FullName).Should().BeEquivalentTo(sourceFiles);

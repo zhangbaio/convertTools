@@ -222,10 +222,18 @@ public sealed class LocalManualDramaImportServiceTests
             var settings = new ClientSettings
             {
                 TiktokAllowOverLimitUploadImport = true,
+                TiktokMinimumEpisodeCount = 1,
                 TiktokMaximumEpisodeCount = 2,
                 TiktokOverLimitDownloadEpisodeCount = 2,
             };
 
+            var strictSettings = settings.Clone();
+            strictSettings.TiktokAllowOverLimitUploadImport = false;
+            var strictImport = () => LocalManualDramaImportService.Import(workspace, source, settings: strictSettings);
+            strictImport.Should().Throw<InvalidOperationException>().WithMessage("*超过最大限制 2 集*");
+            strictSettings.TiktokMinimumEpisodeCount = 4;
+            strictSettings.TiktokMaximumEpisodeCount = 8;
+            strictImport.Should().Throw<InvalidOperationException>().WithMessage("*低于最小限制 4 集*");
             var result = LocalManualDramaImportService.Import(workspace, source, settings: settings);
 
             result.EpisodeCount.Should().Be(2);

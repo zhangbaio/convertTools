@@ -16,6 +16,7 @@ public static class TikTokMaterialValidationService
 
     public sealed class Options
     {
+        internal ClientSettings? TruncationSettings { get; init; }
         public int Concurrency { get; init; } = 4;
         public int MinimumEpisodeCount { get; init; } = TikTokAccountProfile.DefaultMinimumEpisodeCount;
         public int MaximumEpisodeCount { get; init; } = TikTokAccountProfile.DefaultMaximumEpisodeCount;
@@ -28,13 +29,13 @@ public static class TikTokMaterialValidationService
             QueueRunOptions? runOptions = null,
             bool allowMissingUploadVideos = false)
         {
-            var (minimum, maximum) = OverLimitEpisodePolicy.ResolveEpisodeBounds(
-                settings ?? ClientSettingsStore.Load());
+            var (minimum, maximum) = OverLimitEpisodePolicy.ResolveEpisodeBounds(account);
             return new Options
             {
                 Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
                 MinimumEpisodeCount = minimum,
                 MaximumEpisodeCount = maximum,
+                TruncationSettings = settings is null ? null : OverLimitEpisodePolicy.WithAccountBounds(settings, account),
                 EnabledSteps = (runOptions?.OrderedEnabledSteps() ?? [])
                     .ToHashSet(StringComparer.Ordinal),
                 AllowMissingUploadVideos = allowMissingUploadVideos,
@@ -55,17 +56,18 @@ public static class TikTokMaterialValidationService
     }
 
         public static string BuildMinimumEpisodeRejection(int actualCount, int minimumEpisodeCount) =>
-        $"实际视频 {actualCount} 集，低于系统设置的最小集数 {minimumEpisodeCount}，已拒绝上传";
+        $"实际视频 {actualCount} 集，低于账号配置的最小集数 {minimumEpisodeCount}，已拒绝上传";
 
     public static string BuildMaximumEpisodeRejection(int actualCount, int maximumEpisodeCount) =>
-        $"实际视频 {actualCount} 集，高于系统设置的最大集数 {maximumEpisodeCount}，已拒绝上传";
+        $"实际视频 {actualCount} 集，高于账号配置的最大集数 {maximumEpisodeCount}，已拒绝上传";
 
     public static void EnsureEpisodeCountBounds(
         string sourceProjectDir,
         int minimumEpisodeCount,
-        int maximumEpisodeCount)
+        int maximumEpisodeCount,
+        ClientSettings? truncationSettings = null)
     {
-        OverLimitEpisodePolicy.EnsureTruncated(sourceProjectDir);
+        OverLimitEpisodePolicy.EnsureTruncated(sourceProjectDir, truncationSettings);
         var (minimum, maximum) = TikTokAccountProfile.NormalizeEpisodeCountBounds(
             minimumEpisodeCount,
             maximumEpisodeCount);
@@ -93,7 +95,8 @@ public static class TikTokMaterialValidationService
             EnsureEpisodeCountBounds(
                 sourceProjectDir,
                 options.MinimumEpisodeCount,
-                options.MaximumEpisodeCount);
+                options.MaximumEpisodeCount,
+                options.TruncationSettings);
         }
         catch (InvalidOperationException ex)
         {

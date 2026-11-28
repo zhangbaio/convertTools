@@ -410,7 +410,7 @@ public sealed class TikTokMaterialValidationServiceTests
                 CancellationToken.None);
 
             await action.Should().ThrowAsync<InvalidOperationException>()
-                .WithMessage("实际视频 2 集，低于系统设置的最小集数 30，已拒绝上传");
+                .WithMessage("实际视频 2 集，低于账号配置的最小集数 30，已拒绝上传");
         }
         finally
         {
@@ -442,7 +442,7 @@ public sealed class TikTokMaterialValidationServiceTests
                 CancellationToken.None);
 
             await action.Should().ThrowAsync<InvalidOperationException>()
-                .WithMessage("实际视频 3 集，高于系统设置的最大集数 2，已拒绝上传");
+                .WithMessage("实际视频 3 集，高于账号配置的最大集数 2，已拒绝上传");
         }
         finally
         {

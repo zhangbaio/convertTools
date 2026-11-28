@@ -6,14 +6,6 @@ public enum TikTokProofMaterialPdfRendererPreference
     LibreOffice = 1,
 }
 
-public static class TikTokProofMaterialPdfRendererPreferenceExtensions
-{
-    public static TikTokProofMaterialPdfRendererPreference Parse(string? value) =>
-        string.Equals(value?.Trim(), "libreoffice", StringComparison.OrdinalIgnoreCase)
-            ? TikTokProofMaterialPdfRendererPreference.LibreOffice
-            : TikTokProofMaterialPdfRendererPreference.Wps;
-}
-
 public sealed record TikTokProofMaterialRequest(
     string TemplateDocxPath,
     string OutputPdfPath,

@@ -62,7 +62,8 @@ internal sealed record ManualUploadTitleImportTarget(
     WorkspaceQueueTarget QueueTarget,
     TikTokUploadTitleRoute Route,
     ClientSettings Settings,
-    string AccountName)
+    string AccountName,
+    (int Minimum, int Maximum) EpisodeBounds)
 {
     public string RouteLabel => $"{AccountName} · {Route.Describe()}";
 }
@@ -2904,7 +2905,8 @@ public sealed partial class MainViewModel : ViewModelBase
             ?? throw new InvalidOperationException("找不到上传短剧所选账号，请重新选择账号后再试。");
         var settings = ClientSettingsStore.Load();
         var route = TikTokUploadTitleRoute.Capture(settings, account);
-        return new ManualUploadTitleImportTarget(target, route, route.ApplyTo(settings), account.DisplayName);
+        return new ManualUploadTitleImportTarget(target, route, route.ApplyTo(settings), account.DisplayName,
+            OverLimitEpisodePolicy.ResolveEpisodeBounds(account));
     }
 
     private IReadOnlyList<WorkspaceQueueTarget> BuildAccountWorkspaceTargets(
@@ -5622,7 +5624,7 @@ public sealed partial class MainViewModel : ViewModelBase
                     root,
                     sourceProjectDir,
                     AppendLog,
-                    ClientSettingsStore.Load()))
+                    OverLimitEpisodePolicy.WithAccountBounds(ClientSettingsStore.Load(), account)))
                 .ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -5746,7 +5748,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var existingBefore = WorkspaceQueueService.ScanProjects(root)
             .Select(item => Path.GetFullPath(item.ProjectDir))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var overLimitSettings = ClientSettingsStore.Load();
+        var overLimitSettings = OverLimitEpisodePolicy.WithAccountBounds(ClientSettingsStore.Load(), account);
         var results = new List<LocalManualDramaImportResult>();
         var failures = new List<string>();
 
@@ -6121,14 +6123,10 @@ public sealed partial class MainViewModel : ViewModelBase
                 // 归档包含递归删视频与跨盘目录移动等重 IO，必须放到后台线程，避免 UI 卡顿。
                 var projectDir = row.Item.ProjectDir;
                 var account = ResolveAccountForQueueItem(row.Item);
-                var deleteVideosOnArchive = account?.TiktokDeleteVideosOnArchive ?? true;
                 await Task.Run(() => TikTokArchivedProjectService.ArchiveQueueProjectAsync(
                         root,
                         projectDir,
                         archiveRootDir: account?.ResolveArchiveRootPath(root),
-                        deleteSourceVideos: deleteVideosOnArchive,
-                        deleteWorkflowVideos: deleteVideosOnArchive,
-                        deleteMaterialVideos: deleteVideosOnArchive,
                         account: account,
                         queuedAt: row.Item.QueuedAt,
                         uploadCompletedAt: row.Item.UploadCompletedAt))
@@ -6142,7 +6140,7 @@ public sealed partial class MainViewModel : ViewModelBase
                     archivedItem.StatusText,
                     root,
                     archivedItem,
-                    message: deleteVideosOnArchive ? "项目已归档，已删除视频文件" : "项目已归档，已保留视频文件",
+                    message: "项目已归档，已删除视频文件",
                     account: account));
             }
             catch (Exception ex)
@@ -6228,7 +6226,8 @@ public sealed partial class MainViewModel : ViewModelBase
         AppendLog(manualTarget is null
             ? $"使用{VisibleDramaSource.Describe(loaded, market)}导入。"
             : $"搜索链路 · {manualTarget.RouteLabel}");
-        var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
+        var episodeBounds = manualTarget?.EpisodeBounds ?? OverLimitEpisodePolicy.ResolveEpisodeBounds(account);
+        settings = OverLimitEpisodePolicy.WithAccountBounds(settings, account);
         var result = await UploadTitleImportService.ImportAsync(
             root,
             rawText,

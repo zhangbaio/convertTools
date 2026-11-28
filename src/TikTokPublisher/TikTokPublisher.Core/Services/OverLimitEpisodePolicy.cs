@@ -19,6 +19,21 @@ public static class OverLimitEpisodePolicy
             maximum);
     }
 
+    public static (int Minimum, int Maximum) ResolveEpisodeBounds(TikTokAccountProfile? account) =>
+        TikTokAccountProfile.NormalizeEpisodeCountBounds(
+            account?.TiktokMinimumEpisodeCount ?? TikTokAccountProfile.DefaultMinimumEpisodeCount,
+            account?.TiktokMaximumEpisodeCount ?? TikTokAccountProfile.DefaultMaximumEpisodeCount);
+
+    public static ClientSettings WithAccountBounds(ClientSettings settings, TikTokAccountProfile? account)
+    {
+        if (account is null)
+            return settings;
+        var result = settings.Clone();
+        (result.TiktokMinimumEpisodeCount, result.TiktokMaximumEpisodeCount) = ResolveEpisodeBounds(account);
+        result.TiktokOverLimitDownloadEpisodeCount = result.TiktokMaximumEpisodeCount;
+        return result;
+    }
+
     public static int ResolveKeepCount(ClientSettings settings)
     {
         var configured = settings.TiktokMaximumEpisodeCount > 0
@@ -180,8 +195,7 @@ public static class OverLimitEpisodePolicy
 
     public static void EnsureTruncated(string projectDir, ClientSettings? settings = null, Action<string>? log = null)
     {
-        settings ??= ClientSettingsStore.Load();
-        if (!settings.TiktokAllowOverLimitUploadImport)
+        if (settings is null || !settings.TiktokAllowOverLimitUploadImport)
             return;
         if (TryReadKeepCount(projectDir, out _))
             return;

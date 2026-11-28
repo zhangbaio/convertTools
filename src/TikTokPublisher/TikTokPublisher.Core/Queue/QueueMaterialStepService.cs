@@ -56,6 +56,7 @@ public static partial class QueueMaterialStepService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         var originalBookId = metadata.BookId;
+        globalSettings = OverLimitEpisodePolicy.WithAccountBounds(globalSettings, account);
         var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
         XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(context.SourceProjectDir);
         var clientAssignment = XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir);

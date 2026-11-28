@@ -1109,10 +1109,17 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
-        var overLimitSettings = ClientSettingsStore.Load();
+        var profile = AccountProfileRequested?.Invoke(target.AccountProfileId);
+        var overLimitSettings = OverLimitEpisodePolicy.WithAccountBounds(ClientSettingsStore.Load(), profile);
         var dirs = new List<string>();
         foreach (var item in selected)
         {
+            var episodeError = ResolveQueueEpisodeLimitError(item, target, overLimitSettings);
+            if (episodeError.Length > 0)
+            {
+                LogRequested?.Invoke($"未加入队列：《{item.Title}》 · {episodeError}");
+                continue;
+            }
             var itemEpisodes = ResolveOverLimitEpisodes(item, episodes, overLimitSettings);
             var queueEntryDramaType = ResolveQueueEntryDramaType(item);
             var projectDir = await Task.Run(() => ShortDramaDramaServices.BootstrapAsync(
@@ -1307,10 +1314,11 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         Func<TikTokQueueImportRequest, Task> import,
         List<string> errors)
     {
+        TikTokAccountProfile? profile = null;
         if ((account.Target.PlatformKey is "" or DramaQueuePlatforms.TikTok) && AccountProfileRequested is { } findAccount)
         {
-            var current = findAccount(account.Target.AccountProfileId);
-            var workspace = await Task.Run(() => current?.ResolveWorkspacePath() ?? "");
+            profile = findAccount(account.Target.AccountProfileId);
+            var workspace = await Task.Run(() => profile?.ResolveWorkspacePath() ?? "");
             if (workspace.Length == 0 ||
                 !string.Equals(Path.TrimEndingDirectorySeparator(workspace),
                     QueueWorkspaceKey(account.Target.WorkspaceRoot), StringComparison.OrdinalIgnoreCase))
@@ -1329,11 +1337,19 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
         var failed = new List<QueueImportItem>();
         var prepared = new List<QueueImportItem>();
+        var settings = OverLimitEpisodePolicy.WithAccountBounds(options.Settings, profile);
         foreach (var item in account.Items)
         {
             try
             {
-                var itemEpisodes = ResolveOverLimitEpisodes(item.Drama, options.Episodes, options.Settings);
+                var episodeError = ResolveQueueEpisodeLimitError(item.Drama, account.Target, settings);
+                if (episodeError.Length > 0)
+                {
+                    failed.Add(item);
+                    errors.Add($"{account.Target.Label} · 《{item.Drama.Title}》 · {episodeError}");
+                    continue;
+                }
+                var itemEpisodes = ResolveOverLimitEpisodes(item.Drama, options.Episodes, settings);
                 var dramaType = ResolveQueueEntryDramaType(item.Drama);
                 var projectDirectory = await Task.Run(async () =>
                 {
@@ -1343,7 +1359,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                     var directory = await ShortDramaDramaServices.BootstrapAsync(
                         account.Target.WorkspaceRoot, item.Drama, itemEpisodes, options.Quality,
                         options.DownloadConcurrent, options.EpisodeNumberMode, dramaType, CancellationToken.None);
-                    MarkOverLimitProject(directory, item.Drama, options.Settings);
+                    MarkOverLimitProject(directory, item.Drama, settings);
                     return directory;
                 });
                 prepared.Add(item with { ProjectDirectory = projectDirectory });
@@ -2312,6 +2328,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (kept.Count == 0)
             LogRequested?.Invoke($"所选剧集均命中作者排除，未加入{queueLabel}");
         return kept;
+    }
+
+    private static string ResolveQueueEpisodeLimitError(
+        DramaSearchItem item, TikTokQueueImportTarget target, ClientSettings settings)
+    {
+        if (target.PlatformKey is not ("" or DramaQueuePlatforms.TikTok) || item.EpisodeTotal <= 0)
+            return "";
+        var (minimum, maximum) = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
+        return UploadTitleImportService.ResolveEpisodeLimitError(item, settings, minimum, maximum);
     }
 
     private string ResolveOverLimitEpisodes(DramaSearchItem item, string selection, ClientSettings settings)

@@ -8,6 +8,21 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class OverLimitEpisodePolicyTests
 {
+    [Fact]
+    public void Account_limits_are_independent_and_legacy_accounts_use_30_to_300()
+    {
+        var legacy = JsonSerializer.Deserialize<TikTokAccountProfile>("{}")!;
+        var configured = new TikTokAccountProfile { TiktokMinimumEpisodeCount = 42, TiktokMaximumEpisodeCount = 165 };
+        var saved = JsonSerializer.Deserialize<TikTokAccountProfile>(JsonSerializer.Serialize(configured))!;
+        var global = new ClientSettings();
+
+        OverLimitEpisodePolicy.ResolveEpisodeBounds(legacy).Should().Be((30, 300));
+        var options = TikTokMaterialValidationService.Options.FromAccount(saved, global);
+        (options.MinimumEpisodeCount, options.MaximumEpisodeCount).Should().Be((42, 165));
+        OverLimitEpisodePolicy.ResolveKeepCount(OverLimitEpisodePolicy.WithAccountBounds(global, saved)).Should().Be(165);
+        OverLimitEpisodePolicy.ResolveKeepCount(global).Should().Be(300);
+    }
+
     private static ClientSettings Settings(bool enabled = true, int keep = 120) => new()
     {
         TiktokAllowOverLimitUploadImport = enabled,

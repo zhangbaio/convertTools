@@ -62,13 +62,18 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
                     },
                 },
             });
-        var account = new TikTokAccountProfile
-        {
-            Id = "acct-1dfecd83",
-            Name = "账号3",
-            TiktokAccountNickname = "账号3",
-            TiktokLoginEmail = "15327086817@163.com",
-        };
+        var account = JsonSerializer.Deserialize<TikTokAccountProfile>(
+            """
+            {
+                "id": "acct-1dfecd83",
+                "name": "账号3",
+                "tiktokAccountNickname": "账号3",
+                "tiktokLoginEmail": "15327086817@163.com",
+                "tiktokDeleteVideosOnArchive": false,
+                "tiktokDeleteVideosOnArchiveConfigured": true
+            }
+            """,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
 
         await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
             _workspaceRoot,

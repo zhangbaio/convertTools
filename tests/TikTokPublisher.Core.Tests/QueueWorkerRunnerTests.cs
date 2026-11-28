@@ -2,6 +2,7 @@ using PublisherShared.Scheduling;
 using System.Diagnostics;
 using System.Reflection;
 using FluentAssertions;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
@@ -13,9 +14,9 @@ public sealed class QueueWorkerRunnerTests : IDisposable
 {
     private static readonly Lazy<byte[]> TinyMp4Bytes = new(CreateTinyMp4Bytes);
 
-    // 测试项目只有 1 集；集数下限来自系统设置（默认 30），不能读用户真实的 app.db。
+    // 测试队列使用隔离的客户端设置。
     private readonly IDisposable _settingsScope = ClientSettingsStore.UseSettingsForTests(
-        () => new ClientSettings { TiktokMinimumEpisodeCount = 1 });
+        () => new ClientSettings());
 
     public void Dispose() => _settingsScope.Dispose();
 
@@ -325,15 +326,13 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     [InlineData(true)]
     public async Task Queue_rejects_a_short_series_before_generating_more_materials(bool alreadyDeduplicated)
     {
-        using var settings = ClientSettingsStore.UseSettingsForTests(() => new ClientSettings());
         var workspace = Directory.CreateTempSubdirectory("tiktok-dedup-count-");
         try
         {
             var account = CreateCommandAccount(workspace.FullName);
-            account.VideoDedupPreset = VideoDedupPreset.CreateDefault();
             var item = CreateCommandProject(workspace.FullName, account);
             for (var index = 2; index <= 27; index++)
-                await File.WriteAllBytesAsync(Path.Combine(item.ProjectDir, $"episode-{index}.mp4"), [1, 2]);
+                await File.WriteAllBytesAsync(Path.Combine(item.ProjectDir, $"episode-{index}.mp4"), TinyMp4Bytes.Value);
             item.EpisodeCount = 27;
             item.StepStates[QueueStepRegistry.VideoDedup] =
                 alreadyDeduplicated ? QueueStepStatus.Completed : QueueStepStatus.Pending;
@@ -346,7 +345,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
             };
 
             var summary = await new QueueWorkerRunner().RunAsync(
-                workspace.FullName, [item], options, host, CreateAccountStore(account), FinalAction.None,
+                workspace.FullName, [item], options, host, CreateAccountStore(account, minimumEpisodeCount: 32), FinalAction.None,
                 onProgress: null, onPersist: null, CancellationToken.None);
 
             summary.FailedCount.Should().Be(1);
@@ -355,10 +354,43 @@ public sealed class QueueWorkerRunnerTests : IDisposable
             item.StepStates[QueueStepRegistry.MaterialValidate].Should().Be(
                 alreadyDeduplicated ? QueueStepStatus.Failed : QueueStepStatus.Pending);
             item.StepStates[QueueStepRegistry.RewriteInfo].Should().Be(QueueStepStatus.Pending);
-            item.LastError.Should().Contain("27 集，低于系统设置的最小集数 30");
+            item.LastError.Should().Contain("低于账号配置的最小集数 32");
+            if (alreadyDeduplicated)
+                item.LastError.Should().Contain("实际视频 27 集");
             host.PublishedProjectDirs.Should().BeEmpty();
             Directory.Exists(Path.Combine(item.ProjectDir, "source-originals")).Should().BeFalse();
             Directory.GetFiles(item.ProjectDir, "*.mp4").Should().HaveCount(27);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_deletes_project_videos_when_automatically_archiving_a_successful_upload()
+    {
+        var workspace = Directory.CreateTempSubdirectory("tiktok-auto-archive-");
+        try
+        {
+            var account = CreateCommandAccount(workspace.FullName);
+            var item = CreateCommandProject(workspace.FullName, account);
+            var options = new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                AutoArchiveAfterUpload = true,
+            };
+
+            await new QueueWorkerRunner().RunAsync(
+                workspace.FullName, new List<QueueProjectItem> { item }, options,
+                new ImmediatePublishHost(), CreateAccountStore(account),
+                FinalAction.None, onProgress: null, onPersist: null, CancellationToken.None);
+
+            item.Archived.Should().BeTrue();
+            var archiveRoot = account.ResolveArchiveRootPath(workspace.FullName);
+            TikTokArchivedProjectService.List(workspace.FullName, archiveRoot).Should().ContainSingle();
+            Directory.EnumerateFiles(archiveRoot, "*.mp4", SearchOption.AllDirectories).Should().BeEmpty();
         }
         finally
         {
@@ -1982,12 +2014,13 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         return new QueueWorkerRunner(sharedUploadSlots: uploadSlots);
     }
 
-    private static AccountStore CreateAccountStore(TikTokAccountProfile account) =>
-        CreateAccountStore([account], account.Id);
+    private static AccountStore CreateAccountStore(TikTokAccountProfile account, int minimumEpisodeCount = 1) =>
+        CreateAccountStore([account], account.Id, minimumEpisodeCount);
 
     private static AccountStore CreateAccountStore(
         IEnumerable<TikTokAccountProfile> profiles,
-        string activeAccountId)
+        string activeAccountId,
+        int minimumEpisodeCount = 1)
     {
         var store = new AccountStore();
         var accountsField = typeof(AccountStore).GetField("_accounts", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -1995,7 +2028,11 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         var activeField = typeof(AccountStore).GetField("_activeAccountId", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("AccountStore active account field not found.");
         var accounts = (List<TikTokAccountProfile>)accountsField.GetValue(store)!;
-        accounts.AddRange(profiles);
+        foreach (var profile in profiles)
+        {
+            profile.TiktokMinimumEpisodeCount = minimumEpisodeCount;
+            accounts.Add(profile);
+        }
         activeField.SetValue(store, activeAccountId);
         return store;
     }

@@ -345,8 +345,6 @@ public sealed class AccountStore
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "manual",
             TiktokExpectedFullPriceValue = TikTokAccountProfile.DefaultExpectedPriceUsd,
-            TiktokDeleteVideosOnArchive = true,
-            TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokArchiveRootConfigMigrated = true,
             TiktokProofAccountConfigMigrated = true,
             TiktokCopyrightMaterialTypes =
@@ -386,8 +384,8 @@ public sealed class AccountStore
             account.TiktokDramaMarket);
         account.TiktokRewriteFollowsSourceLanguage =
             TikTokAccountProfile.RewriteFollowsImportedLanguage(account.TiktokDramaMarket);
-        if (!account.TiktokDeleteVideosOnArchiveConfigured)
-            account.TiktokDeleteVideosOnArchive = true;
+        (account.TiktokMinimumEpisodeCount, account.TiktokMaximumEpisodeCount) =
+            OverLimitEpisodePolicy.ResolveEpisodeBounds(account);
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;

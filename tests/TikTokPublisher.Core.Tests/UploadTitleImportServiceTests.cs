@@ -132,17 +132,16 @@ public sealed class UploadTitleImportServiceTests
         var item = new DramaSearchItem
         {
             Title = "超长短剧",
-            EpisodeTotal = 150,
+            EpisodeTotal = 350,
         };
         var settings = new ClientSettings
         {
             TiktokAllowOverLimitUploadImport = false,
-            TiktokOverLimitDownloadEpisodeCount = 120,
         };
 
         var error = UploadTitleImportService.ResolveEpisodeLimitError(item, settings);
 
-        error.Should().Contain("大于最大限制 120");
+        error.Should().Contain("大于最大限制 300");
     }
 
     [Fact]
@@ -151,12 +150,11 @@ public sealed class UploadTitleImportServiceTests
         var item = new DramaSearchItem
         {
             Title = "超长短剧",
-            EpisodeTotal = 150,
+            EpisodeTotal = 350,
         };
         var settings = new ClientSettings
         {
             TiktokAllowOverLimitUploadImport = true,
-            TiktokOverLimitDownloadEpisodeCount = 120,
         };
 
         var error = UploadTitleImportService.ResolveEpisodeLimitError(item, settings);
@@ -164,8 +162,8 @@ public sealed class UploadTitleImportServiceTests
 
         error.Should().BeEmpty();
         plan.Truncated.Should().BeTrue();
-        plan.Episodes.Should().Be("1-120");
-        plan.EffectiveEpisodeCount.Should().Be(120);
+        plan.Episodes.Should().Be("1-300");
+        plan.EffectiveEpisodeCount.Should().Be(300);
     }
 
     [Fact]

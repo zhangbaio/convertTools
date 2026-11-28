@@ -1054,7 +1054,7 @@ public partial class TikTokQueueView : UserControl
             dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", mode));
         }, primary: true);
         var settings = target.Settings;
-        var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
+        var episodeBounds = target.EpisodeBounds;
         var episodeLimitText = settings.TiktokAllowOverLimitUploadImport
             ? $"当前导入集数限制：最小 {episodeBounds.Minimum} 集。超过设定的 {episodeBounds.Maximum} 集仍会加入队列，下载和本地导入都只使用前 {episodeBounds.Maximum} 集。"
             : $"当前导入集数限制：最小 {episodeBounds.Minimum} 集，最大 {episodeBounds.Maximum} 集。超出范围的短剧会自动过滤，不加入队列。";
@@ -1470,7 +1470,7 @@ public partial class TikTokQueueView : UserControl
         if (!await ConfirmAsync(
                 owner,
                 "归档勾选项目",
-                $"将归档勾选的 {rows.Count} 个项目，是否继续？"))
+                $"将归档勾选的 {rows.Count} 个项目并删除视频文件，是否继续？"))
             return;
 
         await vm.ArchiveSelectedQueueProjectsAsync(rows);

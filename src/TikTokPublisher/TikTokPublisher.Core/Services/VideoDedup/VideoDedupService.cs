@@ -68,7 +68,7 @@ public static class VideoDedupService
             item,
             account,
             VideoDedupTemplateCatalog.OpenDefault().CaptureRunPreset(VideoDedupTemplateAccount.ForTikTok(account), log),
-            OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum,
+            OverLimitEpisodePolicy.ResolveEpisodeBounds(account).Minimum,
             force,
             log,
             ct);
@@ -600,7 +600,7 @@ public static class VideoDedupService
     {
         if (count < minimum)
             throw new InvalidOperationException(
-                $"预计去重后 {count} 集，低于系统设置的最小集数 {minimum}，未开始编码。");
+                $"预计去重后 {count} 集，低于账号配置的最小集数 {minimum}，未开始编码。");
     }
 
     private sealed record DedupInput(string ArchivePath, string ReadPath);

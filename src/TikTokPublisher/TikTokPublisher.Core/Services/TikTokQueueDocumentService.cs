@@ -512,7 +512,6 @@ internal static class TikTokQueueDocumentWriter
         var renderer = new TikTokProofMaterialPdfRenderService();
         await renderer.RenderAsync(docx, pdf, new TikTokProofMaterialPdfRenderOptions
         {
-            PreferredRenderer = TikTokProofMaterialPdfRendererPreferenceExtensions.Parse(settings.TiktokProofPdfRenderer),
             WpsExecutablePath = settings.TiktokProofWpsPath,
         }, cancellationToken: ct).ConfigureAwait(false);
     }

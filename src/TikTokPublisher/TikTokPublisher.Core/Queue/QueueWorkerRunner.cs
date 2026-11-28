@@ -1260,15 +1260,11 @@ public sealed class QueueWorkerRunner
                         {
                             try
                             {
-                                var deleteVideosOnArchive = uploadCtx.Account?.TiktokDeleteVideosOnArchive ?? true;
                                 await TikTokArchivedProjectService
                                     .ArchiveQueueProjectAsync(
                                         workspace,
                                         uploadCtx.Item.ProjectDir,
                                         archiveRootDir: uploadCtx.Account?.ResolveArchiveRootPath(workspace),
-                                        deleteSourceVideos: deleteVideosOnArchive,
-                                        deleteWorkflowVideos: deleteVideosOnArchive,
-                                        deleteMaterialVideos: deleteVideosOnArchive,
                                         account: uploadCtx.Account,
                                         queuedAt: uploadCtx.Item.QueuedAt,
                                         ct: ct)
@@ -1379,6 +1375,7 @@ public sealed class QueueWorkerRunner
         var parallelSteps = parallelDependencies.Keys.ToHashSet(StringComparer.Ordinal);
         var parallelGroupStarted = false;
         var generationSettings = ClientSettingsStore.Load();
+        var projectAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
         var perProjectGenerationConcurrency = Math.Clamp(
             generationSettings.TiktokGenerationPerProjectConcurrency,
             1,
@@ -1397,7 +1394,7 @@ public sealed class QueueWorkerRunner
                 checkExistingDedup = false;
                 if (item.StepStates.GetValueOrDefault(QueueStepRegistry.VideoDedup) == QueueStepStatus.Completed)
                 {
-                    var minimum = OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum;
+                    var minimum = OverLimitEpisodePolicy.ResolveEpisodeBounds(projectAccount).Minimum;
                     var count = TikTokMaterialValidationService.CountActualUploadVideos(item.ProjectDir);
                     if (count > 0 && count < minimum)
                     {
@@ -1589,11 +1586,12 @@ public sealed class QueueWorkerRunner
         {
             try
             {
-                var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load());
+                var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(account);
                 TikTokMaterialValidationService.EnsureEpisodeCountBounds(
                     item.ProjectDir,
                     episodeBounds.Minimum,
-                    episodeBounds.Maximum);
+                    episodeBounds.Maximum,
+                    OverLimitEpisodePolicy.WithAccountBounds(ClientSettingsStore.Load(), account));
             }
             catch (InvalidOperationException ex)
             {
@@ -2355,11 +2353,10 @@ public sealed class QueueWorkerRunner
                 validationSettings,
                 options,
                 allowMissingUploadVideos: item.IsUploadCompleted);
-            var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(validationSettings);
             if (!TikTokMaterialValidationService.HasCurrentValidationState(
                     item.ProjectDir,
-                    episodeBounds.Minimum,
-                    episodeBounds.Maximum) ||
+                    validationOptions.MinimumEpisodeCount,
+                    validationOptions.MaximumEpisodeCount) ||
                 !TikTokMaterialValidationService.HasCurrentGeneratedUploadMaterials(
                     item.ProjectDir,
                     account,

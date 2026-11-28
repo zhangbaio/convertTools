@@ -242,7 +242,9 @@ public partial class AccountProfileEditor : UserControl
         ArchiveRootBox.Text = profile.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = profile.LastDownloadWorkspace;
         ExcelReportBox.Text = profile.TiktokExcelReportPath;
-        DeleteVideosOnArchiveBox.IsChecked = profile.TiktokDeleteVideosOnArchive;
+        var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(profile);
+        MinimumEpisodeCountBox.Value = episodeBounds.Minimum;
+        MaximumEpisodeCountBox.Value = episodeBounds.Maximum;
 
         LegacyCdpSettings.IsVisible = string.Equals(profile.TiktokLoginBrowserMode, "cdp", StringComparison.OrdinalIgnoreCase);
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
@@ -386,6 +388,14 @@ public partial class AccountProfileEditor : UserControl
             return false;
         }
 
+        var minimum = (int)(MinimumEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultMinimumEpisodeCount);
+        var maximum = (int)(MaximumEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultMaximumEpisodeCount);
+        if (minimum > maximum)
+        {
+            _vm.StatusMessage = "剧集最小集数不能大于最大集数";
+            return false;
+        }
+
         try
         {
             profile.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
@@ -405,8 +415,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokArchiveRootConfigMigrated = true;
             profile.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
             profile.TiktokExcelReportPath = ExcelReportBox.Text?.Trim() ?? "";
-            profile.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
-            profile.TiktokDeleteVideosOnArchiveConfigured = true;
+            profile.TiktokMinimumEpisodeCount = minimum;
+            profile.TiktokMaximumEpisodeCount = maximum;
 
             if (LegacyCdpSettings.IsVisible)
                 profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
@@ -1067,7 +1077,8 @@ public partial class AccountProfileEditor : UserControl
         ArchiveRootBox.Text = "";
         DownloadWorkspaceBox.Text = "";
         ExcelReportBox.Text = "";
-        DeleteVideosOnArchiveBox.IsChecked = true;
+        MinimumEpisodeCountBox.Value = TikTokAccountProfile.DefaultMinimumEpisodeCount;
+        MaximumEpisodeCountBox.Value = TikTokAccountProfile.DefaultMaximumEpisodeCount;
         LegacyCdpSettings.IsVisible = false;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
