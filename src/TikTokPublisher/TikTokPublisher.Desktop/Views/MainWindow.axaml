@@ -120,7 +120,7 @@
 
         <Grid x:Name="ModuleRail" Grid.Row="1" Classes="sidebarRail" Width="148" Background="#EEF4FC">
             <StackPanel x:Name="ModuleNav" Margin="7,5,7,8" Spacing="4" VerticalAlignment="Top">
-                <Button Tag="download" Classes="moduleNavItem" AutomationProperties.Name="短剧下载" ToolTip.Tip="短剧下载" Click="OnNavItemClick">
+                <Button Tag="download" Classes="moduleNavItem" AutomationProperties.Name="下载" ToolTip.Tip="下载" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M12,1.5 A1.5,1.5 0 0 1 13.5,3 V11.4 L16.1,8.8 A1.5,1.5 0 0 1 18.2,10.9
                                         L13.1,16 A1.55,1.55 0 0 1 10.9,16 L5.8,10.9 A1.5,1.5 0 0 1 7.9,8.8 L10.5,11.4 V3
@@ -128,19 +128,19 @@
                                         M2.5,14 A1.5,1.5 0 0 1 4,15.5 V18.5 Q4,19.5 5,19.5 H19 Q20,19.5 20,18.5 V15.5
                                         A1.5,1.5 0 0 1 23,15.5 V18.5 A4,4 0 0 1 19,22.5 H5 A4,4 0 0 1 1,18.5 V15.5
                                         A1.5,1.5 0 0 1 2.5,14 Z" />
-                        <TextBlock Text="短剧下载" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="下载" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Tag="material-clip" Classes="moduleNavItem" AutomationProperties.Name="素材剪辑" ToolTip.Tip="素材剪辑" Click="OnNavItemClick">
+                <Button Tag="material-clip" Classes="moduleNavItem" AutomationProperties.Name="剪辑" ToolTip.Tip="剪辑" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="F0 M2.4,5.5 L18.5,1.4 Q20.6,0.9 21.2,3 L21.7,5 L2,10 L1.5,8
                                         Q1,6.1 2.4,5.5 Z
                                         M2,11.8 H22 V18.7 A4,4 0 0 1 18,22.7 H6 A4,4 0 0 1 2,18.7 Z
                                         M10.3,14.2 Q9.5,13.7 9.5,14.7 V19.8 Q9.5,20.8 10.3,20.3 L15,17.8 Q16,17.25 15,16.7 Z" />
-                        <TextBlock Text="素材剪辑" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="剪辑" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Tag="queue" Classes="moduleNavItem" AutomationProperties.Name="TikTok 上传" ToolTip.Tip="TikTok 上传" Click="OnNavItemClick">
+                <Button Tag="queue" Classes="moduleNavItem" AutomationProperties.Name="TikTok" ToolTip.Tip="TikTok" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M17.8,4.81 C16.51,3.97 15.58,2.62 15.29,1.05 C15.22,0.71 15.19,0.36 15.19,0
                                         H11.06 V16.54 C10.99,18.39 9.46,19.87 7.59,19.87 C7.01,19.87 6.47,19.73 5.99,19.48
@@ -148,10 +148,10 @@
                                         V8.89 C8.28,8.84 7.94,8.81 7.59,8.81 C3.41,8.81 0,12.22 0,16.41 C0,18.97 1.28,21.25 3.24,22.62
                                         C4.48,23.49 5.98,24 7.59,24 C11.78,24 15.19,20.59 15.19,16.41 V8.02
                                         C16.81,9.18 18.79,9.87 20.93,9.87 V5.74 C19.78,5.74 18.7,5.4 17.8,4.81 Z" />
-                        <TextBlock Text="TikTok 上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="TikTok" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Tag="kuaishou" Classes="moduleNavItem" AutomationProperties.Name="快手上传" ToolTip.Tip="快手上传" Click="OnNavItemClick">
+                <Button Tag="kuaishou" Classes="moduleNavItem" AutomationProperties.Name="快手" ToolTip.Tip="快手" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="F0 M12.65,2.9 C11.61,1.15 9.74,0 7.6,0 C4.5,0 2,2.5 2,5.6
                                         C2,8.7 4.5,11.2 7.6,11.2 C9.39,11.2 11.03,10.35 12.07,9.28
@@ -165,27 +165,27 @@
                                         M2.6,15.7 L6.35,17.45 V18.8 L2.6,20.6 Q2.1,20.85 2.1,20.3 V16 Q2.1,15.45 2.6,15.7 Z
                                         M10.65,14.55 H16.7 A1.94,1.94 0 0 1 18.64,16.49 V19.85 A1.94,1.94 0 0 1 16.7,21.79
                                         H10.65 A1.94,1.94 0 0 1 8.71,19.85 V16.49 A1.94,1.94 0 0 1 10.65,14.55 Z" />
-                        <TextBlock Text="快手上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="快手" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Tag="weixin" Classes="moduleNavItem" AutomationProperties.Name="微信视频号上传"
-                        ToolTip.Tip="微信视频号上传" Click="OnNavItemClick">
+                <Button Tag="weixin" Classes="moduleNavItem" AutomationProperties.Name="微信视频号"
+                        ToolTip.Tip="微信视频号" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="F0 M5,2 H19 A4,4 0 0 1 23,6 V14 A4,4 0 0 1 19,18 H10.8 L6.2,21.6
                                         Q4.5,22.9 4.5,20.8 V18 A4,4 0 0 1 1,14 V6 A4,4 0 0 1 5,2 Z
                                         M9.6,6 Q8.6,5.4 8.6,6.6 V13.4 Q8.6,14.6 9.6,14 L15.6,10.7 Q16.8,10 15.6,9.3 Z" />
-                        <TextBlock Text="视频号上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="视频号" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Tag="analytics" Classes="moduleNavItem" AutomationProperties.Name="数据统计" ToolTip.Tip="数据统计" Click="OnNavItemClick">
+                <Button Tag="analytics" Classes="moduleNavItem" AutomationProperties.Name="统计" ToolTip.Tip="统计" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M3.5,13 H4.5 Q6.5,13 6.5,15 V20 Q6.5,22 4.5,22 H3.5 Q1.5,22 1.5,20 V15 Q1.5,13 3.5,13 Z
                                         M11.5,8 H12.5 Q14.5,8 14.5,10 V20 Q14.5,22 12.5,22 H11.5 Q9.5,22 9.5,20 V10 Q9.5,8 11.5,8 Z
                                         M19.5,2 H20.5 Q22.5,2 22.5,4 V20 Q22.5,22 20.5,22 H19.5 Q17.5,22 17.5,20 V4 Q17.5,2 19.5,2 Z" />
-                        <TextBlock Text="数据统计" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="统计" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <Button Tag="settings" Classes="moduleNavItem" AutomationProperties.Name="系统设置" ToolTip.Tip="系统设置" Click="OnNavItemClick">
+                <Button Tag="settings" Classes="moduleNavItem" AutomationProperties.Name="设置" ToolTip.Tip="设置" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M2.5,3.25 H5.2 A3,3 0 0 1 10.8,3.25 H21.5 A1.25,1.25 0 0 1 21.5,5.75
                                         H10.8 A3,3 0 0 1 5.2,5.75 H2.5 A1.25,1.25 0 0 1 2.5,3.25 Z
@@ -193,7 +193,7 @@
                                         H18.8 A3,3 0 0 1 13.2,13.25 H2.5 A1.25,1.25 0 0 1 2.5,10.75 Z
                                         M2.5,18.25 H5.2 A3,3 0 0 1 10.8,18.25 H21.5 A1.25,1.25 0 0 1 21.5,20.75
                                         H10.8 A3,3 0 0 1 5.2,20.75 H2.5 A1.25,1.25 0 0 1 2.5,18.25 Z" />
-                        <TextBlock Text="系统设置" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                        <TextBlock Text="设置" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
             </StackPanel>
