@@ -288,7 +288,6 @@ public partial class MainWindow : Window
 
         if (hasAccounts)
             AccountRail.Width = collapsed ? CollapsedRailWidth : ExpandedSidebarWidth;
-        AccountRail.Classes.Set("accountRailExpanded", showAccounts);
         AccountRail.Classes.Set("accountRailCollapsed", !showAccounts);
         var toggleLabel = collapsed ? "展开账号栏" : "收起账号栏";
         ToolTip.SetTip(SidebarToggleButton, toggleLabel);

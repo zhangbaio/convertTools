@@ -12,6 +12,15 @@
         ExtendClientAreaTitleBarHeightHint="36"
         Background="{StaticResource PythonPageBgBrush}">
 
+    <Window.Resources>
+        <StreamGeometry x:Key="SidebarToggleGeometry">
+            F0 M4,2 H16 A3,3 0 0 1 19,5 V15 A3,3 0 0 1 16,18 H4
+            A3,3 0 0 1 1,15 V5 A3,3 0 0 1 4,2 Z
+            M4,3.5 A1.5,1.5 0 0 0 2.5,5 V15 A1.5,1.5 0 0 0 4,16.5 H6.5 V3.5 Z
+            M8,3.5 V16.5 H16 A1.5,1.5 0 0 0 17.5,15 V5 A1.5,1.5 0 0 0 16,3.5 Z
+        </StreamGeometry>
+    </Window.Resources>
+
     <Window.Styles>
         <Style Selector="Button.moduleNavItem">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -91,9 +100,6 @@
             <Setter Property="Opacity" Value="0" />
             <Setter Property="RenderTransform" Value="translateX(-20px)" />
         </Style>
-        <Style Selector="Grid.accountRailExpanded PathIcon#AccountRailToggleArrow">
-            <Setter Property="RenderTransform" Value="scaleX(-1)" />
-        </Style>
         <Style Selector="Grid#AccountRail TextBlock.accountSidebarHeading">
             <Setter Property="Margin" Value="36,0,0,0" />
             <Setter Property="MinHeight" Value="22" />
@@ -110,11 +116,7 @@
                     Win32Properties.NonClientHitTestResult="Client"
                     ToolTip.Tip="收起左侧菜单" AutomationProperties.Name="收起左侧菜单"
                     Click="OnModuleRailToggleClick">
-                <PathIcon Width="16" Height="16" IsHitTestVisible="False"
-                          Data="F0 M4,2 H16 A3,3 0 0 1 19,5 V15 A3,3 0 0 1 16,18 H4
-                                A3,3 0 0 1 1,15 V5 A3,3 0 0 1 4,2 Z
-                                M4,3.5 A1.5,1.5 0 0 0 2.5,5 V15 A1.5,1.5 0 0 0 4,16.5 H6.5 V3.5 Z
-                                M8,3.5 V16.5 H16 A1.5,1.5 0 0 0 17.5,15 V5 A1.5,1.5 0 0 0 16,3.5 Z" />
+                <PathIcon Width="16" Height="16" IsHitTestVisible="False" Data="{StaticResource SidebarToggleGeometry}" />
             </Button>
         </Grid>
 
@@ -199,13 +201,12 @@
             </StackPanel>
         </Grid>
 
-        <Grid x:Name="AccountRail" Grid.Row="1" Grid.Column="1" Classes="sidebarRail accountRailExpanded"
+        <Grid x:Name="AccountRail" Grid.Row="1" Grid.Column="1" Classes="sidebarRail"
               Width="198" Background="{StaticResource PythonPanelBgBrush}" SizeChanged="OnAccountRailSizeChanged">
             <Button x:Name="SidebarToggleButton" Classes="sidebarToggle" ZIndex="1"
                     HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8,6,0,0"
                     ToolTip.Tip="收起账号栏" AutomationProperties.Name="收起账号栏" Click="OnSidebarToggleClick">
-                <PathIcon x:Name="AccountRailToggleArrow" Width="12" Height="12"
-                          Data="M5,2 L11,8 L5,14 L3.5,12.5 L8,8 L3.5,3.5 Z" />
+                <PathIcon Width="16" Height="16" IsHitTestVisible="False" Data="{StaticResource SidebarToggleGeometry}" />
             </Button>
             <Panel x:Name="AccountPanelHost" Width="198" HorizontalAlignment="Left" ClipToBounds="True">
                 <views:AccountSidebarView x:Name="AccountSidebar" />
