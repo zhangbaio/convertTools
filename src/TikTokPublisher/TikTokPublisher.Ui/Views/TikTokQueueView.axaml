@@ -178,48 +178,42 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
+        <!-- 顶部操作区：剧集和材料、队列操作分两组，窄窗口按组换行 -->
         <Border x:Name="QueueToolbar" Classes="controlsFrame uploadQueueToolbar" Margin="0,0,0,8">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
               <Grid x:Name="QueueToolbarRows" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
-                <StackPanel Spacing="8" Margin="0,0,0,8">
-                    <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-                        <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" />
-                        <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" />
-                        <Button Content="批量创建发布账号" Click="OnCreatePublishAccountsClick" Classes="contentAction compactAction" />
-                        <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" />
-                        <Button Content="补齐原简介" Click="OnBackfillOriginalSynopsisClick" Classes="contentAction compactAction" />
-                        <Button Content="新剧替换草稿" Click="OnReplaceDraftClick" Classes="contentAction compactAction" />
-                        <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" />
-                    </WrapPanel>
-                    <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-                        <Button Content="补全版权证明" Click="OnCompleteCopyrightProofClick" Classes="contentAction compactAction" />
-                        <Button Content="补全AI大纲（仅PDF）" Click="OnCompleteAiScriptOutlineClick" Classes="contentAction compactAction" />
-                        <Button Content="补全勾选证明材料" Click="OnResumeSelectedCopyrightProofClick" Classes="contentAction compactAction" />
-                        <Button Content="手动补已删除证明" Click="OnManualDeletedCopyrightProofClick" Classes="contentAction compactAction" />
-                        <Button Content="检查未补版权证明" Click="OnAuditPublishedCopyrightProofClick" Classes="contentAction compactAction" />
-                        <Button Content="删除版权辅助材料" Click="OnCleanupCopyrightProofMaterialsClick" Classes="dangerSoftAction compactAction" IsVisible="False" />
-                    </WrapPanel>
-                    <WrapPanel Orientation="Horizontal">
-                        <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
-                        <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
-                        <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
-                        <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
-                        <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
-                    </WrapPanel>
-                </StackPanel>
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" Margin="0,0,0,8">
+                    <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" />
+                    <Button Content="导入本地" AutomationProperties.Name="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" />
+                    <Button Content="批量建发布号" AutomationProperties.Name="批量创建发布账号" Click="OnCreatePublishAccountsClick" Classes="contentAction compactAction" />
+                    <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" />
+                    <Button Content="补齐原简介" Click="OnBackfillOriginalSynopsisClick" Classes="contentAction compactAction" />
+                    <Button Content="替换草稿" AutomationProperties.Name="新剧替换草稿" Click="OnReplaceDraftClick" Classes="contentAction compactAction" />
+                    <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" />
+                    <Button Content="补版权证明" AutomationProperties.Name="补全版权证明" Click="OnCompleteCopyrightProofClick" Classes="contentAction compactAction" />
+                    <Button Content="补全AI大纲（仅PDF）" Click="OnCompleteAiScriptOutlineClick" Classes="contentAction compactAction" />
+                    <Button Content="补勾选材料" AutomationProperties.Name="补全勾选证明材料" Click="OnResumeSelectedCopyrightProofClick" Classes="contentAction compactAction" />
+                    <Button Content="补已删证明" AutomationProperties.Name="手动补已删除证明" Click="OnManualDeletedCopyrightProofClick" Classes="contentAction compactAction" />
+                    <Button Content="检查缺证" AutomationProperties.Name="检查未补版权证明" Click="OnAuditPublishedCopyrightProofClick" Classes="contentAction compactAction" />
+                    <Button Content="删除版权辅助材料" Click="OnCleanupCopyrightProofMaterialsClick" Classes="dangerSoftAction compactAction" IsVisible="False" />
+                </WrapPanel>
 
-                <WrapPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
-                    <Button Content="生成注册PDF" Click="OnGenerateArticlesPdfClick" Classes="fileAction compactAction" Margin="0,0,8,0" IsVisible="False" />
-                    <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="角色素材" Click="OnConfigureRoleMaterialClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="标记上传失败" Click="OnMarkSelectedUploadFailedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="运行日志" Click="OnOpenLogsClick" Classes="logAction compactAction" Margin="0,0,8,0" />
-                    <Button x:Name="StartQueueButton" Content="执行勾选队列" Click="OnStartQueueClick" Classes="primaryAction compactAction" Margin="0,0,8,0" />
-                    <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="stopAction compactAction" IsEnabled="False" Margin="0,0,8,0" />
+                <WrapPanel Grid.Row="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" Margin="0,0,0,8">
+                    <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" />
+                    <Button Content="勾到当前项" AutomationProperties.Name="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" />
+                    <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" />
+                    <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="dangerSoftAction compactAction" />
+                    <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" />
+                    <Button Content="生成注册PDF" Click="OnGenerateArticlesPdfClick" Classes="fileAction compactAction" IsVisible="False" />
+                    <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" />
+                    <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" />
+                    <Button Content="角色素材" Click="OnConfigureRoleMaterialClick" Classes="contentAction compactAction" />
+                    <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" />
+                    <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" />
+                    <Button Content="标记上传失败" Click="OnMarkSelectedUploadFailedClick" Classes="dangerSoftAction compactAction" />
+                    <Button Content="运行日志" Click="OnOpenLogsClick" Classes="logAction compactAction" />
+                    <Button x:Name="StartQueueButton" Content="执行勾选队列" Click="OnStartQueueClick" Classes="primaryAction compactAction" />
+                    <Button x:Name="StopQueueButton" Content="停止" Click="OnStopQueueClick" Classes="stopAction compactAction" IsEnabled="False" />
                     <Button x:Name="StartAllQueuesButton" Content="执行全部账号工作目录" Click="OnStartAllQueuesClick" Classes="primaryAction compactAction" IsVisible="False" />
                 </WrapPanel>
 
