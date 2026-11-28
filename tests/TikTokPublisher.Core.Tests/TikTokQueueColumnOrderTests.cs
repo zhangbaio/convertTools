@@ -17,9 +17,8 @@ public sealed class TikTokQueueColumnOrderTests
         var headers = new[]
         {
             (0, "序号"), (1, "启用"), (2, "原剧名"), (3, "新剧名"), (4, "集数"), (5, "加入时间"),
-            (6, "下载"), (7, "视频去重"), (8, "改写"), (9, "海报"), (10, "剧本"),
-            (11, "AI素材"), (12, "AI大纲"), (13, "角色图"), (14, "证明材料"),
-            (15, "时间戳"), (16, "修复"), (17, "翻译"), (18, "校验"), (19, "上传"),
+            (6, "下载"), (7, "视频去重"), (8, "改写"), (9, "海报"), (10, "AI 制作"),
+            (11, "证明材料"), (12, "时间戳"), (13, "修复"), (14, "翻译"), (15, "校验"), (16, "上传"),
         };
         foreach (var (column, title) in headers)
         {
@@ -29,10 +28,9 @@ public sealed class TikTokQueueColumnOrderTests
         var bindings = new[]
         {
             (6, "DownloadStatus"), (7, "DedupStatus"), (8, "RewriteStatus"),
-            (9, "PosterStatus"), (10, "EpisodeScriptStatus"), (11, "AiDramaMaterialsStatus"),
-            (12, "AiScriptOutlineStatus"), (13, "RoleVectorStatus"), (14, "ProofMaterialStatus"),
-            (15, "TimestampCertificateStatus"), (16, "RepairStatus"), (17, "VideoTranslateStatus"),
-            (18, "ValidateStatus"), (19, "UploadStatus"),
+            (9, "PosterStatus"), (10, "AiProductionStatus"), (11, "ProofMaterialStatus"),
+            (12, "TimestampCertificateStatus"), (13, "RepairStatus"), (14, "VideoTranslateStatus"),
+            (15, "ValidateStatus"), (16, "UploadStatus"),
         };
         foreach (var (column, binding) in bindings)
         {
@@ -40,7 +38,7 @@ public sealed class TikTokQueueColumnOrderTests
         }
 
         xaml.Should().NotContain("Text=\"账号槽\"");
-        xaml.Should().MatchRegex("Grid\\.Column=\"20\"\\s+Classes=\"queueRemarkBox\"");
+        xaml.Should().MatchRegex("Grid\\.Column=\"17\"\\s+Classes=\"queueRemarkBox\"");
     }
 
     [Fact]

@@ -196,10 +196,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueVideoDedupEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
-    [ObservableProperty] private bool _queueGenerateEpisodeScriptEnabled;
-    [ObservableProperty] private bool _queueGenerateAiScriptOutlineEnabled;
-    [ObservableProperty] private bool _queueGenerateAiDramaMaterialsEnabled;
-    [ObservableProperty] private bool _queueGenerateRoleVectorEnabled;
+    [ObservableProperty] private bool? _queueAiProductionEnabled = false;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
@@ -1282,10 +1279,7 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueVideoDedupEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueGenerateEpisodeScriptEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueGenerateAiDramaMaterialsEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueGenerateAiScriptOutlineEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueGenerateRoleVectorEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueAiProductionEnabledChanged(bool? value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -1505,6 +1499,9 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ToggleAiProduction() => QueueAiProductionEnabled = QueueAiProductionEnabled != true;
+
+    [RelayCommand]
     private void SelectAllQueueSteps()
     {
         _applyingQueueStepToggles = true;
@@ -1514,10 +1511,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueVideoDedupEnabled = true;
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
-            QueueGenerateEpisodeScriptEnabled = true;
-            QueueGenerateAiScriptOutlineEnabled = true;
-            QueueGenerateAiDramaMaterialsEnabled = true;
-            QueueGenerateRoleVectorEnabled = true;
+            QueueAiProductionEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
             QueueGenerateTimestampCertificateEnabled = true;
             QueueSmallVideoRepairEnabled = true;
@@ -1547,10 +1541,7 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueVideoDedupEnabled = false;
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
-            QueueGenerateEpisodeScriptEnabled = false;
-            QueueGenerateAiScriptOutlineEnabled = false;
-            QueueGenerateAiDramaMaterialsEnabled = false;
-            QueueGenerateRoleVectorEnabled = false;
+            QueueAiProductionEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
             QueueGenerateTimestampCertificateEnabled = false;
             QueueSmallVideoRepairEnabled = false;
@@ -2241,6 +2232,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var nextRows = new List<QueueProjectRowViewModel>(items.Count);
         var nextByDir = new Dictionary<string, QueueProjectRowViewModel>(StringComparer.OrdinalIgnoreCase);
         var rowIndex = 1;
+        var aiProductionSteps = QueueAiProductionGroup.SelectedSteps(_queueRunOptions);
 
         foreach (var project in items)
         {
@@ -2258,6 +2250,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 row.RefreshFrom(project);
             }
 
+            row.SetAiProductionSteps(aiProductionSteps);
             row.RowIndex = rowIndex++;
             nextRows.Add(row);
             nextByDir[key] = row;
@@ -5152,10 +5145,9 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueVideoDedupEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoDedup);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
-            QueueGenerateEpisodeScriptEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateEpisodeScript);
-            QueueGenerateAiScriptOutlineEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiScriptOutline);
-            QueueGenerateAiDramaMaterialsEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateAiDramaMaterials);
-            QueueGenerateRoleVectorEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateRoleVector);
+            var aiProductionSteps = QueueAiProductionGroup.SelectedSteps(_queueRunOptions);
+            QueueAiProductionEnabled = QueueAiProductionGroup.CheckState(aiProductionSteps.Count);
+            UpdateAiProductionRowSteps(aiProductionSteps);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
@@ -5169,6 +5161,12 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
+    private void UpdateAiProductionRowSteps(IReadOnlyList<string> steps)
+    {
+        foreach (var row in QueueProjectRows)
+            row.SetAiProductionSteps(steps);
+    }
+
     private void SyncEnabledStepsFromUi()
     {
         var steps = new List<string>();
@@ -5176,10 +5174,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueVideoDedupEnabled) steps.Add(QueueStepRegistry.VideoDedup);
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
-        if (QueueGenerateEpisodeScriptEnabled) steps.Add(QueueStepRegistry.GenerateEpisodeScript);
-        if (QueueGenerateAiScriptOutlineEnabled) steps.Add(QueueStepRegistry.GenerateAiScriptOutline);
-        if (QueueGenerateAiDramaMaterialsEnabled) steps.Add(QueueStepRegistry.GenerateAiDramaMaterials);
-        if (QueueGenerateRoleVectorEnabled) steps.Add(QueueStepRegistry.GenerateRoleVector);
+        var aiProductionSteps = QueueAiProductionGroup.ResolveSelection(QueueAiProductionEnabled, _queueRunOptions);
+        steps.AddRange(aiProductionSteps);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
@@ -5187,6 +5183,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
         if (QueueUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
         _queueRunOptions.EnabledSteps = QueueStepRegistry.OrderEnabledSteps(steps).ToList();
+        UpdateAiProductionRowSteps(aiProductionSteps);
         _queueRunOptions.ForceRerunCompletedSteps = ForceRerunCompletedSteps;
         _queueRunOptions.AutoArchiveAfterUpload = AutoArchiveAfterUpload;
         _queueRunOptions.PreferUploadWhenReady = PreferUploadWhenReady;

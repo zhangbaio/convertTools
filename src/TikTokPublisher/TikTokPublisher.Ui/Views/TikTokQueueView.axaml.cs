@@ -52,11 +52,11 @@ public partial class TikTokQueueView : UserControl
     private static readonly TimeSpan QueueAutoLoginTimeout = TimeSpan.FromMinutes(10);
     private static readonly double[] QueueTableDefaultColumnWidths =
     {
-        48, 56, 210, 210, 60, 128, 68, 68, 68, 68, 68, 68, 68, 68, 76, 68, 68, 0, 68, 68, 180,
+        48, 56, 210, 210, 60, 128, 68, 68, 68, 68, 84, 76, 68, 68, 0, 68, 68, 180,
     };
     private static readonly double[] QueueTableMinColumnWidths =
     {
-        42, 48, 120, 120, 48, 92, 56, 56, 56, 56, 56, 56, 56, 56, 62, 56, 62, 0, 62, 56, 120,
+        42, 48, 120, 120, 48, 92, 56, 56, 56, 56, 72, 62, 56, 62, 0, 62, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
     private bool _queueColumnsUserAdjusted;

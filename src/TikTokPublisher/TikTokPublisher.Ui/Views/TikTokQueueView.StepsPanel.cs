@@ -73,7 +73,8 @@ public partial class TikTokQueueView
     private void UpdateQueueStepsSummary()
     {
         var selected = QueueExecutionStepOptions.Children.OfType<CheckBox>()
-            .Count(step => step.IsVisible && step.IsChecked == true);
+            .Count(step => step.IsVisible &&
+                (step.IsChecked == true || (step == AiProductionStep && step.IsChecked is null)));
         QueueStepsSummary.Text = $"执行步骤 · 已选 {selected} 项";
         var action = _queueStepsPreferences.Expanded ? "收起" : "展开";
         AutomationProperties.SetName(QueueStepsToggle, $"{action}执行步骤，已选 {selected} 项");

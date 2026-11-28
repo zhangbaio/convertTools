@@ -9,6 +9,7 @@ namespace TikTokPublisher.Ui.ViewModels;
 public sealed partial class QueueProjectRowViewModel : ViewModelBase
 {
     private int _rowIndex;
+    private IReadOnlyList<string> _aiProductionSteps = QueueAiProductionGroup.Steps;
 
     public QueueProjectItem Item { get; private set; }
 
@@ -43,6 +44,20 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         _newProjectDir = ResolveWorkflowProjectDir(item.ProjectDir);
         _newTitle = ResolveNewTitle(item, _newProjectDir);
         OnPropertyChanged(string.Empty);
+    }
+
+    internal void SetAiProductionSteps(IReadOnlyList<string> enabledSteps)
+    {
+        // 未勾选时仍显示项目已有的执行记录。
+        var steps = enabledSteps.Count == 0 ? QueueAiProductionGroup.Steps : enabledSteps;
+        if (_aiProductionSteps.SequenceEqual(steps))
+            return;
+
+        _aiProductionSteps = steps;
+        OnPropertyChanged(nameof(AiProductionStatus));
+        OnPropertyChanged(nameof(AiProductionStatusBrush));
+        OnPropertyChanged(nameof(AiProductionStatusBackgroundBrush));
+        OnPropertyChanged(nameof(AiProductionStatusBorderBrush));
     }
 
     private static string BuildRefreshFingerprint(QueueProjectItem item)
@@ -117,10 +132,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string DedupStatus => StepOf(QueueStepKeys.VideoDedup);
     public string RewriteStatus => StepOf(QueueStepKeys.RewriteInfo);
     public string PosterStatus => StepOf(QueueStepKeys.GeneratePoster);
-    public string EpisodeScriptStatus => StepOf(QueueStepKeys.GenerateEpisodeScript);
-    public string AiDramaMaterialsStatus => StepOf(QueueStepKeys.GenerateAiDramaMaterials);
-    public string AiScriptOutlineStatus => StepOf(QueueStepKeys.GenerateAiScriptOutline);
-    public string RoleVectorStatus => StepOf(QueueStepKeys.GenerateRoleVector);
+    public string AiProductionStatus => GetAiProductionStatus();
     public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
     public string ProofMaterialStatus => StepOf(QueueStepKeys.GenerateProofMaterial);
     public string TimestampCertificateStatus => StepOf(QueueStepKeys.GenerateTimestampCertificate);
@@ -134,10 +146,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DedupStatusBrush => BrushOf(DedupStatus);
     public IBrush RewriteStatusBrush => BrushOf(RewriteStatus);
     public IBrush PosterStatusBrush => BrushOf(PosterStatus);
-    public IBrush EpisodeScriptStatusBrush => BrushOf(EpisodeScriptStatus);
-    public IBrush AiDramaMaterialsStatusBrush => BrushOf(AiDramaMaterialsStatus);
-    public IBrush AiScriptOutlineStatusBrush => BrushOf(AiScriptOutlineStatus);
-    public IBrush RoleVectorStatusBrush => BrushOf(RoleVectorStatus);
+    public IBrush AiProductionStatusBrush => BrushOf(AiProductionStatus);
     public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBrush => BrushOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBrush => BrushOf(TimestampCertificateStatus);
@@ -157,10 +166,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DedupStatusBackgroundBrush => BackgroundOf(DedupStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
-    public IBrush EpisodeScriptStatusBackgroundBrush => BackgroundOf(EpisodeScriptStatus);
-    public IBrush AiDramaMaterialsStatusBackgroundBrush => BackgroundOf(AiDramaMaterialsStatus);
-    public IBrush AiScriptOutlineStatusBackgroundBrush => BackgroundOf(AiScriptOutlineStatus);
-    public IBrush RoleVectorStatusBackgroundBrush => BackgroundOf(RoleVectorStatus);
+    public IBrush AiProductionStatusBackgroundBrush => BackgroundOf(AiProductionStatus);
     public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBackgroundBrush => BackgroundOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBackgroundBrush => BackgroundOf(TimestampCertificateStatus);
@@ -173,10 +179,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush DedupStatusBorderBrush => BorderOf(DedupStatus);
     public IBrush RewriteStatusBorderBrush => BorderOf(RewriteStatus);
     public IBrush PosterStatusBorderBrush => BorderOf(PosterStatus);
-    public IBrush EpisodeScriptStatusBorderBrush => BorderOf(EpisodeScriptStatus);
-    public IBrush AiDramaMaterialsStatusBorderBrush => BorderOf(AiDramaMaterialsStatus);
-    public IBrush AiScriptOutlineStatusBorderBrush => BorderOf(AiScriptOutlineStatus);
-    public IBrush RoleVectorStatusBorderBrush => BorderOf(RoleVectorStatus);
+    public IBrush AiProductionStatusBorderBrush => BorderOf(AiProductionStatus);
     public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBorderBrush => BorderOf(ProofMaterialStatus);
     public IBrush TimestampCertificateStatusBorderBrush => BorderOf(TimestampCertificateStatus);
@@ -208,6 +211,43 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         : string.IsNullOrWhiteSpace(LastError)
             ? CurrentStepLabel
             : $"{CurrentStepLabel} · {LastError}";
+
+    public string AiProductionTooltip
+    {
+        get
+        {
+            var lines = QueueAiProductionGroup.Steps
+                .Select(step => $"{QueueStepRegistry.LabelOf(step)} · {StepOf(step)}");
+            // 队列只保存最后一条错误。其他步骤也有失败时，无法可靠归属这条错误。
+            if (!string.IsNullOrWhiteSpace(LastError))
+            {
+                var failedSteps = Item.StepStates.Where(pair => pair.Value == QueueStepStatus.Failed)
+                    .Select(pair => pair.Key).Take(2).ToArray();
+                if (failedSteps.Length == 1 && QueueAiProductionGroup.Steps.Contains(failedSteps[0]))
+                    lines = lines.Append(LastError);
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
+    private string GetAiProductionStatus()
+    {
+        if (QueueAiProductionGroup.Steps.Any(step => StepOf(step) == QueueStepStatus.Running))
+            return QueueStepStatus.Running;
+
+        var statuses = _aiProductionSteps.Select(StepOf);
+        if (statuses.Contains(QueueStepStatus.Failed))
+            return QueueStepStatus.Failed;
+        if (statuses.Contains(QueueStepStatus.Stopped))
+            return QueueStepStatus.Stopped;
+        if (statuses.All(status => status == QueueStepStatus.Skipped))
+            return QueueStepStatus.Skipped;
+        if (statuses.All(status => status is QueueStepStatus.Completed or QueueStepStatus.Skipped))
+            return QueueStepStatus.Completed;
+
+        return QueueStepStatus.Pending;
+    }
 
     private string StepOf(string key) =>
         Item.StepStates.GetValueOrDefault(key, QueueStepStatus.Pending);

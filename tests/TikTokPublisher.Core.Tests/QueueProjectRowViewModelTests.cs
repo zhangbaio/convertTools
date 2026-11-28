@@ -49,6 +49,71 @@ public sealed class QueueProjectRowViewModelTests
         ColorOf(project.Foreground).Should().Be(Color.Parse("#B42318"));
     }
 
+    [Fact]
+    public void Ai_production_reports_running_without_progress_and_names_each_step()
+    {
+        var item = new QueueProjectItem
+        {
+            StepStates =
+            {
+                [QueueStepKeys.GenerateEpisodeScript] = QueueStepStatus.Completed,
+                [QueueStepKeys.GenerateAiDramaMaterials] = QueueStepStatus.Running,
+            },
+        };
+        var row = new QueueProjectRowViewModel(item);
+
+        row.AiProductionStatus.Should().Be("执行中");
+        row.AiProductionTooltip.Should().Contain("剧本 · 已完成")
+            .And.Contain("AI素材 · 执行中")
+            .And.Contain("AI大纲 · 待执行")
+            .And.Contain("角色图 · 待执行");
+    }
+
+    [Theory]
+    [InlineData(QueueStepStatus.Completed, QueueStepStatus.Completed)]
+    [InlineData(QueueStepStatus.Failed, QueueStepStatus.Failed)]
+    [InlineData(QueueStepStatus.Stopped, QueueStepStatus.Stopped)]
+    [InlineData(QueueStepStatus.Skipped, QueueStepStatus.Completed)]
+    [InlineData(QueueStepStatus.Pending, QueueStepStatus.Pending)]
+    public void Ai_production_rolls_up_enabled_steps(string materialsStatus, string expectedStatus)
+    {
+        var item = new QueueProjectItem
+        {
+            StepStates =
+            {
+                [QueueStepKeys.GenerateEpisodeScript] = QueueStepStatus.Completed,
+                [QueueStepKeys.GenerateAiDramaMaterials] = materialsStatus,
+            },
+            LastError = materialsStatus == QueueStepStatus.Failed ? "素材生成失败原因" : "",
+        };
+        var row = new QueueProjectRowViewModel(item);
+        row.SetAiProductionSteps([QueueStepKeys.GenerateEpisodeScript, QueueStepKeys.GenerateAiDramaMaterials]);
+
+        row.AiProductionStatus.Should().Be(expectedStatus);
+        if (materialsStatus == QueueStepStatus.Failed)
+            row.AiProductionTooltip.Should().Contain("AI素材 · 失败").And.Contain(item.LastError);
+    }
+
+    [Fact]
+    public void Mixed_ai_production_selection_preserves_legacy_enabled_steps_until_explicitly_changed()
+    {
+        var options = new QueueRunOptions
+        {
+            EnabledSteps = [QueueStepKeys.GenerateEpisodeScript, QueueStepKeys.GenerateProofMaterial],
+        };
+
+        var selected = QueueAiProductionGroup.SelectedSteps(options);
+        var checkState = QueueAiProductionGroup.CheckState(selected.Count);
+
+        checkState.Should().BeNull();
+        QueueAiProductionGroup.ResolveSelection(checkState, options).Should()
+            .Equal(QueueStepKeys.GenerateEpisodeScript);
+        QueueAiProductionGroup.ResolveSelection(true, options).Should().Equal(
+            QueueStepKeys.GenerateEpisodeScript, QueueStepKeys.GenerateAiDramaMaterials,
+            QueueStepKeys.GenerateAiScriptOutline, QueueStepKeys.GenerateRoleVector);
+        QueueAiProductionGroup.ResolveSelection(false, options).Should().BeEmpty();
+    }
+
     private static QueueProjectRowViewModel CreateRow(
         string uploadStatus,
         string proofStatus,
