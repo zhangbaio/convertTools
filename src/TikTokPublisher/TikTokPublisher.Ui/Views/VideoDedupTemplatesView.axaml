@@ -6,19 +6,20 @@
         <Border Classes="controlsFrame" Padding="10,8">
             <StackPanel Spacing="8">
                 <TextBlock x:Name="AccountSummary" TextWrapping="Wrap" Classes="pageSummary" />
-                <WrapPanel Orientation="Horizontal">
-                    <TextBlock Text="去重模板" VerticalAlignment="Center" Margin="0,0,8,4" FontWeight="SemiBold" />
-                    <ComboBox x:Name="TemplateSelector" Width="245" SelectionChanged="OnTemplateSelectionChanged"
-                              AutomationProperties.Name="去重模板" Margin="0,0,8,4" />
-                    <Button Content="新建" Click="OnNewClick" Classes="secondaryAction" Margin="0,0,6,4" />
-                    <Button Content="复制" Click="OnCopyClick" Classes="secondaryAction" Margin="0,0,6,4" />
-                    <Button x:Name="DeleteButton" Content="删除模板" Click="OnDeleteClick" Classes="dangerSoftAction" Margin="0,0,6,4" />
-                </WrapPanel>
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                    <TextBlock Text="模板名称" VerticalAlignment="Center" />
-                    <TextBox x:Name="TemplateName" Grid.Column="1" Watermark="例如 保留原分集" />
-                    <TextBlock x:Name="UsageSummary" Grid.Column="2" Classes="pageSummary" VerticalAlignment="Center" />
-                </Grid>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <Grid ColumnDefinitions="Auto,2*,Auto,3*,Auto,Auto,Auto,Auto" ColumnSpacing="8">
+                        <TextBlock Text="去重模板" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <ComboBox x:Name="TemplateSelector" Grid.Column="1" MinWidth="110" HorizontalAlignment="Stretch"
+                                  SelectionChanged="OnTemplateSelectionChanged" AutomationProperties.Name="去重模板" />
+                        <TextBlock Grid.Column="2" Text="模板名称" VerticalAlignment="Center" />
+                        <TextBox x:Name="TemplateName" Grid.Column="3" MinWidth="110" Watermark="例如 保留原分集"
+                                 AutomationProperties.Name="模板名称" />
+                        <Button Grid.Column="4" Content="新建" Click="OnNewClick" Classes="secondaryAction" />
+                        <Button Grid.Column="5" Content="复制" Click="OnCopyClick" Classes="secondaryAction" />
+                        <Button x:Name="DeleteButton" Grid.Column="6" Content="删除模板" Click="OnDeleteClick" Classes="dangerSoftAction" />
+                        <TextBlock x:Name="UsageSummary" Grid.Column="7" Classes="pageSummary" VerticalAlignment="Center" />
+                    </Grid>
+                </ScrollViewer>
             </StackPanel>
         </Border>
         <views:VideoDedupPresetEditor x:Name="PresetEditor" Grid.Row="1" />
