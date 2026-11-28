@@ -6884,123 +6884,68 @@ public sealed partial class MainViewModel : ViewModelBase
         item.NormalizeStepStates();
     }
 
-    public async Task DeleteSelectedQueueProjectsAsync(IEnumerable<QueueProjectRowViewModel> selectedRows)
+    public async Task DeleteSelectedQueueProjectsAsync(IEnumerable<QueueProjectRowViewModel> selectedRows,
+        string confirmedWorkspace, string? confirmedAccountId)
     {
-        var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root))
+        var account = SelectedAccount?.Model;
+        if (!IsActiveWorkspace(confirmedWorkspace) ||
+            !string.Equals(account?.Id, confirmedAccountId, StringComparison.Ordinal))
         {
-            StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
+            StatusMessage = "当前工作目录或账号已切换，请重新选择要删除的项目";
+            return;
+        }
+        if (IsWorkspaceQueueBusy(confirmedWorkspace))
+        {
+            StatusMessage = "该工作目录正在执行队列，请先停止后再删除项目";
             return;
         }
 
-        var rows = selectedRows.ToArray();
-        if (rows.Length == 0)
+        var request = new QueueProjectDeletionRequest(
+            confirmedWorkspace, account, selectedRows.Select(row => row.Item.ProjectDir).ToArray(), _queueItems.ToArray());
+        var useCase = new QueueProjectDeletionUseCase(_queueExecution.TryReserveWorkspaceForDeletion);
+        StatusMessage = "正在删除选中的项目…";
+        QueueProjectDeletionResult result;
+        try
         {
-            StatusMessage = "请先选中要删除的项目";
+            result = await useCase.ExecuteAsync(request);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"删除项目失败：{ex.Message}";
+            AppendLog(StatusMessage);
             return;
         }
-
-        var errors = new List<string>();
-        var deleted = 0;
-        var queuedDirs = rows.Select(row => row.Item.ProjectDir).Where(p => !string.IsNullOrWhiteSpace(p)).ToArray();
-        var deleteAccount = SelectedAccount?.Model;
-        foreach (var row in rows)
+        DropDeletedProjectsFromVisibleQueue(confirmedWorkspace, result.RemovedProjects);
+        if (result.Cancelled)
+            StatusMessage = $"已取消删除，已移出队列 {result.RemovedProjects.Count} 个项目";
+        else if (result.RemovedProjects.Count == 0 && result.Errors.Count == 1)
+            StatusMessage = result.Errors[0];
+        else
         {
-            // Persist a durable recovery snapshot before the source/workflow directories
-            // disappear. The snapshot is intentionally retained when normal history events
-            // are pruned, allowing copyright-proof completion after an unarchived deletion.
-            TikTokExecutionHistoryService.AppendEvent(
-                "project_deleted",
-                "deleted",
-                root,
-                row.Item,
-                message: "用户删除未归档项目，已保存版权恢复快照",
-                account: deleteAccount);
+            StatusMessage = $"已移出队列 {result.RemovedProjects.Count} 个项目，已清理 {result.DeletedDirectoryCount} 个目录";
+            if (result.Errors.Count > 0)
+                StatusMessage += $"，{result.Errors.Count} 项异常";
         }
-
-        if (queuedDirs.Length > 0)
-        {
-            WorkspaceQueueService.RememberDeletedProjects(root, queuedDirs);
-            DropDeletedProjectsFromVisibleQueue(root, queuedDirs);
-            _queueOrchestrator.RemoveRunningProjects(root, queuedDirs);
-        }
-
-        await Task.Run(() =>
-        {
-            var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var row in rows)
-            {
-                try
-                {
-                    var context = ProjectWorkspaceService.LoadContext(row.Item.ProjectDir);
-                    AddDeleteTarget(context.SourceProjectDir, root, targets, errors);
-                    AddDeleteTarget(context.WorkflowProjectDir, root, targets, errors);
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"{row.Item.DisplayName}: {ex.Message}");
-                }
-            }
-
-            foreach (var target in targets.OrderByDescending(path => path.Length))
-            {
-                try
-                {
-                    if (!Directory.Exists(target)) continue;
-                    Directory.Delete(target, recursive: true);
-                    deleted++;
-                }
-                catch (Exception ex)
-                {
-                    errors.Add($"{target}: {ex.Message}");
-                }
-            }
-
-            if (queuedDirs.Length > 0)
-                WorkspaceQueueService.RemoveProjectsFromQueue(root, queuedDirs);
-        });
-        StatusMessage = errors.Count == 0
-            ? $"已删除 {deleted} 个项目目录"
-            : $"已删除 {deleted} 个项目目录，{errors.Count} 个失败";
         AppendLog(StatusMessage);
-        foreach (var error in errors.Take(5))
-            AppendLog($"删除失败：{error}");
+        foreach (var error in result.Errors.Take(5))
+            AppendLog($"删除异常：{error}");
     }
 
     private void DropDeletedProjectsFromVisibleQueue(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
     {
-        var remove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var dir in projectDirs)
-        {
-            if (string.IsNullOrWhiteSpace(dir))
-                continue;
-            try
-            {
-                remove.Add(Path.GetFullPath(dir));
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                remove.Add(dir.Trim());
-            }
-        }
-
-        if (remove.Count == 0)
+        if (projectDirs.Count == 0)
             return;
 
+        var remove = projectDirs.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var active = IsActiveWorkspace(workspaceRoot);
-        var current = active
-            ? _queueItems
-            : TryGetWorkspaceQueueSnapshot(workspaceRoot, out var cached, out _)
-                ? cached
-                : _queueItems;
-        var kept = current
-            .Where(item => !remove.Contains(NormalizeProjectDir(item.ProjectDir)))
+        var current = _queueItems;
+        var options = _queueRunOptions;
+        if (!active && !TryGetWorkspaceQueueSnapshot(workspaceRoot, out current, out options))
+            return;
+
+        var kept = current.Where(item => !remove.Contains(Path.TrimEndingDirectorySeparator(NormalizeProjectDir(item.ProjectDir))))
             .ToList();
-        var options = active
-            ? _queueRunOptions
-            : ResolveQueueOptionsForPersistedWorkspace(workspaceRoot);
         CacheWorkspaceQueueSnapshot(workspaceRoot, kept, options);
-        _queueStatePersist.Enqueue(workspaceRoot, kept, options);
         if (!active)
             return;
 

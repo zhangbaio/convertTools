@@ -37,7 +37,13 @@ public static class WorkspaceQueueDatabase
         return new WorkspaceQueueState();
     }
 
-    public static HashSet<string> LoadDeletedProjectDirs(string workspaceRoot)
+    public static HashSet<string> LoadDeletedProjectDirs(string workspaceRoot) =>
+        LoadDeletionPaths(workspaceRoot, includeCompleted: true);
+
+    internal static HashSet<string> LoadLegacyDeletedProjectDirs(string workspaceRoot) =>
+        LoadDeletionPaths(workspaceRoot, includeCompleted: false);
+
+    private static HashSet<string> LoadDeletionPaths(string workspaceRoot, bool includeCompleted)
     {
         var deleted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(workspaceRoot))
@@ -53,7 +59,7 @@ public static class WorkspaceQueueDatabase
             EnsureDatabaseCore(dbPath);
             using var conn = Open(dbPath);
             deleted = ReadDeletionPaths(conn, location.SettingKey(DeletedProjectDirsKey));
-            if (location.IsInMainDatabase)
+            if (includeCompleted)
                 deleted.UnionWith(ReadDeletionPaths(conn, location.SettingKey(RemovedProjectDirsKey)));
         }
 
@@ -75,9 +81,7 @@ public static class WorkspaceQueueDatabase
             foreach (var path in JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [])
             {
                 if (TryNormalizePath(path, out var full))
-                    paths.Add(full);
-                else if (!string.IsNullOrWhiteSpace(path))
-                    paths.Add(path.Trim());
+                    paths.Add(Path.TrimEndingDirectorySeparator(full));
             }
         }
         catch (JsonException) { }
@@ -226,8 +230,7 @@ public static class WorkspaceQueueDatabase
         var now = DateTimeOffset.Now.ToString("o");
 
         var deleted = ReadDeletionPaths(conn, location.SettingKey(DeletedProjectDirsKey), tx);
-        if (location.IsInMainDatabase)
-            deleted.UnionWith(ReadDeletionPaths(conn, location.SettingKey(RemovedProjectDirsKey), tx));
+        deleted.UnionWith(ReadDeletionPaths(conn, location.SettingKey(RemovedProjectDirsKey), tx));
 
         UpsertAppSetting(conn, tx, location.SettingKey(QueueOptionsKey), options, now);
         UpsertAppSetting(conn, tx, location.SettingKey(QueueAccountOptionsKey), new Dictionary<string, object?>(), now);
@@ -237,7 +240,7 @@ public static class WorkspaceQueueDatabase
         {
             if (string.IsNullOrWhiteSpace(item.ProjectDir)) continue;
             var projectDir = Path.GetFullPath(item.ProjectDir);
-            if (deleted.Contains(projectDir)) continue;
+            if (deleted.Contains(Path.TrimEndingDirectorySeparator(projectDir))) continue;
             var projectId = StableProjectId(workspaceKey, projectDir);
             seenIds.Add(projectId);
             var payload = item.ToPayload();
@@ -305,6 +308,7 @@ public static class WorkspaceQueueDatabase
                 deleteCmd.Parameters.AddWithValue($"$workspace{i}", workspaceAliases[i]);
             deleteCmd.ExecuteNonQuery();
         }
+
     }
 
     private static WorkspaceQueueState LoadFromLegacyJson(string jsonPath)
@@ -322,28 +326,46 @@ public static class WorkspaceQueueDatabase
         return state;
     }
 
-    public static void DeleteProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    public static void DeleteProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs) =>
+        DeleteProjects(workspaceRoot, projectDirs, rememberRemoval: false);
+
+    internal static void CommitProjectDeletion(string workspaceRoot, string projectDir) =>
+        DeleteProjects(workspaceRoot, [projectDir], rememberRemoval: true);
+
+    private static void DeleteProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs, bool rememberRemoval)
     {
         var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var projectDir in projectDirs)
         {
             if (TryNormalizePath(projectDir, out var full))
-                targets.Add(full);
+                targets.Add(Path.TrimEndingDirectorySeparator(full));
         }
         if (targets.Count == 0)
             return;
 
         var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
         var dbPath = location.Path;
-        if (!File.Exists(dbPath))
-            return;
-
         lock (WriteSyncRoot)
         {
+            if (!File.Exists(dbPath))
+            {
+                if (!rememberRemoval)
+                    return;
+                var legacy = Load(workspaceRoot);
+                EnsureDatabaseCore(dbPath);
+                var owned = legacy.Items.Where(item => WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, item.ProjectDir)).ToArray();
+                SaveToDatabase(location, workspaceRoot, owned, legacy.Options);
+            }
             EnsureDatabaseCore(dbPath);
             var aliases = WorkspaceKeyAliases(location, workspaceRoot);
             using var conn = Open(dbPath);
             using var tx = conn.BeginTransaction();
+            if (rememberRemoval)
+            {
+                var removed = ReadDeletionPaths(conn, location.SettingKey(RemovedProjectDirsKey), tx);
+                removed.UnionWith(targets);
+                WriteDeletionPaths(conn, tx, location.SettingKey(RemovedProjectDirsKey), removed);
+            }
             var ids = new List<string>();
             using (var select = conn.CreateCommand())
             {
@@ -360,7 +382,7 @@ public static class WorkspaceQueueDatabase
                 while (reader.Read())
                 {
                     var projectDir = reader.IsDBNull(1) ? "" : reader.GetString(1);
-                    if (!TryNormalizePath(projectDir, out var full) || !targets.Contains(full))
+                    if (!TryNormalizePath(projectDir, out var full) || !targets.Contains(Path.TrimEndingDirectorySeparator(full)))
                         continue;
                     if (!reader.IsDBNull(0))
                         ids.Add(reader.GetString(0));
@@ -385,6 +407,47 @@ public static class WorkspaceQueueDatabase
 
             tx.Commit();
         }
+    }
+
+    internal static void ForgetDeletionPaths(string workspaceRoot, IReadOnlyCollection<string> targets, bool legacyOnly)
+    {
+        var location = WorkspaceDatabaseLocation.Resolve(workspaceRoot);
+        var dbPath = location.Path;
+        lock (WriteSyncRoot)
+        {
+            if (!File.Exists(dbPath))
+                return;
+
+            EnsureDatabaseCore(dbPath);
+            using var connection = Open(dbPath);
+            using var transaction = connection.BeginTransaction();
+            var keys = legacyOnly ? new[] { DeletedProjectDirsKey } : new[] { DeletedProjectDirsKey, RemovedProjectDirsKey };
+            foreach (var key in keys)
+            {
+                var paths = ReadDeletionPaths(connection, location.SettingKey(key), transaction);
+                if (targets.Any(paths.Contains))
+                {
+                    paths.ExceptWith(targets);
+                    WriteDeletionPaths(connection, transaction, location.SettingKey(key), paths);
+                }
+            }
+            transaction.Commit();
+        }
+    }
+
+    private static void WriteDeletionPaths(SqliteConnection connection, SqliteTransaction transaction,
+        string key, IReadOnlyCollection<string> paths)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO app_settings(key,value_json,updated_at) VALUES($key,$json,$at)
+            ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at
+            """;
+        command.Parameters.AddWithValue("$key", key);
+        command.Parameters.AddWithValue("$json", JsonSerializer.Serialize(paths, JsonOptions));
+        command.Parameters.AddWithValue("$at", DateTimeOffset.Now.ToString("o"));
+        command.ExecuteNonQuery();
     }
 
     public static void EnsureDatabase(string dbPath)

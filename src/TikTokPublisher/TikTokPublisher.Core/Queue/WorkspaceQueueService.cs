@@ -34,7 +34,7 @@ public static class WorkspaceQueueService
         if (!Directory.Exists(root)) return Array.Empty<QueueProjectItem>();
 
         if (reconcile)
-            TryDeleteDeletedProjectDirectories(root, SnapshotDeletedProjectDirs(root));
+            TryDeleteLegacyProjectDirectories(root);
         var deleted = SnapshotDeletedProjectDirs(root);
 
         var state = WorkspaceQueueDatabase.Load(root);
@@ -310,10 +310,10 @@ public static class WorkspaceQueueService
         if (string.IsNullOrWhiteSpace(workspaceRoot))
             return;
 
-        var root = Path.GetFullPath(workspaceRoot);
+        var root = QueueProjectDeletionPaths.Normalize(workspaceRoot);
         lock (DeletedDirSync)
         {
-            var deleted = DeletedProjectDirs(root);
+            var deleted = WorkspaceQueueDatabase.LoadLegacyDeletedProjectDirs(root);
             var changed = false;
             foreach (var path in projectDirs)
             {
@@ -323,7 +323,10 @@ public static class WorkspaceQueueService
             }
 
             if (changed)
+            {
                 WorkspaceQueueDatabase.SaveDeletedProjectDirs(root, deleted);
+                DeletedDirCache.Remove(root);
+            }
         }
     }
 
@@ -332,20 +335,22 @@ public static class WorkspaceQueueService
         if (string.IsNullOrWhiteSpace(workspaceRoot))
             return;
 
-        var root = Path.GetFullPath(workspaceRoot);
+        var root = QueueProjectDeletionPaths.Normalize(workspaceRoot);
         lock (DeletedDirSync)
         {
-            var deleted = DeletedProjectDirs(root);
-            var changed = false;
-            foreach (var path in projectDirs)
-            {
-                var full = NormalizeDeletedProjectDir(path);
-                if (full.Length > 0 && deleted.Remove(full))
-                    changed = true;
-            }
+            var paths = projectDirs.Select(NormalizeDeletedProjectDir).Where(path => path.Length > 0).ToArray();
+            WorkspaceQueueDatabase.ForgetDeletionPaths(root, paths, legacyOnly: false);
+            DeletedDirCache.Remove(root);
+        }
+    }
 
-            if (changed)
-                WorkspaceQueueDatabase.SaveDeletedProjectDirs(root, deleted);
+    internal static void CommitProjectDeletion(string workspaceRoot, string projectDir)
+    {
+        var root = QueueProjectDeletionPaths.Normalize(workspaceRoot);
+        lock (DeletedDirSync)
+        {
+            WorkspaceQueueDatabase.CommitProjectDeletion(root, projectDir);
+            DeletedDirCache.Remove(root);
         }
     }
 
@@ -372,7 +377,7 @@ public static class WorkspaceQueueService
 
     private static HashSet<string> DeletedProjectDirs(string workspaceRoot)
     {
-        var root = Path.GetFullPath(workspaceRoot);
+        var root = QueueProjectDeletionPaths.Normalize(workspaceRoot);
         lock (DeletedDirSync)
         {
             if (!DeletedDirCache.TryGetValue(root, out var deleted))
@@ -385,30 +390,32 @@ public static class WorkspaceQueueService
         }
     }
 
-    private static void TryDeleteDeletedProjectDirectories(string workspaceRoot, IReadOnlySet<string> projectDirs)
+    private static void TryDeleteLegacyProjectDirectories(string workspaceRoot)
     {
-        var removed = new List<string>();
-        foreach (var projectDir in projectDirs.ToArray())
+        lock (DeletedDirSync)
         {
-            try
+            var removed = new List<string>();
+            foreach (var projectDir in WorkspaceQueueDatabase.LoadLegacyDeletedProjectDirs(workspaceRoot))
             {
-                if (!Directory.Exists(projectDir))
+                try
                 {
+                    QueueProjectDeletionPaths.ValidateProjectDirectory(workspaceRoot, projectDir);
+                    if (Directory.Exists(projectDir))
+                        Directory.Delete(projectDir, recursive: true);
                     removed.Add(projectDir);
-                    continue;
                 }
-
-                Directory.Delete(projectDir, recursive: true);
-                removed.Add(projectDir);
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                    // 保留旧记录，等待路径校验通过且文件释放后再处理。
+                }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+
+            if (removed.Count > 0)
             {
-                // 下载还占着文件时先留在删除名单里，下次扫描再删。
+                WorkspaceQueueDatabase.ForgetDeletionPaths(workspaceRoot, removed, legacyOnly: true);
+                DeletedDirCache.Remove(QueueProjectDeletionPaths.Normalize(workspaceRoot));
             }
         }
-
-        if (removed.Count > 0)
-            ForgetDeletedProjects(workspaceRoot, removed);
     }
 
     private static string NormalizeDeletedProjectDir(string? projectDir)
@@ -417,7 +424,7 @@ public static class WorkspaceQueueService
             return "";
         try
         {
-            return Path.GetFullPath(projectDir);
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectDir));
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {

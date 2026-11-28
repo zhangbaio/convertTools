@@ -62,7 +62,11 @@ public static class TikTokExecutionHistoryService
         string workspace,
         QueueProjectItem item,
         TikTokAccountProfile? account = null,
-        string? databasePath = null)
+        string? databasePath = null) =>
+        CaptureDeletionSnapshot(workspace, item, account, databasePath)();
+
+    internal static Action CaptureDeletionSnapshot(string workspace, QueueProjectItem item,
+        TikTokAccountProfile? account, string? databasePath = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         var payload = BuildPayload(
@@ -76,7 +80,7 @@ public static class TikTokExecutionHistoryService
             batchId: "",
             metadata: null,
             account: account);
-        AppendPayload(payload, databasePath);
+        return () => AppendPayload(payload, databasePath);
     }
 
     public readonly record struct TikTokProjectHistoryEvent(

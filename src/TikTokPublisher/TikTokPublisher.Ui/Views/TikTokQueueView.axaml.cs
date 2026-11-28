@@ -3572,13 +3572,15 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var confirmedWorkspace = vm.WorkspacePath;
+        var confirmedAccountId = vm.SelectedAccount?.Model.Id;
         var ok = await ConfirmAsync(
             owner,
             "删除勾选项目",
             $"将删除勾选项目的源目录和 workflow 目录，共 {rows.Count} 个项目。此操作不可撤销，是否继续？");
         if (!ok) return;
 
-        await vm.DeleteSelectedQueueProjectsAsync(rows);
+        await vm.DeleteSelectedQueueProjectsAsync(rows, confirmedWorkspace, confirmedAccountId);
     }
 
     private async void OnExportExcelClick(object? sender, RoutedEventArgs e)
