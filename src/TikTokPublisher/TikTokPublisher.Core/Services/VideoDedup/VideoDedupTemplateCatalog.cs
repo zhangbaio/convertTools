@@ -36,7 +36,27 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
         return (ToSnapshot(state), changed);
     });
 
-    public VideoDedupTemplateEntry Save(string? id, string name, VideoDedupPreset preset)
+    public VideoDedupTemplateEntry Save(string? id, string name, VideoDedupPreset preset) =>
+        SaveTemplate(id, name, preset, accountId: null);
+
+    public VideoDedupTemplateEntry SaveAccountConfiguration(
+        string accountId, string? templateId, string? name = null, VideoDedupPreset? preset = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        if (preset is not null)
+            return SaveTemplate(templateId, name ?? "", preset, accountId);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(templateId);
+        return Edit(state =>
+        {
+            var entry = RequireTemplate(state, templateId);
+            var changed = state.AccountDefaults.GetValueOrDefault(accountId) != entry.Id;
+            state.AccountDefaults[accountId] = entry.Id;
+            return (entry, changed);
+        });
+    }
+
+    private VideoDedupTemplateEntry SaveTemplate(string? id, string name, VideoDedupPreset preset, string? accountId)
     {
         ArgumentNullException.ThrowIfNull(preset);
         name = name.Trim();
@@ -59,21 +79,14 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
             var entry = new VideoDedupTemplateEntry(id ?? Guid.NewGuid().ToString("N"), name, parameters);
             if (index < 0) state.Templates.Add(entry);
             else state.Templates[index] = entry;
+            if (accountId is not null)
+                state.AccountDefaults[accountId] = entry.Id;
             return (entry, true);
         });
     }
 
-    public void SetDefault(string accountId, string templateId)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
-        Edit(state =>
-        {
-            RequireTemplate(state, templateId);
-            var changed = state.AccountDefaults.GetValueOrDefault(accountId) != templateId;
-            state.AccountDefaults[accountId] = templateId;
-            return (0, changed);
-        });
-    }
+    public void SetDefault(string accountId, string templateId) =>
+        SaveAccountConfiguration(accountId, templateId);
 
     public void Delete(string id, string? replacementId = null)
     {
@@ -249,11 +262,10 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
         finally { File.Delete(temp); }
     }
 
-    private static void RequireTemplate(CatalogState state, string id)
-    {
-        if (id != SystemId && !state.Templates.Any(template => template.Id == id))
-            throw new InvalidOperationException("该视频去重模板已不存在，请重新选择。");
-    }
+    private static VideoDedupTemplateEntry RequireTemplate(CatalogState state, string id) =>
+        id == SystemId ? SystemDefault :
+        state.Templates.FirstOrDefault(template => template.Id == id)
+            ?? throw new InvalidOperationException("该视频去重模板已不存在，请重新选择。");
 
     private static VideoDedupTemplateSnapshot ToSnapshot(CatalogState state) =>
         new(new[] { SystemDefault }.Concat(state.Templates).ToArray(), state.AccountDefaults);

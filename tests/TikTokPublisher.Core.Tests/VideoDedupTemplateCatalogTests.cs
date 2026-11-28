@@ -51,6 +51,72 @@ public sealed class VideoDedupTemplateCatalogTests
     }
 
     [Fact]
+    public void SavingNewConfigurationCreatesAndBindsTheTemplateToTheCurrentAccount()
+    {
+        using var fixture = new CatalogFixture();
+        var saved = fixture.Catalog.SaveAccountConfiguration("first", null, "新配置",
+            new VideoDedupPreset { TrimStartSeconds = 1.5 });
+
+        var snapshot = fixture.Catalog.Load([]);
+        Assert.Equal(saved.Id, snapshot.DefaultFor("first").Id);
+        Assert.Equal("新配置", snapshot.DefaultFor("first").Name);
+        Assert.Equal(1.5d, snapshot.DefaultFor("first").Preset!.TrimStartSeconds);
+        Assert.Equal(VideoDedupTemplateCatalog.SystemId, snapshot.DefaultFor("second").Id);
+    }
+
+    [Fact]
+    public void SavingSharedConfigurationUpdatesItsParametersAndBindsTheSelectedAccount()
+    {
+        using var fixture = new CatalogFixture();
+        var template = fixture.Catalog.Save(null, "共享方案", new VideoDedupPreset { TrimEndSeconds = 1 });
+        fixture.Catalog.SetDefault("second", template.Id);
+
+        fixture.Catalog.SaveAccountConfiguration("first", template.Id, "更新名称",
+            new VideoDedupPreset { TrimEndSeconds = 2 });
+
+        var snapshot = fixture.Catalog.Load([]);
+        Assert.Equal(template.Id, snapshot.DefaultFor("first").Id);
+        Assert.Equal(template.Id, snapshot.DefaultFor("second").Id);
+        Assert.Equal("更新名称", snapshot.DefaultFor("first").Name);
+        Assert.Equal(2d, snapshot.DefaultFor("second").Preset!.TrimEndSeconds);
+    }
+
+    [Fact]
+    public void SavingOnlyASelectionUsesTheLatestSharedParametersOrSystemDefault()
+    {
+        using var fixture = new CatalogFixture();
+        var template = fixture.Catalog.Save(null, "原名称", new VideoDedupPreset { TrimEndSeconds = 1 });
+        fixture.Catalog.Save(template.Id, "新名称", new VideoDedupPreset { TrimEndSeconds = 3 });
+        var saved = fixture.Catalog.SaveAccountConfiguration("first", template.Id);
+        Assert.Equal("新名称", saved.Name);
+        Assert.Equal(3d, saved.Preset!.TrimEndSeconds);
+        Assert.Equal(template.Id, fixture.Catalog.Load([]).DefaultFor("first").Id);
+
+        var system = fixture.Catalog.SaveAccountConfiguration("first", VideoDedupTemplateCatalog.SystemId);
+        var snapshot = fixture.Catalog.Load([]);
+        Assert.Null(system.Preset);
+        Assert.Equal(VideoDedupTemplateCatalog.SystemId, snapshot.DefaultFor("first").Id);
+        Assert.Equal(3d, Assert.Single(snapshot.Templates, item => item.Id == template.Id).Preset!.TrimEndSeconds);
+    }
+
+    [Fact]
+    public void InvalidConfigurationLeavesBothTheTemplateAndAccountBindingUnchanged()
+    {
+        using var fixture = new CatalogFixture();
+        var original = fixture.Catalog.Save(null, "原配置", new VideoDedupPreset { TrimEndSeconds = 1 });
+        var other = fixture.Catalog.Save(null, "其他配置", new VideoDedupPreset { TrimEndSeconds = 2 });
+        fixture.Catalog.SetDefault("first", original.Id);
+        var file = Assert.Single(Directory.GetFiles(fixture.Path));
+        var before = File.ReadAllText(file);
+
+        Assert.Throws<InvalidOperationException>(() => fixture.Catalog.SaveAccountConfiguration(
+            "first", other.Id, original.Name, new VideoDedupPreset { TrimEndSeconds = 3 }));
+
+        Assert.Equal(before, File.ReadAllText(file));
+        Assert.Equal(original.Id, fixture.Catalog.Load([]).DefaultFor("first").Id);
+    }
+
+    [Fact]
     public void CapturedRunPresetsKeepTheValuesWhenTemplatesAreEdited()
     {
         using var fixture = new CatalogFixture();
@@ -59,7 +125,7 @@ public sealed class VideoDedupTemplateCatalogTests
         fixture.Catalog.SetDefault("first", template.Id);
         fixture.Catalog.SetDefault("second", VideoDedupTemplateCatalog.SystemId);
         var captured = fixture.Catalog.CaptureRunPresets(accounts, null);
-        fixture.Catalog.Save(template.Id, "共享模板", new VideoDedupPreset { TrimEndSeconds = 2 });
+        fixture.Catalog.SaveAccountConfiguration("first", template.Id, "共享模板", new VideoDedupPreset { TrimEndSeconds = 2 });
 
         Assert.Equal(1d, captured["first"]!.TrimEndSeconds);
         Assert.Null(captured["second"]);

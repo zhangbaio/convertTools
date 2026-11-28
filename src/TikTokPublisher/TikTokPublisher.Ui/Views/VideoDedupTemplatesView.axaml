@@ -24,10 +24,9 @@
         </Border>
         <views:VideoDedupPresetEditor x:Name="PresetEditor" Grid.Row="1" />
         <Border Grid.Row="2" Classes="controlsFrame" Padding="10,8">
-            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBlock x:Name="FeedbackText" Classes="pageSummary" VerticalAlignment="Center" TextWrapping="Wrap" />
-                <Button x:Name="ApplyButton" Grid.Column="1" Content="设为当前账号默认" Classes="secondaryAction" Click="OnApplyClick" />
-                <Button x:Name="SaveButton" Grid.Column="2" Content="保存模板" Classes="primaryAction" Click="OnSaveClick" />
+                <Button x:Name="SaveButton" Grid.Column="1" Content="保存配置" Classes="primaryAction" Click="OnSaveClick" />
             </Grid>
         </Border>
     </Grid>

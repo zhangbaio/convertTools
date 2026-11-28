@@ -75,10 +75,10 @@ public partial class VideoDedupTemplatesView : UserControl
         }
         finally { _loadingSelection = false; }
 
-        var editable = _snapshot is not null && template?.Id != VideoDedupTemplateCatalog.SystemId;
-        TemplateName.IsEnabled = PresetEditor.IsEnabled = SaveButton.IsEnabled = editable;
+        SaveButton.IsEnabled = _snapshot is not null && _account is not null;
+        var editable = SaveButton.IsEnabled && template?.Id != VideoDedupTemplateCatalog.SystemId;
+        TemplateName.IsEnabled = PresetEditor.IsEnabled = editable;
         DeleteButton.IsEnabled = template is { Id: not VideoDedupTemplateCatalog.SystemId };
-        ApplyButton.IsEnabled = template is not null && _account is not null;
         TemplateName.Text = draftName ?? template?.Name ?? "";
         PresetEditor.Load(draft ?? template?.Preset);
         _initialName = TemplateName.Text ?? "";
@@ -96,32 +96,42 @@ public partial class VideoDedupTemplatesView : UserControl
         ToolTip.SetTip(UsageSummary, names.Length > 0 ? string.Join("、", names) : null);
     }
 
-    public async Task<bool> TryLeaveAsync(Window owner)
+    public Task<bool> TryLeaveAsync(Window owner) =>
+        ConfirmChangesAsync(owner, HasUnsavedChanges(), discardSelection: true);
+
+    private Task<bool> TryChangeTemplateAsync(Window owner) =>
+        ConfirmChangesAsync(owner, HasTemplateChanges(), discardSelection: false);
+
+    private async Task<bool> ConfirmChangesAsync(Window owner, bool changed, bool discardSelection)
     {
         if (_confirmingChanges) return false;
-        if (!HasUnsavedChanges()) return true;
+        if (!changed) return true;
 
+        var account = _account;
         _confirmingChanges = true;
         try
         {
-            var save = await ConfirmDialog.ShowSaveChangesAsync(owner, "保存去重模板", "当前模板有未保存的修改。是否保存？");
-            if (save is null) return false;
-            if (save == true) return SaveTemplate();
-            ReloadTemplates(_selected?.Id);
+            var save = await ConfirmDialog.ShowSaveChangesAsync(owner, "保存去重配置", "当前账号有未保存的去重配置。是否保存？");
+            if (save is null || !ReferenceEquals(account, _account)) return false;
+            if (save == true) return SaveConfiguration();
+            ReloadTemplates(discardSelection ? null : _selected?.Id);
             return true;
         }
         finally { _confirmingChanges = false; }
     }
 
     private bool HasUnsavedChanges() => SaveButton.IsEnabled &&
-        ((TemplateName.Text?.Trim() ?? "") != _initialName.Trim() ||
+        (HasTemplateChanges() || _selected?.Id != _snapshot?.DefaultFor(_account?.Id).Id);
+
+    private bool HasTemplateChanges() => PresetEditor.IsEnabled &&
+        (_selected is null || (TemplateName.Text?.Trim() ?? "") != _initialName.Trim() ||
          PresetEditor.CaptureDraft().Fingerprint() != _initialFingerprint);
 
     private async void OnTemplateSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loadingSelection || (TemplateSelector.SelectedItem as ComboBoxItem)?.Tag is not string id || id == _selected?.Id)
             return;
-        if (HasUnsavedChanges() && TopLevel.GetTopLevel(this) is Window owner && !await TryLeaveAsync(owner))
+        if (TopLevel.GetTopLevel(this) is Window owner && !await TryChangeTemplateAsync(owner))
         {
             _loadingSelection = true;
             try { TemplateSelector.SelectedItem = TemplateSelector.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, _selected?.Id)); }
@@ -133,29 +143,33 @@ public partial class VideoDedupTemplatesView : UserControl
 
     private async void OnNewClick(object? sender, RoutedEventArgs e)
     {
-        if (TopLevel.GetTopLevel(this) is Window owner && !await TryLeaveAsync(owner)) return;
+        if (TopLevel.GetTopLevel(this) is Window owner && !await TryChangeTemplateAsync(owner)) return;
         LoadEditor(null, VideoDedupPreset.CreateDefault());
         TemplateName.Focus();
     }
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e)
     {
-        if (TopLevel.GetTopLevel(this) is Window owner && !await TryLeaveAsync(owner)) return;
+        if (TopLevel.GetTopLevel(this) is Window owner && !await TryChangeTemplateAsync(owner)) return;
         var source = _selected;
         LoadEditor(null, source?.Preset?.Clone() ?? VideoDedupPreset.CreateDefault(), source is null ? "" : source.Name + " · 副本");
         TemplateName.Focus();
     }
 
-    private void OnSaveClick(object? sender, RoutedEventArgs e) => SaveTemplate();
+    private void OnSaveClick(object? sender, RoutedEventArgs e) => SaveConfiguration();
 
-    private bool SaveTemplate()
+    private bool SaveConfiguration()
     {
-        if (_vm is null || !SaveButton.IsEnabled) return false;
+        if (_vm is not { } vm || _account is not { } account || !SaveButton.IsEnabled ||
+            !ReferenceEquals(account, vm.SelectedAccount?.Model)) return false;
         try
         {
-            var saved = VideoDedupTemplateCatalog.OpenDefault().Save(_selected?.Id, TemplateName.Text ?? "", PresetEditor.Read());
+            var preset = HasTemplateChanges() ? PresetEditor.Read() : null;
+            var saved = VideoDedupTemplateCatalog.OpenDefault()
+                .SaveAccountConfiguration(account.Id, _selected?.Id, TemplateName.Text, preset);
             ReloadTemplates(saved.Id);
-            FeedbackText.Text = $"模板「{saved.Name}」已保存。";
+            if (_snapshot is not null)
+                FeedbackText.Text = $"已保存配置。「{account.DisplayName}」默认使用「{saved.Name}」。";
             return true;
         }
         catch (Exception ex)
@@ -165,28 +179,10 @@ public partial class VideoDedupTemplatesView : UserControl
         }
     }
 
-    private void OnApplyClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm is not { } vm || _account is not { } account || _selected is not { } template ||
-            !ReferenceEquals(account, vm.SelectedAccount?.Model)) return;
-        if (HasUnsavedChanges())
-        {
-            FeedbackText.Text = "请先保存当前模板的修改。";
-            return;
-        }
-        try
-        {
-            VideoDedupTemplateCatalog.OpenDefault().SetDefault(account.Id, template.Id);
-            ReloadTemplates(template.Id);
-            FeedbackText.Text = $"「{account.DisplayName}」默认使用「{template.Name}」。";
-        }
-        catch (Exception ex) { FeedbackText.Text = $"设置默认模板失败：{ex.Message}"; }
-    }
-
     private async void OnDeleteClick(object? sender, RoutedEventArgs e)
     {
         if (_vm is not { } vm || _selected is not { } entry || entry.Id == VideoDedupTemplateCatalog.SystemId ||
-            TopLevel.GetTopLevel(this) is not Window owner || !await TryLeaveAsync(owner)) return;
+            TopLevel.GetTopLevel(this) is not Window owner || !await TryChangeTemplateAsync(owner)) return;
         try
         {
             var snapshot = vm.LoadVideoDedupTemplates();
