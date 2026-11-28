@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="TikTokPublisher.Ui.Views.TikTokPublishAccountCreateDialog"
+        Title="批量创建发布账号" Width="920" Height="680" MinWidth="650" MinHeight="460"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="RootBox" IsReadOnly="True" Watermark="请选择包含账号素材的父目录" />
+            <Button x:Name="FolderButton" Grid.Column="1" Content="选择素材目录…" Click="OnChooseFolder" />
+        </Grid>
+        <TextBlock x:Name="PlanText" Grid.Row="1" TextWrapping="Wrap" Classes="pageSummary" />
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="RowsPanel" />
+        </ScrollViewer>
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" TextWrapping="Wrap" />
+            <Button x:Name="CloseButton" Grid.Column="1" Content="关闭" Click="OnClose" />
+            <Button x:Name="SubmitButton" Grid.Column="2" Content="提交创建申请" IsEnabled="False"
+                    Classes="primaryAction" Click="OnSubmit" />
+        </Grid>
+    </Grid>
+</Window>

@@ -7,6 +7,7 @@ using Avalonia.Platform.Storage;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.VideoDedup;
+using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Ui.Views;
 
@@ -14,6 +15,7 @@ public partial class TikTokAccountBatchImportDialog : Window
 {
     private TikTokAccountBatchImporter? _importer;
     private Action<TikTokAccountImportResult>? _onImported;
+    private TikTokPublishAccountBatchRunner? _publishAccountRunner;
     private bool _showingResults;
     private readonly Dictionary<int, string> _manualPaths = [];
     private readonly Dictionary<int, TextBox> _pathEditors = [];
@@ -33,10 +35,13 @@ public partial class TikTokAccountBatchImportDialog : Window
     }
 
     internal void Bind(TikTokAccountBatchImporter importer, VideoDedupTemplateSnapshot templates,
-        IReadOnlyList<TikTokAccountProfile> accounts, Action<TikTokAccountImportResult> onImported)
+        IReadOnlyList<TikTokAccountProfile> accounts, Action<TikTokAccountImportResult> onImported,
+        TikTokPublishAccountBatchRunner? publishAccountRunner)
     {
         _importer = importer;
         _onImported = onImported;
+        _publishAccountRunner = publishAccountRunner;
+        CreatePublishAccounts.IsEnabled = publishAccountRunner is not null;
         TemplateBox.ItemsSource = templates.Templates.Select(template => new ComboBoxItem { Content = template.Name, Tag = template.Id }).ToArray();
         TemplateBox.SelectedIndex = 0;
         var choices = accounts.Where(account => !string.IsNullOrWhiteSpace(account.TiktokProofDeclarantCompanyName))
@@ -80,7 +85,7 @@ public partial class TikTokAccountBatchImportDialog : Window
             SealBox.Text = path;
     }
 
-    private void OnNextClick(object? sender, RoutedEventArgs e)
+    private async void OnNextClick(object? sender, RoutedEventArgs e)
     {
         if (_importer is null) return;
         if (_showingResults)
@@ -97,7 +102,37 @@ public partial class TikTokAccountBatchImportDialog : Window
 
         CaptureManualPaths();
         var finalPlan = CreatePreview();
-        var result = _importer.Import(finalPlan);
+        var ready = finalPlan.Rows.Where(row => row.Status == TikTokAccountImportStatus.Ready).ToArray();
+        if (CreatePublishAccounts.IsChecked != true || _publishAccountRunner is null || ready.Length == 0)
+        {
+            ShowImportResult(ImportAccounts(finalPlan));
+            return;
+        }
+
+        TikTokAccountImportResult? result = null;
+        var targets = ready.Select(row =>
+            new TikTokPublishAccountCreateDialog.Target(row.Number, $"{row.Company} · {row.MaskedEmail}")).ToArray();
+        var dialog = new TikTokPublishAccountCreateDialog();
+        dialog.Bind(_publishAccountRunner, targets, () =>
+        {
+            result = ImportAccounts(finalPlan);
+            return result.Rows.Where(row => row.Status == TikTokAccountImportStatus.Succeeded)
+                .Zip(result.Accounts).ToDictionary(pair => pair.First.Number, pair => pair.Second);
+        }, alsoImportsMainAccounts: true);
+        await dialog.ShowDialog(this);
+        if (result is not null)
+            ShowImportResult(result);
+    }
+
+    private TikTokAccountImportResult ImportAccounts(TikTokAccountImportPlan plan)
+    {
+        var result = _importer!.Import(plan);
+        _onImported?.Invoke(result);
+        return result;
+    }
+
+    private void ShowImportResult(TikTokAccountImportResult result)
+    {
         _manualPaths.Clear();
         InputText.Text = "";
         _showingResults = true;
@@ -107,7 +142,6 @@ public partial class TikTokAccountBatchImportDialog : Window
         StatusText.Text = Describe(result.Rows, preview: false);
         BackButton.IsVisible = false;
         NextButton.Content = "完成";
-        _onImported?.Invoke(result);
     }
 
     private TikTokAccountImportPlan CreatePreview() =>
@@ -136,7 +170,8 @@ public partial class TikTokAccountBatchImportDialog : Window
         InputPane.IsVisible = false;
         RowsPane.IsVisible = true;
         BackButton.IsVisible = true;
-        NextButton.Content = preview.Rows.Any(row => row.Status == TikTokAccountImportStatus.Ready) ||
+        NextButton.Content = CreatePublishAccounts.IsChecked == true ? "选择发布账号素材" :
+            preview.Rows.Any(row => row.Status == TikTokAccountImportStatus.Ready) ||
             AutoWorkspace.IsChecked != true ? "导入可用账号" : "查看结果";
     }
 

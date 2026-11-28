@@ -77,6 +77,9 @@ public partial class MainWindow : Window
         };
         AccountSidebar.DataContext = _viewModel;
         AccountSidebar.CanChangeAccountAsync = ConfirmTikTokAccountChangeAsync;
+        var publishAccountRunner = new TikTokPublishAccountBatchRunner(_browserHost, _viewModel);
+        AccountSidebar.PublishAccountRunner = publishAccountRunner;
+        BrowserView.PublishAccountRunner = publishAccountRunner;
         KuaishouWorkspace.MountAccountPanel(AccountPanelHost);
         WeixinWorkspace.Bind(AccountPanelHost, KuaishouWorkspace);
         WeixinWorkspace.RuntimeChanged += UpdateWeixinStatus;

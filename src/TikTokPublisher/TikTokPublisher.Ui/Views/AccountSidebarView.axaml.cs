@@ -146,6 +146,8 @@ public partial class AccountSidebarView : UserControl
             vm.AddAccountCommand.Execute(null);
     }
 
+    internal Services.TikTok.TikTokPublishAccountBatchRunner? PublishAccountRunner { get; set; }
+
     private async void OnBatchAddClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is not MainViewModel vm || TopLevel.GetTopLevel(this) is not Window owner ||
@@ -156,7 +158,7 @@ public partial class AccountSidebarView : UserControl
         {
             var dialog = new TikTokAccountBatchImportDialog();
             dialog.Bind(vm.CreateAccountBatchImporter(), vm.LoadVideoDedupTemplates(),
-                vm.Accounts.Select(account => account.Model).ToArray(), vm.ApplyAccountBatchImport);
+                vm.Accounts.Select(account => account.Model).ToArray(), vm.ApplyAccountBatchImport, PublishAccountRunner);
             await dialog.ShowDialog(owner);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)

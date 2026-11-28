@@ -11,7 +11,8 @@ public static class EmbeddedStorageStateImporter
         IPage page,
         string authPath,
         Action<string>? log,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<string, string>? mapCookieDomain = null)
     {
         if (!File.Exists(authPath))
         {
@@ -31,11 +32,12 @@ public static class EmbeddedStorageStateImporter
                     var name = item.GetProperty("name").GetString();
                     var value = item.GetProperty("value").GetString();
                     if (string.IsNullOrWhiteSpace(name)) continue;
+                    var domain = item.TryGetProperty("domain", out var d) ? d.GetString() ?? "" : "";
                     cookies.Add(new Cookie
                     {
                         Name = name,
                         Value = value ?? "",
-                        Domain = item.TryGetProperty("domain", out var d) ? d.GetString() ?? "" : "",
+                        Domain = mapCookieDomain?.Invoke(domain) ?? domain,
                         Path = item.TryGetProperty("path", out var p) ? p.GetString() ?? "/" : "/",
                         Expires = item.TryGetProperty("expires", out var e) && e.TryGetDouble(out var exp) ? (float)exp : -1,
                         HttpOnly = item.TryGetProperty("httpOnly", out var h) && h.GetBoolean(),

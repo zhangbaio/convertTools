@@ -54,6 +54,7 @@
                     <Button Grid.Column="1" Content="选择图片…" Click="OnChooseSeal" />
                 </Grid>
 
+                <CheckBox x:Name="CreatePublishAccounts" Content="同时创建内部发布账号" />
                 <CheckBox x:Name="AutoWorkspace" Content="自动创建工作目录" IsCheckedChanged="OnWorkspaceModeChanged" />
                 <Grid x:Name="WorkspaceRootPanel" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="False">
                     <TextBox x:Name="WorkspaceRootBox" Watermark="选择父目录，子目录按公司名称创建" />
