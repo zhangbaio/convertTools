@@ -22,7 +22,6 @@
 
             <Button Grid.Column="2"
                     Content="返回TikTok 上传"
-                    ToolTip.Tip="返回 TikTok 上传页面"
                     Click="OnReturnClick"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
