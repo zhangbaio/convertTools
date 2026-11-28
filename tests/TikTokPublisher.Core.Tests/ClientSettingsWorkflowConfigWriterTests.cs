@@ -8,6 +8,29 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class ClientSettingsWorkflowConfigWriterTests
 {
+    [Theory]
+    [InlineData("low")]
+    [InlineData("high")]
+    [InlineData("medium")]
+    public void WriteTempConfig_uses_fixed_title_temperature_for_existing_account_settings(string savedRandomness)
+    {
+        var oldJson = JsonSerializer.Serialize(new { tiktokAiNewTitleRandomness = savedRandomness });
+        var account = JsonSerializer.Deserialize<TikTokAccountProfile>(
+            oldJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(savedRandomness, account.TiktokAiNewTitleRandomness);
+
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings(), account);
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal(0.75, document.RootElement.GetProperty("AiNewTitleTemperature").GetDouble());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task WriteTempConfig_creates_unique_files_without_cross_account_overwrites()
     {

@@ -283,14 +283,6 @@
 
                             <UniformGrid Classes="publishRow" Columns="2">
                                 <StackPanel Classes="publishField" Spacing="5">
-                                    <TextBlock Classes="formLabel" Text="新剧名随机度" TextWrapping="Wrap" />
-                                    <ComboBox Classes="configurationInput" x:Name="AiNewTitleRandomnessCombo" HorizontalAlignment="Stretch">
-                                        <ComboBoxItem Tag="low">低</ComboBoxItem>
-                                        <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
-                                        <ComboBoxItem Tag="high">高</ComboBoxItem>
-                                    </ComboBox>
-                                </StackPanel>
-                                <StackPanel Classes="publishField" Spacing="5">
                                     <TextBlock Classes="formLabel" Text="题材数量" TextWrapping="Wrap" />
                                     <NumericUpDown Classes="configurationInput" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
                                 </StackPanel>

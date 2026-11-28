@@ -38,7 +38,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
             ["AiRewriteFollowsSourceLanguage"] = TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket),
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
-            ["AiNewTitleTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiNewTitleRandomness),
+            ["AiNewTitleTemperature"] = 0.75,
             ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,
             ["TiktokRoleReferenceAiFallbackEnabled"] = settings.TiktokRoleReferenceAiFallbackEnabled,
             ["TiktokRoleVectorViewMode"] = settings.TiktokRoleVectorViewMode,

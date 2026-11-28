@@ -313,7 +313,6 @@ public partial class AccountProfileEditor : UserControl
             2,
             (int)(CopyrightMaterials.RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
-        SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
         PublishAccounts.Load(profile);
@@ -474,7 +473,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokRewriteFollowsSourceLanguage =
                 TikTokAccountProfile.RewriteFollowsImportedLanguage(profile.TiktokDramaMarket);
-            profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
             profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
                 (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));

@@ -116,7 +116,6 @@ public partial class AccountSettingsDialog : Window
             2,
             (int)(CopyrightMaterials.RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
-        SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
         PublishAccounts.Load(p);
@@ -261,7 +260,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokRewriteFollowsSourceLanguage =
             TikTokAccountProfile.RewriteFollowsImportedLanguage(p.TiktokDramaMarket);
-        p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
         p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
             (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
@@ -403,25 +401,6 @@ public partial class AccountSettingsDialog : Window
             _ => legacyEnabled.HasValue && !legacyEnabled.Value ? "none" : "submit",
         };
     }
-
-    private static void SelectNewTitleRandomness(ComboBox combo, string? value)
-    {
-        var key = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(value);
-        foreach (var item in combo.Items.OfType<ComboBoxItem>())
-        {
-            if (string.Equals(item.Tag as string, key, StringComparison.OrdinalIgnoreCase))
-            {
-                combo.SelectedItem = item;
-                return;
-            }
-        }
-
-        if (combo.ItemCount > 0)
-            combo.SelectedIndex = 1;
-    }
-
-    private static string ReadNewTitleRandomness(ComboBox combo) =>
-        ClientSettingsDefaults.NormalizeAiNewTitleRandomness((combo.SelectedItem as ComboBoxItem)?.Tag as string);
 
     private void UploadStrategyCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
         UpdateUploadChannelVisibility();
