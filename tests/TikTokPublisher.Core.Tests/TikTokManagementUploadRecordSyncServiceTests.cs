@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
@@ -7,6 +8,37 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokManagementUploadRecordSyncServiceTests
 {
+    [Theory]
+    [InlineData(null, true, "tiktok_username")]
+    [InlineData("{}", true, "tiktok_username")]
+    [InlineData("{\"management_dedup_enabled\":false}", false, "tiktok_username")]
+    [InlineData("{\"management_dedup_scope\":\"all_series\"}", true, "all_series")]
+    public void Management_dedup_defaults_preserve_explicit_settings(string? json, bool enabled, string scope)
+    {
+        var settings = json is null
+            ? new ClientSettings()
+            : JsonSerializer.Deserialize<ClientSettings>(json, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            })!;
+
+        settings.ManagementDedupEnabled.Should().Be(enabled);
+        settings.ManagementDedupScope.Should().Be(scope);
+    }
+
+    [Fact]
+    public async Task CheckDuplicateOriginalNamesAsync_requires_username_for_account_scope()
+    {
+        var account = new TikTokAccountProfile { TiktokLoginEmail = " ", TiktokAccountNickname = " " };
+
+        var result = await TikTokManagementUploadRecordSyncService.CheckDuplicateOriginalNamesAsync(
+            ["测试剧名"], "tiktok_username", account, CancellationToken.None);
+
+        result.Ok.Should().BeFalse();
+        result.Message.Should().Be("当前账号没有 TikTok 用户名");
+        result.Duplicates.Should().BeEmpty();
+    }
+
     [Fact]
     public void BuildRecordForSync_includes_tiktok_username_from_account_login()
     {

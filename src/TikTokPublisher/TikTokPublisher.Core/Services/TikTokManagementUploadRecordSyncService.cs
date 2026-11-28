@@ -100,6 +100,11 @@ public static class TikTokManagementUploadRecordSyncService
         if (names.Length == 0)
             return new(true, "", new HashSet<string>(StringComparer.Ordinal));
 
+        ct.ThrowIfCancellationRequested();
+        var payload = BuildDuplicateCheckPayload(names, dedupeScope, account, normalizeTitles);
+        if (payload.TryGetValue("tiktok_username", out var username) && username is "")
+            return new(false, "当前账号没有 TikTok 用户名", new HashSet<string>(StringComparer.Ordinal));
+
         var settings = ClientSettingsStore.Load();
         var state = LicenseStore.Load();
         var baseUrl = CleanBaseUrl(state.ServerUrl);
@@ -113,8 +118,6 @@ public static class TikTokManagementUploadRecordSyncService
         var token = (state.Token ?? "").Trim();
         if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(token))
             return new(false, "软件未登录或登录态不完整", new HashSet<string>(StringComparer.Ordinal));
-
-        var payload = BuildDuplicateCheckPayload(names, dedupeScope, account, normalizeTitles);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/client-api/upload-records/check-duplicates");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

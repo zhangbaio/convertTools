@@ -183,7 +183,7 @@ public sealed class ClientSettings
     public string AuthLastLoginAt { get; set; } = "";
     public bool TiktokExcelAutoExportEnabled { get; set; } = true;
     public bool TiktokAccountAnalyticsEnabled { get; set; } = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
-    public bool ManagementDedupEnabled { get; set; }
+    public bool ManagementDedupEnabled { get; set; } = true;
     public string ManagementDedupScope { get; set; } = "tiktok_username";
     public bool TiktokAllowOverLimitUploadImport { get; set; } = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
     // Runtime limits used by the existing download truncation flow.
