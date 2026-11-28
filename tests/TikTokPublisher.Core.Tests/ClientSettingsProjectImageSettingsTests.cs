@@ -44,6 +44,8 @@ public sealed class ClientSettingsProjectImageSettingsTests
         {
             TiktokProjectImageTemplateId = "image_template_project_image_13",
             TiktokProjectImageSubtitleAiMode = "off",
+            TiktokProjectImageCount = 12,
+            TiktokProjectImageRenderEpisodeLimit = 15,
         };
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
 
@@ -53,7 +55,12 @@ public sealed class ClientSettingsProjectImageSettingsTests
             var root = document.RootElement;
 
             root.GetProperty("ProjectImageTemplateId").GetString().Should().Be("image-template-project-image-13");
-            root.GetProperty("ProjectImageSubtitleAiMode").GetString().Should().Be("off");
+            root.GetProperty("ProjectImageSubtitleAiMode").GetString().Should().Be("fast");
+            root.GetProperty("ProjectImageCount").GetInt32().Should().Be(4);
+            root.GetProperty("ProjectImageRenderEpisodeLimit").GetInt32().Should().Be(6);
+            settings.TiktokProjectImageSubtitleAiMode.Should().Be("off");
+            settings.TiktokProjectImageCount.Should().Be(12);
+            settings.TiktokProjectImageRenderEpisodeLimit.Should().Be(15);
             root.TryGetProperty("ProjectImageGenerationMode", out _).Should().BeFalse();
         }
         finally

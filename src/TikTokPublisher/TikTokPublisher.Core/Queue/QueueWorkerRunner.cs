@@ -2101,8 +2101,7 @@ public sealed class QueueWorkerRunner
                         imageSettings,
                         TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
                             generateAiScreenshots: false,
-                            generateEditingProjectFiles: true,
-                            imageSettings),
+                            generateEditingProjectFiles: true),
                         log,
                         ct,
                         materialVideoFallback)

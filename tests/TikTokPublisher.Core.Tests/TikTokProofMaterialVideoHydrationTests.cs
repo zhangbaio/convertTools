@@ -53,47 +53,15 @@ public sealed class TikTokProofMaterialVideoHydrationTests
             .Should().Be(expected);
     }
 
-    [Fact]
-    public void ResolveTemporaryVideoEpisodeCount_UsesNoVideos_WhenOutputsDoNotNeedGeneration()
-    {
-        var settings = new ClientSettings();
-
-        TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
-                generateAiScreenshots: false,
-                generateEditingProjectFiles: false,
-                settings)
-            .Should().Be(0);
-    }
-
-    [Fact]
-    public void ResolveTemporaryVideoEpisodeCount_UsesOneEpisode_ForAiScreenshotsOnly()
-    {
-        var settings = new ClientSettings();
-
-        TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
-                generateAiScreenshots: true,
-                generateEditingProjectFiles: false,
-                settings)
-            .Should().Be(1);
-    }
-
     [Theory]
-    [InlineData(16, 16)]
-    [InlineData(0, ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit)]
-    [InlineData(500, 200)]
-    public void ResolveTemporaryVideoEpisodeCount_UsesConfiguredEditingLimit(
-        int configuredLimit,
-        int expected)
+    [InlineData(false, false, 0)]
+    [InlineData(true, false, 1)]
+    [InlineData(false, true, 6)]
+    [InlineData(true, true, 6)]
+    public void ResolveTemporaryVideoEpisodeCount_uses_the_system_editing_limit(
+        bool generateAiScreenshots, bool generateEditingProjectFiles, int expected)
     {
-        var settings = new ClientSettings
-        {
-            TiktokProjectImageRenderEpisodeLimit = configuredLimit,
-        };
-
-        TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
-                generateAiScreenshots: true,
-                generateEditingProjectFiles: true,
-                settings)
+        TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(generateAiScreenshots, generateEditingProjectFiles)
             .Should().Be(expected);
     }
 

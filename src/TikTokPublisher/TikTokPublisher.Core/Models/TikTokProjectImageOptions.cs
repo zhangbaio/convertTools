@@ -4,22 +4,29 @@ public sealed record TikTokProjectImageOptions(string TemplateId, string Subtitl
 {
     public static TikTokProjectImageOptions FromSettings(ClientSettings settings) => new(
         settings.TiktokProjectImageTemplateId,
-        settings.TiktokProjectImageSubtitleAiMode,
-        settings.TiktokProjectImageCount,
-        settings.TiktokProjectImageRenderEpisodeLimit);
+        ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode,
+        ClientSettingsDefaults.TiktokProjectImageCount,
+        ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit);
 
     public static ClientSettings Apply(ClientSettings settings, TikTokAccountProfile? account)
     {
-        if (account?.ProjectImageOptions is not { } options)
+        var templateId = account?.ProjectImageOptions?.TemplateId ?? settings.TiktokProjectImageTemplateId;
+        if (templateId == settings.TiktokProjectImageTemplateId &&
+            settings.TiktokProjectImageSubtitleAiMode == ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode &&
+            settings.TiktokProjectImageCount == ClientSettingsDefaults.TiktokProjectImageCount &&
+            settings.TiktokProjectImageRenderEpisodeLimit == ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit)
             return settings;
 
         var effective = settings.Clone();
-        effective.TiktokProjectImageTemplateId = options.TemplateId;
-        effective.TiktokProjectImageSubtitleAiMode = options.SubtitleAiMode is "fast" or "accurate" or "off"
-            ? options.SubtitleAiMode
-            : settings.TiktokProjectImageSubtitleAiMode;
-        effective.TiktokProjectImageCount = Math.Clamp(options.Count, 1, 20);
-        effective.TiktokProjectImageRenderEpisodeLimit = Math.Clamp(options.EpisodeLimit, 1, 200);
+        effective.TiktokProjectImageTemplateId = templateId;
+        ApplyGenerationDefaults(effective);
         return effective;
+    }
+
+    internal static void ApplyGenerationDefaults(ClientSettings settings)
+    {
+        settings.TiktokProjectImageSubtitleAiMode = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
+        settings.TiktokProjectImageCount = ClientSettingsDefaults.TiktokProjectImageCount;
+        settings.TiktokProjectImageRenderEpisodeLimit = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     }
 }

@@ -62,8 +62,7 @@ public static class DeletedCopyrightProofPublishedVideoRecoveryService
 
         var required = TikTokProofMaterialService.ResolveTemporaryVideoEpisodeCount(
             needsAi,
-            needsEditing,
-            settings);
+            needsEditing);
         return needsSourceInfo && required == 0 ? 1 : Math.Max(0, required);
     }
 

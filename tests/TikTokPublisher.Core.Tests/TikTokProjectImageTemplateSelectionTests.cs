@@ -56,7 +56,7 @@ public sealed class TikTokProjectImageTemplateSelectionTests
     }
 
     [Fact]
-    public void Account_options_override_generation_without_changing_shared_settings()
+    public void Account_template_is_preserved_while_legacy_generation_values_use_system_defaults()
     {
         WithTemporaryDirectory(root =>
         {
@@ -74,9 +74,10 @@ public sealed class TikTokProjectImageTemplateSelectionTests
 
             TikTokProjectImageOptions.Apply(settings, new TikTokAccountProfile()).Should().BeSameAs(settings);
             var effective = TikTokProjectImageOptions.Apply(settings, account);
-            effective.TiktokProjectImageCount.Should().Be(7);
-            effective.TiktokProjectImageRenderEpisodeLimit.Should().Be(12);
-            effective.TiktokProjectImageSubtitleAiMode.Should().Be("accurate");
+            effective.TiktokProjectImageCount.Should().Be(4);
+            effective.TiktokProjectImageRenderEpisodeLimit.Should().Be(6);
+            effective.TiktokProjectImageSubtitleAiMode.Should().Be("fast");
+            account.ProjectImageOptions.Should().Be(new TikTokProjectImageOptions("image-template-project-image-99", "accurate", 7, 12));
             settings.TiktokProjectImageCount.Should().Be(4);
             TikTokProjectImageTemplateCatalog.ListOptions(root)
                 .Should().Contain(option => option.Id == account.ProjectImageOptions.TemplateId);
@@ -92,6 +93,9 @@ public sealed class TikTokProjectImageTemplateSelectionTests
                 using var document = JsonDocument.Parse(File.ReadAllText(path));
                 document.RootElement.GetProperty("ProjectImageTemplateId").GetString()
                     .Should().Be("image-template-project-image-99");
+                document.RootElement.GetProperty("ProjectImageSubtitleAiMode").GetString().Should().Be("fast");
+                document.RootElement.GetProperty("ProjectImageCount").GetInt32().Should().Be(4);
+                document.RootElement.GetProperty("ProjectImageRenderEpisodeLimit").GetInt32().Should().Be(6);
             }
             finally
             {

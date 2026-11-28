@@ -67,8 +67,8 @@ public static class TikTokProjectImageService
             ? item.EpisodeCount
             : ProjectWorkspaceService.ResolveSourceEpisodeCount(context.SourceProjectDir));
         var workflowDir = ProjectWorkspaceService.EnsureWorkflowInfo(context.SourceProjectDir, episodeCount, log);
-        var count = ResolveCount(settings);
-        var renderEpisodeLimit = ResolveRenderEpisodeLimit(settings);
+        var count = settings.TiktokProjectImageCount;
+        var renderEpisodeLimit = settings.TiktokProjectImageRenderEpisodeLimit;
         var outputDir = GetOutputDirectory(workflowDir);
         Directory.CreateDirectory(outputDir);
         RecoverInterruptedOutput(outputDir, log);
@@ -178,7 +178,7 @@ public static class TikTokProjectImageService
         {
             var context = ProjectWorkspaceService.LoadContext(sourceProjectDir);
             var normalized = NormalizeProjectImageSettings((settings ?? ClientSettingsStore.Load()).Clone());
-            var count = ResolveCount(normalized);
+            var count = normalized.TiktokProjectImageCount;
             return HasEnoughOutputs(context.WorkflowProjectDir, count);
         }
         catch
@@ -399,29 +399,12 @@ public static class TikTokProjectImageService
                ?? string.Empty;
     }
 
-    private static int ResolveCount(ClientSettings settings) =>
-        Math.Clamp(
-            settings.TiktokProjectImageCount <= 0
-                ? ClientSettingsDefaults.TiktokProjectImageCount
-                : settings.TiktokProjectImageCount,
-            1,
-            20);
-
-    private static int ResolveRenderEpisodeLimit(ClientSettings settings) =>
-        Math.Clamp(
-            settings.TiktokProjectImageRenderEpisodeLimit <= 0
-                ? ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit
-                : settings.TiktokProjectImageRenderEpisodeLimit,
-            1,
-            200);
-
     private static ClientSettings NormalizeProjectImageSettings(ClientSettings settings)
     {
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
         settings.TiktokProjectImageTemplateId = TikTokProjectImageTemplateCatalog.RuntimeId(
             settings.TiktokProjectImageTemplateId);
-        settings.TiktokProjectImageCount = ResolveCount(settings);
-        settings.TiktokProjectImageRenderEpisodeLimit = ResolveRenderEpisodeLimit(settings);
+        TikTokProjectImageOptions.ApplyGenerationDefaults(settings);
         return settings;
     }
 

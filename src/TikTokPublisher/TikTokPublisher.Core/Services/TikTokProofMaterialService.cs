@@ -347,8 +347,7 @@ public sealed class TikTokProofMaterialService
             !editingReusable;
         var proofVideoEpisodeCount = ResolveTemporaryVideoEpisodeCount(
             aiNeedsVideo,
-            editingNeedsVideo,
-            settings);
+            editingNeedsVideo);
         if (proofVideoEpisodeCount > 0)
         {
             _ = await QueueMaterialStepService.EnsureProofMaterialVideosAsync(
@@ -567,20 +566,10 @@ public sealed class TikTokProofMaterialService
 
     internal static int ResolveTemporaryVideoEpisodeCount(
         bool generateAiScreenshots,
-        bool generateEditingProjectFiles,
-        ClientSettings settings)
+        bool generateEditingProjectFiles)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-
         if (generateEditingProjectFiles)
-        {
-            return Math.Clamp(
-                settings.TiktokProjectImageRenderEpisodeLimit <= 0
-                    ? ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit
-                    : settings.TiktokProjectImageRenderEpisodeLimit,
-                1,
-                200);
-        }
+            return ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
 
         // The AI workbench can fill all required shots from different frames of one episode.
         return generateAiScreenshots ? 1 : 0;

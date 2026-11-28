@@ -354,16 +354,6 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(ProjectImageTemplateBox, selectedId, ClientSettingsDefaults.TiktokProjectImageTemplateId);
     }
 
-    private async void OnProjectImageOptionsClick(object? sender, RoutedEventArgs e)
-    {
-        if (_projectImageOptions is not { } options || TopLevel.GetTopLevel(this) is not Window owner)
-            return;
-
-        var edited = await new ProjectImageOptionsDialog(options).ShowDialog<TikTokProjectImageOptions?>(owner);
-        if (edited is not null && ReferenceEquals(_projectImageOptions, options))
-            _projectImageOptions = edited;
-    }
-
     private void SyncWorkspaceBoxFromSelectedAccount()
     {
         var profile = _vm?.SelectedAccount?.Model;
