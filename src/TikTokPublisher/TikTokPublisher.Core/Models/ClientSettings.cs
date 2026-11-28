@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace TikTokPublisher.Core.Models;
 
 /// <summary>与 Python <c>ClientSettings</c> / <c>app_settings.client_settings</c> 对齐的全局配置。</summary>
@@ -181,7 +183,9 @@ public sealed class ClientSettings
     public string AuthPassword { get; set; } = "";
     public string AuthLastUsername { get; set; } = "";
     public string AuthLastLoginAt { get; set; } = "";
-    public bool TiktokExcelAutoExportEnabled { get; set; } = true;
+    // A new key keeps the old default-on setting from becoming an explicit opt-in.
+    [JsonPropertyName("tiktok_excel_auto_export_opt_in")]
+    public bool TiktokExcelAutoExportEnabled { get; set; }
     public bool TiktokAccountAnalyticsEnabled { get; set; } = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
     public bool ManagementDedupEnabled { get; set; } = true;
     public string ManagementDedupScope { get; set; } = "tiktok_username";

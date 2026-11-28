@@ -10,6 +10,35 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokExcelExportServiceTests
 {
     [Fact]
+    public void Title_lookup_works_before_the_first_excel_export()
+    {
+        var previousRoot = AppPaths.DataRootOverride;
+        var directory = Directory.CreateTempSubdirectory("tiktok-before-excel-");
+        try
+        {
+            AppPaths.DataRootOverride = directory.FullName;
+            var workspace = directory.CreateSubdirectory("workspace").FullName;
+            var account = new TikTokAccountProfile { Id = "acct-1", LastWorkspace = workspace };
+            var item = BuildItem(workspace, "project-a", "原剧", account.Id, "账号一");
+            item.NewTitle = "新剧";
+            WorkspaceQueueDatabase.Save(workspace, [item]);
+            var reportPath = TikTokExcelExportService.ResolveReportPath(account);
+            File.Exists(reportPath).Should().BeFalse();
+
+            var identity = TikTokSeriesIdentityIndex.Load(account).Find(item.NewTitle);
+
+            identity.OriginalTitle.Should().Be("原剧");
+            File.Exists(reportPath).Should().BeFalse();
+        }
+        finally
+        {
+            AppPaths.DataRootOverride = previousRoot;
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Export_Creates_Only_Summary_Sheet()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-excel-{Guid.NewGuid():N}");

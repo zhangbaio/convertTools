@@ -199,14 +199,14 @@
                 </WrapPanel>
 
                 <WrapPanel Grid.Row="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="8" Margin="0,0,0,8">
+                    <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" />
+                    <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" />
                     <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" />
                     <Button Content="勾到当前项" AutomationProperties.Name="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" />
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" />
                     <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="dangerSoftAction compactAction" />
                     <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" />
                     <Button Content="生成注册PDF" Click="OnGenerateArticlesPdfClick" Classes="fileAction compactAction" IsVisible="False" />
-                    <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" />
-                    <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" />
                     <Button Content="角色素材" Click="OnConfigureRoleMaterialClick" Classes="contentAction compactAction" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" />
                     <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" />

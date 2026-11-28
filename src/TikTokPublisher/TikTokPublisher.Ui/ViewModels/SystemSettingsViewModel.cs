@@ -254,7 +254,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _tiktokProofDeclarantCompanyName = "";
     [ObservableProperty] private string _tiktokProofSealPath = "";
     [ObservableProperty] private bool _tiktokProofKeepDocx = ClientSettingsDefaults.TiktokProofKeepDocx;
-    [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
+    [ObservableProperty] private bool _tiktokExcelAutoExportEnabled;
     [ObservableProperty] private bool _tiktokAccountAnalyticsEnabled = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
     [ObservableProperty] private string _tiktokSyncWorkspaceRoot = "";
     [ObservableProperty] private bool _managementDedupEnabled;

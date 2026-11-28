@@ -212,6 +212,7 @@ public static class ClientSettingsStore
         existing.Remove("tiktok_project_image_generation_mode");
         existing.Remove("tiktok_project_image_fable_cut_root");
         existing.Remove("tiktok_project_image_fable_cut_clip_count");
+        existing.Remove("tiktok_excel_auto_export_enabled");
         existing.Remove("tiktok_proof_pdf_renderer");
         existing.Remove("tiktok_minimum_episode_count");
         existing.Remove("tiktok_maximum_episode_count");

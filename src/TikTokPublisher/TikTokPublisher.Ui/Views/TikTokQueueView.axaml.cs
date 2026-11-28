@@ -3625,30 +3625,25 @@ public partial class TikTokQueueView : UserControl
         }
     }
 
-    private async void OnOpenExcelClick(object? sender, RoutedEventArgs e)
+    private void OnOpenExcelClick(object? sender, RoutedEventArgs e)
     {
-        var vm = _vm;
-        if (vm is null) return;
-        var button = sender as Button;
-        if (button is not null) button.IsEnabled = false;
+        if (_vm is not { } vm)
+            return;
+        var path = TikTokExcelExportService.ResolveReportPath(account: null);
+        if (!File.Exists(path))
+        {
+            vm.StatusMessage = "尚未生成 Excel，请先点击「导出 Excel」。";
+            return;
+        }
+
         try
         {
-            vm.StatusMessage = "正在导出 Excel...";
-            var path = await vm.ExportQueueExcelAsync();
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = path,
-                UseShellExecute = true,
-            });
+            Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
             vm.StatusMessage = $"已打开 Excel：{path}";
         }
         catch (Exception ex)
         {
             vm.StatusMessage = $"打开 Excel 失败：{ex.Message}";
-        }
-        finally
-        {
-            if (button is not null) button.IsEnabled = true;
         }
     }
 

@@ -9,6 +9,40 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokPublishDefaultsTests
 {
     [Fact]
+    public void Excel_auto_export_requires_a_new_explicit_opt_in()
+    {
+        var root = Directory.CreateTempSubdirectory("tiktok-excel-opt-in-");
+        var path = Path.Combine(root.FullName, "app.db");
+        try
+        {
+            ClientSettingsStore.Load(path).TiktokExcelAutoExportEnabled.Should().BeFalse();
+
+            AppSettingStore.SaveJson(ClientSettingsStore.SettingsKey, new Dictionary<string, bool>
+            {
+                ["tiktok_excel_auto_export_enabled"] = true,
+            }, path);
+            var settings = ClientSettingsStore.Load(path);
+            settings.TiktokExcelAutoExportEnabled.Should().BeFalse();
+
+            settings.TiktokExcelAutoExportEnabled = true;
+            ClientSettingsStore.Save(settings, path);
+            ClientSettingsStore.Load(path).TiktokExcelAutoExportEnabled.Should().BeTrue();
+            AppSettingStore.TryLoadJson<Dictionary<string, JsonElement>>(
+                ClientSettingsStore.SettingsKey, out var stored, path).Should().BeTrue();
+            stored.Should().NotContainKey("tiktok_excel_auto_export_enabled");
+
+            settings.TiktokExcelAutoExportEnabled = false;
+            ClientSettingsStore.Save(settings, path);
+            ClientSettingsStore.Load(path).TiktokExcelAutoExportEnabled.Should().BeFalse();
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void Publish_options_and_manifest_use_built_in_defaults_even_with_legacy_settings()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tiktok-publish-defaults-{Guid.NewGuid():N}");
