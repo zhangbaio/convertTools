@@ -41,7 +41,6 @@ public sealed class CopyrightProofMaterialPlanBuilderTests
             QueueStepRegistry.GenerateAiScriptOutline,
             QueueStepRegistry.GenerateRoleVector,
             QueueStepRegistry.GenerateProofMaterial,
-            QueueStepRegistry.GenerateTimestampCertificate,
             QueueStepRegistry.UploadSeries);
         plan.SourceInfoSelection.Should().Be(
             new TikTokSourceFileInfoPackageSelection(true, true, true, true));

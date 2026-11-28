@@ -115,7 +115,7 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             QueueStepStatus.Pending,
             project.StepStates[QueueStepRegistry.GenerateAiScriptOutline]);
         Assert.Equal(
-            QueueStepStatus.Pending,
+            QueueStepStatus.Completed,
             project.StepStates[QueueStepRegistry.GenerateTimestampCertificate]);
         Assert.Equal(
             QueueStepStatus.Completed,

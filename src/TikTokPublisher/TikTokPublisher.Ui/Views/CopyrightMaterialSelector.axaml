@@ -109,7 +109,7 @@
                                        Classes="materialHint" IsVisible="{Binding IsChecked, ElementName=FilingLicenseMaterialBox}" />
                             <StackPanel Classes="materialContents"
                                         IsVisible="{Binding IsChecked, ElementName=FilingLicenseMaterialBox}">
-                                <TextBlock Classes="materialHint" Text="上传：可信时间戳认证证书（自动生成）" />
+                                <TextBlock Classes="materialHint" Text="执行「证明材料」时按需生成或复用时间戳 PDF。" />
                                 <StackPanel Spacing="5">
                                     <TextBlock Classes="materialFieldLabel" Text="可信时间戳申请人" TextWrapping="Wrap" />
                                     <TextBox Classes="configurationInput" x:Name="TimestampApplicantNameBox" Watermark="留空时使用本公司/声明人" />

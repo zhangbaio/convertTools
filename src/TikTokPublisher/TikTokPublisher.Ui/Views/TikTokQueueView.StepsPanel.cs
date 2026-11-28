@@ -17,7 +17,7 @@ public partial class TikTokQueueView
 
     private void InitializeQueueStepsPanel()
     {
-        foreach (var step in QueueExecutionStepOptions.Children.OfType<CheckBox>())
+        foreach (var step in GetQueueExecutionSteps())
             step.IsCheckedChanged += (_, _) => UpdateQueueStepsSummary();
         LayoutUpdated += (_, _) => LimitQueueStepsBodyHeight();
         ApplyQueueStepsPresentation();
@@ -72,13 +72,17 @@ public partial class TikTokQueueView
 
     private void UpdateQueueStepsSummary()
     {
-        var selected = QueueExecutionStepOptions.Children.OfType<CheckBox>()
+        var selected = GetQueueExecutionSteps()
             .Count(step => step.IsVisible &&
                 (step.IsChecked == true || (step == AiProductionStep && step.IsChecked is null)));
         QueueStepsSummary.Text = $"执行步骤 · 已选 {selected} 项";
         var action = _queueStepsPreferences.Expanded ? "收起" : "展开";
         AutomationProperties.SetName(QueueStepsToggle, $"{action}执行步骤，已选 {selected} 项");
     }
+
+    private IEnumerable<CheckBox> GetQueueExecutionSteps() =>
+        QueueExecutionStepOptions.Children.OfType<CheckBox>()
+            .Where(step => step != AutoArchiveOption && step != ForceRerunOption);
 
     private void LimitQueueStepsBodyHeight()
     {

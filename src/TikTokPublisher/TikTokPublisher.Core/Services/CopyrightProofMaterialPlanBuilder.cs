@@ -93,14 +93,11 @@ public static class CopyrightProofMaterialPlanBuilder
             steps.Add(QueueStepRegistry.GenerateRoleVector);
         }
 
-        if (includeProductionAgreement || includeAiScreenshots ||
+        if (includeProductionAgreement || includeFilingLicense || includeAiScreenshots ||
             includeEditingProject || includeSourceInfo)
         {
             steps.Add(QueueStepRegistry.GenerateProofMaterial);
         }
-
-        if (includeFilingLicense)
-            steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
 
         if (executionMode == CopyrightProofExecutionMode.GenerateAndEdit)
             steps.Add(QueueStepRegistry.UploadSeries);

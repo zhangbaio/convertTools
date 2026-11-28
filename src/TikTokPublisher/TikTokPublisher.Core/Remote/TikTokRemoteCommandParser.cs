@@ -97,7 +97,7 @@ public static class TikTokRemoteCommandParser
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in rawItems)
         {
-            var step = (item?.ToString() ?? "").Trim();
+            var step = QueueStepRegistry.NormalizeEnabledStepKey((item?.ToString() ?? "").Trim());
             if (string.IsNullOrWhiteSpace(step) || !known.Contains(step) || !seen.Add(step))
                 continue;
             result.Add(step);

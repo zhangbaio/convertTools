@@ -153,12 +153,20 @@ public sealed class TikTokRemoteCommandParserTests
             QueueStepRegistry.Download,
             QueueStepRegistry.RewriteInfo,
             QueueStepRegistry.GeneratePoster,
-            QueueStepRegistry.SmallVideoRepair,
             QueueStepRegistry.MaterialValidate,
             QueueStepRegistry.UploadSeries);
         options.EnabledSteps.Should().NotContain(QueueStepRegistry.GenerateProofMaterial);
         options.AutoArchiveAfterUpload.Should().BeFalse();
         options.ForceRerunCompletedSteps.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Old_remote_repair_key_resolves_to_validation_once()
+    {
+        var steps = new[] { QueueStepRegistry.SmallVideoRepair, QueueStepRegistry.MaterialValidate };
+        TikTokRemoteCommandParser.NormalizeEnabledSteps(steps).Should().Equal(QueueStepRegistry.MaterialValidate);
+        var command = new TikTokRemoteCommand(TikTokRemoteCommandNames.UploadSeries, EnabledSteps: steps);
+        TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(command).EnabledSteps.Should().Equal(QueueStepRegistry.MaterialValidate);
     }
 
     [Fact]

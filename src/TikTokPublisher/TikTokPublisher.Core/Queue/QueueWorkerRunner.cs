@@ -1495,7 +1495,7 @@ public sealed class QueueWorkerRunner
 
             try
             {
-                if (stepKey is QueueStepRegistry.VideoDedup or QueueStepRegistry.SmallVideoRepair)
+                if (stepKey == QueueStepRegistry.VideoDedup)
                     QueueWorkloadResourceScheduler.Configure(ClientSettingsStore.Load());
                 var useProjectGate = activeSteps.Count > 1;
                 if (useProjectGate)
@@ -1638,72 +1638,13 @@ public sealed class QueueWorkerRunner
         var aiOutlineSupplement = options.IsAiOutlineSupplementRun();
 
         if (!aiOutlineSupplement &&
-            options.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate) &&
-            materialTypes.Contains(
-                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
-                StringComparer.Ordinal))
+            TikTokPublishConstants.RequiresTimestampCertificate(materialTypes) &&
+            !TikTokTimestampCertificateService.HasCurrentOutput(item))
         {
-            mutate(() => MarkRunning(item, QueueStepRegistry.GenerateTimestampCertificate));
-            Report(
-                onProgress,
-                workspace,
-                item,
-                "已勾选备案/发行许可，上传前准备可信时间戳认证证书…",
-                QueueStepRegistry.GenerateTimestampCertificate);
-            try
-            {
-                var timestampSettings = ClientSettingsStore.Load();
-                var regenerateTimestamp = options.ForceRerunCompletedSteps ||
-                                          options.RegeneratesCopyrightProofMaterials();
-                string timestampPath;
-                if (regenerateTimestamp &&
-                    item.StepStates.GetValueOrDefault(QueueStepRegistry.GenerateTimestampCertificate) ==
-                    QueueStepStatus.Completed)
-                {
-                    uploadLog("上传将使用刚按当前配置重新生成的可信时间戳。");
-                    timestampPath = TikTokTimestampCertificateService.GetOutputPath(item);
-                }
-                else
-                {
-                    timestampPath = await TikTokTimestampCertificateService.GenerateAsync(
-                            item,
-                            timestampSettings,
-                            account,
-                            regenerateTimestamp,
-                            uploadLog,
-                            ct)
-                        .ConfigureAwait(false);
-                }
-
-                TikTokProofMaterialPdfRenderService.ValidatePdf(timestampPath);
-                mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateTimestampCertificate));
-                Report(
-                    onProgress,
-                    workspace,
-                    item,
-                    $"备案/发行许可时间戳已就绪：{timestampPath}",
-                    QueueStepRegistry.GenerateTimestampCertificate);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                mutate(() =>
-                {
-                    MarkStopped(item, QueueStepRegistry.GenerateTimestampCertificate);
-                    item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Stopped;
-                });
-                throw;
-            }
-            catch (Exception ex)
-            {
-                var message = $"备案/发行许可时间戳准备失败：{ex.Message}";
-                mutate(() =>
-                {
-                    MarkFailed(item, QueueStepRegistry.GenerateTimestampCertificate, message);
-                    item.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Failed;
-                });
-                Report(onProgress, workspace, item, message, QueueStepRegistry.GenerateTimestampCertificate);
-                return false;
-            }
+            var message = TikTokTimestampCertificateService.MissingOutputMessage;
+            mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, message));
+            Report(onProgress, workspace, item, message, QueueStepRegistry.UploadSeries);
+            return false;
         }
 
         if (!aiOutlineSupplement &&
@@ -2185,18 +2126,6 @@ public sealed class QueueWorkerRunner
                     materialVideoFallback,
                     options).ConfigureAwait(false);
                 break;
-            case QueueStepRegistry.GenerateTimestampCertificate:
-                await TikTokTimestampCertificateService.GenerateAsync(
-                    item,
-                    settings,
-                    account,
-                    options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
-                    log,
-                    ct).ConfigureAwait(false);
-                break;
-            case QueueStepRegistry.SmallVideoRepair:
-                TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log, ct);
-                break;
             case QueueStepRegistry.VideoTranslate:
                 await TikTokVideoTranslateService.TranslateAsync(
                     item.ProjectDir, item.Title, item.OriginalTitle, settings, log, ct).ConfigureAwait(false);
@@ -2318,6 +2247,8 @@ public sealed class QueueWorkerRunner
     {
         ClientSettings LoadSettings() => TikTokAccountAiSettings.Apply(settings?.Value ?? ClientSettingsStore.Load(), account);
 
+        if (!QueueStepRegistry.IsAvailable(stepKey))
+            return false;
         if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
             return true;
         if (options.ForceRerunCompletedSteps) return true;
@@ -2373,7 +2304,6 @@ public sealed class QueueWorkerRunner
         }
         if (options.RegeneratesCopyrightProofMaterials() &&
             stepKey is QueueStepRegistry.GenerateProofMaterial or
-                QueueStepRegistry.GenerateTimestampCertificate or
                 QueueStepRegistry.GenerateProjectImages)
         {
             return true;
@@ -2389,12 +2319,6 @@ public sealed class QueueWorkerRunner
                 LoadSettings(),
                 account,
                 options))
-        {
-            return true;
-        }
-        if (stepKey == QueueStepRegistry.GenerateTimestampCertificate &&
-            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            !TikTokTimestampCertificateService.HasCurrentOutput(item))
         {
             return true;
         }
@@ -2419,12 +2343,6 @@ public sealed class QueueWorkerRunner
             {
                 return true;
             }
-        }
-        if (stepKey == QueueStepRegistry.SmallVideoRepair &&
-            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            TikTokSmallVideoRepairService.NeedsRepair(item.ProjectDir))
-        {
-            return true;
         }
         if (stepKey == QueueStepRegistry.MaterialValidate &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed)

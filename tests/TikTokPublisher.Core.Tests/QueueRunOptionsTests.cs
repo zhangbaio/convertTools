@@ -7,6 +7,25 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueRunOptionsTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Legacy_repair_settings_map_to_one_validation_step(bool alreadyHasValidation)
+    {
+        var steps = alreadyHasValidation
+            ? new[] { QueueStepKeys.SmallVideoRepair, QueueStepKeys.MaterialValidate }
+            : new[] { QueueStepKeys.SmallVideoRepair };
+        var options = QueueRunOptions.FromDictionary(new() { ["enabled_steps"] = steps });
+
+        options.EnabledSteps.Should().Equal(QueueStepKeys.MaterialValidate);
+        options.IsStepEnabled(QueueStepKeys.MaterialValidate).Should().BeTrue();
+        options.IsStepEnabled(QueueStepKeys.SmallVideoRepair).Should().BeFalse();
+        options.ToPersistentDictionary()["enabled_steps"].Should()
+            .BeEquivalentTo(new[] { QueueStepKeys.MaterialValidate });
+        QueueStepRegistry.OrderUserSelectableSteps(steps).Should().Equal(QueueStepKeys.MaterialValidate);
+        QueueStepRegistry.UserSelectable.Should().NotContain(step => step.Key == QueueStepKeys.SmallVideoRepair);
+    }
+
     [Fact]
     public void NormalizeStepStates_RecoversStepsSkippedByRemovedLiveActionDetection()
     {
@@ -199,9 +218,22 @@ public sealed class QueueRunOptionsTests
         options.EnabledSteps.Should().Equal(
             QueueStepRegistry.GenerateAiScriptOutline,
             QueueStepRegistry.GenerateProofMaterial,
-            QueueStepRegistry.GenerateTimestampCertificate,
             QueueStepRegistry.UploadSeries);
         options.IsCopyrightProofOnlyRun().Should().BeTrue();
+    }
+
+    [Fact]
+    public void Legacy_timestamp_selection_enables_only_the_combined_proof_step()
+    {
+        var options = QueueRunOptions.FromDictionary(new()
+        {
+            ["enabled_steps"] = new[] { QueueStepKeys.GenerateTimestampCertificate },
+        });
+
+        options.EnabledSteps.Should().Equal(QueueStepKeys.GenerateProofMaterial);
+        options.IsStepEnabled(QueueStepKeys.GenerateProofMaterial).Should().BeTrue();
+        options.IsStepEnabled(QueueStepKeys.GenerateTimestampCertificate).Should().BeFalse();
+        options.ToDictionary()["enabled_steps"].Should().BeEquivalentTo(new[] { QueueStepKeys.GenerateProofMaterial });
     }
 
     [Fact]
@@ -306,7 +338,7 @@ public sealed class QueueRunOptionsTests
         legacyUploaded.StepStates[QueueStepKeys.GenerateEpisodeScript].Should().Be(QueueStepStatus.Pending);
         legacyUploaded.StepStates[QueueStepKeys.GenerateAiScriptOutline].Should().Be(QueueStepStatus.Pending);
         legacyUploaded.StepStates[QueueStepKeys.GenerateAiDramaMaterials].Should().Be(QueueStepStatus.Pending);
-        legacyUploaded.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Pending);
+        legacyUploaded.StepStates.Should().NotContainKey(QueueStepKeys.GenerateTimestampCertificate);
         legacyUploaded.StepStates[QueueStepKeys.GenerateProjectImages].Should().Be(QueueStepStatus.Pending);
         explicitlyReset.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
     }

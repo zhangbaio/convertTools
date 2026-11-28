@@ -12,7 +12,6 @@ internal static class QueueStepExecutionGraph
         QueueStepRegistry.GenerateRoleVector,
         QueueStepRegistry.GenerateProjectImages,
         QueueStepRegistry.GenerateProofMaterial,
-        QueueStepRegistry.GenerateTimestampCertificate,
     ];
 
     public static bool IsParallelGenerationStep(string stepKey) =>
@@ -73,12 +72,8 @@ internal static class QueueStepResourceScheduler
         QueueStepRegistry.GenerateRoleVector or
             QueueStepRegistry.GenerateProjectImages =>
             QueueWorkloadResource.Visual,
-        QueueStepRegistry.GenerateTimestampCertificate =>
-            QueueWorkloadResource.Document,
         QueueStepRegistry.GeneratePoster =>
             QueueWorkloadResource.ImageGeneration,
-        QueueStepRegistry.SmallVideoRepair =>
-            QueueWorkloadResource.Ffmpeg,
         _ => null,
     };
 }

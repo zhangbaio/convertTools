@@ -1,5 +1,6 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
@@ -35,7 +36,7 @@ public sealed class QueueStepArtifactConsistencyTests
         scanned.StepStates[QueueStepKeys.GenerateAiDramaMaterials].Should().Be(QueueStepStatus.Pending);
         scanned.StepStates[QueueStepKeys.GenerateRoleVector].Should().Be(QueueStepStatus.Pending);
         scanned.StepStates[QueueStepKeys.GenerateProjectImages].Should().Be(QueueStepStatus.Pending);
-        scanned.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Pending);
+        scanned.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Completed);
         scanned.StepStates[QueueStepKeys.MaterialValidate].Should().Be(QueueStepStatus.Pending);
     }
 
@@ -53,10 +54,14 @@ public sealed class QueueStepArtifactConsistencyTests
     }
 
     [Fact]
-    public void Completed_timestamp_step_runs_again_when_certificate_is_missing()
+    public void Completed_proof_step_runs_again_when_its_accounts_certificate_is_missing()
     {
         using var fixture = new QueueProjectFixture();
-        fixture.Item.StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
+        fixture.Item.StepStates[QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed;
+        var account = new TikTokAccountProfile
+        {
+            TiktokCopyrightMaterialTypes = [TikTokPublishConstants.FilingOrDistributionLicenseMaterialType],
+        };
         var options = new QueueRunOptions
         {
             EnabledSteps = [QueueStepKeys.GenerateTimestampCertificate],
@@ -64,18 +69,26 @@ public sealed class QueueStepArtifactConsistencyTests
 
         QueueWorkerRunner.ShouldRunStep(
                 fixture.Item,
-                QueueStepKeys.GenerateTimestampCertificate,
-                options)
+                QueueStepKeys.GenerateProofMaterial,
+                options,
+                account,
+                new Lazy<ClientSettings>(() => new ClientSettings()))
             .Should().BeTrue();
 
         var output = TikTokTimestampCertificateService.GetOutputPath(fixture.Item);
         Directory.CreateDirectory(Path.GetDirectoryName(output)!);
-        File.WriteAllBytes(output, "%PDF-1.7\n"u8.ToArray().Concat(new byte[128]).ToArray());
+        using (var document = new PdfSharp.Pdf.PdfDocument())
+        {
+            document.AddPage();
+            document.Save(output);
+        }
 
         QueueWorkerRunner.ShouldRunStep(
                 fixture.Item,
-                QueueStepKeys.GenerateTimestampCertificate,
-                options)
+                QueueStepKeys.GenerateProofMaterial,
+                options,
+                account,
+                new Lazy<ClientSettings>(() => new ClientSettings()))
             .Should().BeFalse();
     }
 
@@ -134,7 +147,7 @@ public sealed class QueueStepArtifactConsistencyTests
                 fixture.Item,
                 QueueStepKeys.GenerateTimestampCertificate,
                 options)
-            .Should().BeTrue();
+            .Should().BeFalse();
 
         options.UploadEntryMode = "";
         QueueWorkerRunner.ShouldRunStep(

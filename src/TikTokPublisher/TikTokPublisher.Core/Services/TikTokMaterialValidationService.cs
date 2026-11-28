@@ -35,7 +35,7 @@ public static class TikTokMaterialValidationService
                 Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
                 MinimumEpisodeCount = minimum,
                 MaximumEpisodeCount = maximum,
-                EnabledSteps = (runOptions?.EnabledSteps ?? [])
+                EnabledSteps = (runOptions?.OrderedEnabledSteps() ?? [])
                     .ToHashSet(StringComparer.Ordinal),
                 AllowMissingUploadVideos = allowMissingUploadVideos,
             };
@@ -101,6 +101,24 @@ public static class TikTokMaterialValidationService
             throw;
         }
 
+        if (CountActualUploadVideos(sourceProjectDir) > 0)
+        {
+            log?.Invoke("校验准备：检查上传副本并按需修复视频。");
+            try
+            {
+                await QueueWorkloadResourceScheduler.RunAsync(QueueWorkloadResource.Ffmpeg, () =>
+                {
+                    TikTokSmallVideoRepairService.Repair(sourceProjectDir, title, originalTitle, log, ct);
+                    return Task.CompletedTask;
+                }, log, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new InvalidOperationException($"校验中的视频修复失败：{ex.Message}", ex);
+            }
+        }
+
+        ct.ThrowIfCancellationRequested();
         var payload = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
             rebuildStaging: false, repairSmallVideos: false, log, ct);
@@ -136,20 +154,6 @@ public static class TikTokMaterialValidationService
             {
                 issues.Add($"第{episode}集 | {name} | 读大小失败（{ex.Message}）");
                 continue;
-            }
-
-            if (fileSize < TikTokVideoConstraints.MinSizeBytes &&
-                TikTokSmallVideoPaddingService.SupportsPadding(uploadPath))
-            {
-                try
-                {
-                    if (await TikTokSmallVideoPaddingService.PadWithoutReencodeAsync(uploadPath, log, ct))
-                        fileSize = new FileInfo(uploadPath).Length;
-                }
-                catch (Exception ex)
-                {
-                    log?.Invoke($"第{episode}集 | {name} | 小文件自动补齐失败（{ex.Message}）");
-                }
             }
 
             MediaProbe probe;
@@ -190,14 +194,14 @@ public static class TikTokMaterialValidationService
             throw new InvalidOperationException($"TikTok 素材校验失败：{preview}{suffix}");
         }
 
+        ValidateGeneratedUploadMaterials(sourceProjectDir, account, options, log);
+        ct.ThrowIfCancellationRequested();
         if (payload.UploadPaths.Count > 0)
         {
             log?.Invoke($"通过：共 {payload.SourcePaths.Count} 个视频。");
             TikTokUploadManifestService.Save(sourceProjectDir, account, payload, log);
             SaveValidationState(sourceProjectDir, payload, options);
         }
-
-        ValidateGeneratedUploadMaterials(sourceProjectDir, account, options, log);
     }
 
     internal static void ValidateGeneratedUploadMaterials(
@@ -278,21 +282,10 @@ public static class TikTokMaterialValidationService
                 issues.Add($"剪辑工程文件要求至少 {TikTokProjectImageService.MinUploadImageCount} 张工程图，当前 {count} 张");
         }
 
-        if (materialTypes.Contains(
-                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
-                StringComparer.Ordinal))
+        if (TikTokPublishConstants.RequiresTimestampCertificate(materialTypes) &&
+            !TikTokTimestampCertificateService.HasCurrentOutput(workflow))
         {
-            if (!enabled.Contains(QueueStepRegistry.GenerateTimestampCertificate))
-            {
-                issues.Add("账号已选择备案/发行许可材料，但本次未启用“生成时间戳”步骤");
-            }
-            else if (!TikTokTimestampCertificateService.HasCurrentOutput(new QueueProjectItem
-                     {
-                         ProjectDir = sourceProjectDir,
-                     }))
-            {
-                issues.Add("备案/发行许可时间戳认证证书缺失或无效");
-            }
+            issues.Add(TikTokTimestampCertificateService.MissingOutputMessage);
         }
 
         if (issues.Count > 0)
@@ -450,7 +443,7 @@ public static class TikTokMaterialValidationService
             var uploadPaths = ProjectVideoResolver.ResolveUploadVideos(
                 sourceProjectDir,
                 allowStagedFallback: true);
-            if (uploadPaths.Count == 0)
+            if (uploadPaths.Count == 0 || !TikTokUploadStagingService.CopiesMatchSources(sourceProjectDir))
                 return false;
 
             var context = ProjectWorkspaceService.LoadContext(sourceProjectDir);

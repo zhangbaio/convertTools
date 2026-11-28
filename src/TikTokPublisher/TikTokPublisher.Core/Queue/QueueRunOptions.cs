@@ -34,8 +34,6 @@ public static class QueueStepRegistry
         new QueueStepDefinition(QueueStepKeys.GenerateRoleVector, "角色图", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "工程图", true),
         new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "证明材料", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateTimestampCertificate, "时间戳", true),
-        new QueueStepDefinition(SmallVideoRepair, "修复", true),
         new QueueStepDefinition(VideoTranslate, "翻译", true),
         new QueueStepDefinition(MaterialValidate, "校验", true),
         new QueueStepDefinition(UploadSeries, "上传", true),
@@ -50,21 +48,36 @@ public static class QueueStepRegistry
     public static IReadOnlyList<string> DefaultEnabledSteps { get; } = Array.Empty<string>();
 
     public static string LabelOf(string stepKey) =>
-        All.FirstOrDefault(s => s.Key == stepKey).Label ?? stepKey;
+        stepKey switch
+        {
+            SmallVideoRepair => "修复",
+            GenerateTimestampCertificate => "时间戳",
+            _ => All.FirstOrDefault(s => s.Key == stepKey).Label ?? stepKey,
+        };
 
     public static bool IsImplemented(string stepKey) =>
         All.FirstOrDefault(s => s.Key == stepKey).Implemented;
 
-    // Video translation is developed on the dedicated feature branch. Keep the
-    // persisted step key readable on main, but never expose or execute it here.
+    // These keys remain readable in historical state but are not standalone steps.
     public static bool IsAvailable(string stepKey) =>
-        !string.Equals(stepKey, VideoTranslate, StringComparison.Ordinal);
+        stepKey is not (VideoTranslate or SmallVideoRepair or GenerateTimestampCertificate);
 
-    public static IEnumerable<string> OrderEnabledSteps(IEnumerable<string> enabledSteps) =>
-        All.Select(s => s.Key).Where(key => IsAvailable(key) && enabledSteps.Contains(key));
+    internal static string NormalizeEnabledStepKey(string stepKey) =>
+        stepKey switch
+        {
+            SmallVideoRepair => MaterialValidate,
+            GenerateTimestampCertificate => GenerateProofMaterial,
+            _ => stepKey,
+        };
+
+    public static IEnumerable<string> OrderEnabledSteps(IEnumerable<string> enabledSteps)
+    {
+        var selected = enabledSteps.Select(NormalizeEnabledStepKey).ToHashSet(StringComparer.Ordinal);
+        return All.Select(s => s.Key).Where(key => IsAvailable(key) && selected.Contains(key));
+    }
 
     public static IEnumerable<string> OrderUserSelectableSteps(IEnumerable<string> enabledSteps) =>
-        UserSelectable.Select(s => s.Key).Where(enabledSteps.Contains);
+        OrderEnabledSteps(enabledSteps).Where(key => key != GenerateProjectImages);
 }
 
 public readonly record struct QueueStepDefinition(string Key, string Label, bool Implemented);
@@ -93,11 +106,10 @@ public sealed class QueueRunOptions
     public Dictionary<string, string> ReplaceDraftTargets { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
 
-
     public bool IsStepEnabled(string stepKey)
     {
         return QueueStepRegistry.IsAvailable(stepKey) &&
-               EnabledSteps.Contains(stepKey, StringComparer.Ordinal);
+               EnabledSteps.Any(key => QueueStepRegistry.NormalizeEnabledStepKey(key) == stepKey);
     }
 
     public IReadOnlyList<string> OrderedEnabledSteps()
@@ -156,7 +168,7 @@ public sealed class QueueRunOptions
         {
             foreach (var item in list)
             {
-                var key = (item?.ToString() ?? "").Trim();
+                var key = QueueStepRegistry.NormalizeEnabledStepKey((item?.ToString() ?? "").Trim());
                 if (!string.IsNullOrEmpty(key) &&
                     QueueStepRegistry.IsAvailable(key) &&
                     QueueStepRegistry.All.Any(s => s.Key == key))
@@ -168,7 +180,7 @@ public sealed class QueueRunOptions
 
         return new QueueRunOptions
         {
-            EnabledSteps = enabled,
+            EnabledSteps = enabled.Distinct(StringComparer.Ordinal).ToList(),
             AutoArchiveAfterUpload = GetBool(payload, "auto_archive_after_upload"),
             ForceRerunCompletedSteps = GetBool(payload, "force_rerun_completed_steps"),
             SyncManagementAfterUpload =
@@ -312,8 +324,7 @@ public sealed class QueueRunOptions
         IEnumerable<string> requiredSteps)
     {
         ArgumentNullException.ThrowIfNull(requiredSteps);
-        var steps = requiredSteps
-            .Where(QueueStepRegistry.IsAvailable)
+        var steps = QueueStepRegistry.OrderEnabledSteps(requiredSteps)
             .ToHashSet(StringComparer.Ordinal);
         if (executionMode == CopyrightProofExecutionMode.GenerateAndEdit)
             steps.Add(QueueStepRegistry.UploadSeries);

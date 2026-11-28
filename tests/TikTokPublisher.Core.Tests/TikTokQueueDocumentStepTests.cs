@@ -95,10 +95,9 @@ public sealed class TikTokQueueDocumentStepTests
 
         Array.IndexOf(keys, QueueStepKeys.GenerateEpisodeScript)
             .Should().BeLessThan(Array.IndexOf(keys, QueueStepKeys.GenerateProofMaterial));
-        Array.IndexOf(keys, QueueStepKeys.GenerateTimestampCertificate)
-            .Should().BeGreaterThan(Array.IndexOf(keys, QueueStepKeys.GenerateProofMaterial));
+        keys.Should().NotContain(QueueStepKeys.GenerateTimestampCertificate);
         QueueStepRegistry.UserSelectable.Select(step => step.Key)
-            .Should().Contain([QueueStepKeys.GenerateEpisodeScript, QueueStepKeys.GenerateTimestampCertificate]);
+            .Should().Contain([QueueStepKeys.GenerateEpisodeScript, QueueStepKeys.GenerateProofMaterial]);
     }
 
     [Fact]
@@ -109,7 +108,8 @@ public sealed class TikTokQueueDocumentStepTests
         item.NormalizeStepStates();
 
         item.StepStates[QueueStepKeys.GenerateEpisodeScript].Should().Be(QueueStepStatus.Pending);
-        item.StepStates[QueueStepKeys.GenerateTimestampCertificate].Should().Be(QueueStepStatus.Pending);
+        item.StepStates[QueueStepKeys.GenerateProofMaterial].Should().Be(QueueStepStatus.Pending);
+        item.StepStates.Should().NotContainKey(QueueStepKeys.GenerateTimestampCertificate);
     }
 
     [Fact]

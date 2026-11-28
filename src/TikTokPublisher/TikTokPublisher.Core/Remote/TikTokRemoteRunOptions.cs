@@ -15,7 +15,7 @@ public static class TikTokRemoteRunOptions
 
         return new QueueRunOptions
         {
-            EnabledSteps = NormalizeSteps(enabledSteps).ToList(),
+            EnabledSteps = QueueStepRegistry.OrderEnabledSteps(enabledSteps.Select(step => (step ?? "").Trim())).ToList(),
             AutoArchiveAfterUpload = RemoteOptionBool(
                 queueOptions,
                 "auto_archive_after_upload",
@@ -29,17 +29,6 @@ public static class TikTokRemoteRunOptions
                 RemoteOptionBool(queueOptions, "sync_management_after_upload", false),
             ProjectConcurrency = 4,
         };
-    }
-
-    private static IEnumerable<string> NormalizeSteps(IEnumerable<string>? enabledSteps)
-    {
-        var known = QueueStepRegistry.All.Select(step => step.Key).ToHashSet(StringComparer.Ordinal);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var steps = enabledSteps?
-            .Select(step => (step ?? "").Trim())
-            .Where(step => step.Length > 0 && known.Contains(step) && seen.Add(step))
-            .ToList() ?? [];
-        return QueueStepRegistry.OrderEnabledSteps(steps);
     }
 
     private static bool RemoteOptionBool(

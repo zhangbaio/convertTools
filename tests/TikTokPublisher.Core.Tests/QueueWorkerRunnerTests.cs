@@ -206,7 +206,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         }, ct);
 
     [Fact]
-    public void ValidateRunSelection_Reruns_Completed_Repair_When_Transferred_Upload_Is_Small()
+    public void ValidateRunSelection_Uses_Validation_For_Legacy_Repair_With_No_Validation_Record()
     {
         var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-stale-repair-{Guid.NewGuid():N}");
         Directory.CreateDirectory(projectDir);
@@ -229,6 +229,8 @@ public sealed class QueueWorkerRunnerTests : IDisposable
             };
 
             QueueWorkerRunner.ValidateRunSelection([item], options, new AccountStore()).Should().Be(1);
+            options.OrderedEnabledSteps().Should().Equal(QueueStepRegistry.MaterialValidate);
+            item.StepStates[QueueStepRegistry.SmallVideoRepair].Should().Be(QueueStepStatus.Completed);
         }
         finally
         {

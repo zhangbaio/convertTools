@@ -239,82 +239,48 @@
                                    FontWeight="SemiBold" Margin="4,2,0,4" />
                         <ScrollViewer x:Name="QueueStepsBody" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <StackPanel Grid.Column="0" Spacing="5">
-                                    <WrapPanel x:Name="QueueExecutionStepOptions" Orientation="Horizontal">
-                                        <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
-                                        <CheckBox Content="视频去重"
-                                                  IsChecked="{Binding QueueVideoDedupEnabled}"
-                                                  Margin="0,0,12,2"
-                                                  ToolTip.Tip="按项目所属账号的默认去重模板处理。" />
-                                        <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
-                                        <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
-                                        <CheckBox x:Name="AiProductionStep"
-                                                  Content="AI 制作"
-                                                  IsChecked="{Binding QueueAiProductionEnabled, Mode=OneWay}"
-                                                  Command="{Binding ToggleAiProductionCommand}"
-                                                  Margin="0,0,12,2"
-                                                  ToolTip.Tip="生成剧本、AI 素材、AI 大纲与角色图。横杠表示当前配置仅启用了部分子步骤，点击可全部启用。" />
-                                        <CheckBox Content="证明材料"
-                                                  IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
-                                                  Margin="0,0,12,2"
-                                                  ToolTip.Placement="Bottom"
-                                                  ToolTip.VerticalOffset="6"
-                                                  ToolTip.ShowDelay="350">
-                                            <ToolTip.Tip>
-                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                                    <Border Classes="stepHintCard">
-                                                        <StackPanel MaxWidth="380" Spacing="3">
-                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                            <TextBlock Text="按照账号选择的版权材料类型生成并登记证明文件。" Classes="stepHintBody" />
-                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                            <TextBlock Text="可能包括“证明材料.pdf/.docx”、AI 过程截图、剪辑工程文件和原始文件信息材料。" Classes="stepHintBody" />
-                                                        </StackPanel>
-                                                    </Border>
-                                                </ToolTip>
-                                            </ToolTip.Tip>
-                                        </CheckBox>
-                                        <CheckBox Content="时间戳"
-                                                  IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}"
-                                                  Margin="0,0,12,2"
-                                                  ToolTip.Placement="Bottom"
-                                                  ToolTip.VerticalOffset="6"
-                                                  ToolTip.ShowDelay="350">
-                                            <ToolTip.Tip>
-                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                                    <Border Classes="stepHintCard">
-                                                        <StackPanel MaxWidth="380" Spacing="3">
-                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                            <TextBlock Text="根据项目、申请人和认证信息制作中英双页时间戳证书。" Classes="stepHintBody" />
-                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                            <TextBlock Text="工作项目目录中的“可信时间戳认证证书.pdf”。" Classes="stepHintBody" />
-                                                        </StackPanel>
-                                                    </Border>
-                                                </ToolTip>
-                                            </ToolTip.Tip>
-                                        </CheckBox>
-                                        <CheckBox Content="修复"
-                                                  IsChecked="{Binding QueueSmallVideoRepairEnabled}"
-                                                  Margin="0,0,12,2"
-                                                  ToolTip.Tip="检查并修复过小的上传视频。" />
-                                        <CheckBox Content="翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
-                                        <CheckBox Content="校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
-                                        <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
-                                    </WrapPanel>
-                                    <WrapPanel Orientation="Horizontal">
-                                        <CheckBox Content="同步管理"
-                                                  IsChecked="{Binding SyncManagementAfterUpload}"
-                                                  Margin="0,0,16,0"
-                                                  ToolTip.Tip="上传完成后把项目同步到管理系统。" />
-                                        <CheckBox Content="归档"
-                                                  IsChecked="{Binding AutoArchiveAfterUpload}"
-                                                  Margin="0,0,16,0"
-                                                  ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                                        <CheckBox Content="重跑"
-                                                  IsChecked="{Binding ForceRerunCompletedSteps}"
-                                                  Margin="0,0,16,0"
-                                                  ToolTip.Tip="已完成步骤会重新执行。" />
-                                    </WrapPanel>
-                                </StackPanel>
+                                <WrapPanel x:Name="QueueExecutionStepOptions" Orientation="Horizontal"
+                                           ItemSpacing="8" LineSpacing="4" VerticalAlignment="Center">
+                                    <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" />
+                                    <CheckBox Content="去重"
+                                              IsChecked="{Binding QueueVideoDedupEnabled}"
+                                              ToolTip.Tip="按项目所属账号的默认去重模板处理。" />
+                                    <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" />
+                                    <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" />
+                                    <CheckBox x:Name="AiProductionStep"
+                                              Content="AI 制作"
+                                              IsChecked="{Binding QueueAiProductionEnabled, Mode=OneWay}"
+                                              Command="{Binding ToggleAiProductionCommand}"
+                                              ToolTip.Tip="生成剧本、AI 素材、AI 大纲与角色图。横杠表示当前配置仅启用了部分子步骤，点击可全部启用。" />
+                                    <CheckBox Content="证明材料"
+                                              IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
+                                              ToolTip.Placement="Bottom"
+                                              ToolTip.VerticalOffset="6"
+                                              ToolTip.ShowDelay="350">
+                                        <ToolTip.Tip>
+                                            <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                <Border Classes="stepHintCard">
+                                                    <StackPanel MaxWidth="380" Spacing="3">
+                                                        <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                        <TextBlock Text="按剧集所属账号配置生成证明材料。启用备案／发行许可时一并准备可信时间戳证书。" Classes="stepHintBody" />
+                                                        <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                        <TextBlock Text="可能包括“证明材料.pdf/.docx”、AI 过程截图、剪辑工程文件和原始文件信息材料。" Classes="stepHintBody" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </ToolTip>
+                                        </ToolTip.Tip>
+                                    </CheckBox>
+                                    <CheckBox Content="翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" IsVisible="False" />
+                                    <CheckBox Content="校验" IsChecked="{Binding QueueMaterialValidateEnabled}"
+                                              ToolTip.Tip="按需修复上传视频，并校验剧集和上传材料。" />
+                                    <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" />
+                                    <CheckBox x:Name="AutoArchiveOption" Content="归档"
+                                              IsChecked="{Binding AutoArchiveAfterUpload}"
+                                              ToolTip.Tip="上传成功后自动把项目移入归档。" />
+                                    <CheckBox x:Name="ForceRerunOption" Content="重跑"
+                                              IsChecked="{Binding ForceRerunCompletedSteps}"
+                                              ToolTip.Tip="已完成步骤会重新执行。" />
+                                </WrapPanel>
                                 <StackPanel Grid.Column="1" Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
                                     <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
                                     <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
@@ -393,8 +359,8 @@
                               VerticalScrollBarVisibility="Disabled"
                               AllowAutoHide="False"
                               SizeChanged="OnQueueTableViewportSizeChanged">
-                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1596">
-                    <views:QueueTableGrid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,210,210,60,128,68,68,68,68,84,76,68,68,0,68,68,180">
+                <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1460">
+                    <views:QueueTableGrid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,210,210,60,128,68,68,68,68,84,76,0,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="原剧名" Classes="tableHeader" />
@@ -402,17 +368,15 @@
                         <TextBlock Grid.Column="4" Text="集数" Classes="tableHeader" />
                         <TextBlock Grid.Column="5" Text="加入时间" Classes="tableHeader" />
                         <TextBlock Grid.Column="6" Text="下载" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="7" Text="视频去重" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="7" Text="去重" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="8" Text="改写" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="9" Text="海报" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="10" Text="AI 制作" Classes="tableHeader stepTableHeader" />
                         <TextBlock Grid.Column="11" Text="证明材料" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="12" Text="时间戳" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="13" Text="修复" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="14" Text="翻译" Classes="tableHeader stepTableHeader" IsVisible="False" />
-                        <TextBlock Grid.Column="15" Text="校验" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="16" Text="上传" Classes="tableHeader stepTableHeader" />
-                        <TextBlock Grid.Column="17" Text="备注" Classes="tableHeader" />
+                        <TextBlock Grid.Column="12" Text="翻译" Classes="tableHeader stepTableHeader" IsVisible="False" />
+                        <TextBlock Grid.Column="13" Text="校验" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="14" Text="上传" Classes="tableHeader stepTableHeader" />
+                        <TextBlock Grid.Column="15" Text="备注" Classes="tableHeader" />
                         <Border Grid.Column="0" Classes="queueColumnResizer" Tag="0" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="1" Classes="queueColumnResizer" Tag="1" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="2" Classes="queueColumnResizer" Tag="2" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
@@ -425,11 +389,9 @@
                         <Border Grid.Column="9" Classes="queueColumnResizer" Tag="9" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="10" Classes="queueColumnResizer" Tag="10" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="11" Classes="queueColumnResizer" Tag="11" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="12" Classes="queueColumnResizer" Tag="12" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="12" Classes="queueColumnResizer" Tag="12" IsVisible="False" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="13" Classes="queueColumnResizer" Tag="13" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="14" Classes="queueColumnResizer" Tag="14" IsVisible="False" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="15" Classes="queueColumnResizer" Tag="15" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                        <Border Grid.Column="16" Classes="queueColumnResizer" Tag="16" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
+                        <Border Grid.Column="14" Classes="queueColumnResizer" Tag="14" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                     </views:QueueTableGrid>
 
                     <ListBox x:Name="QueueProjectList"
@@ -442,7 +404,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
                                 <Border Classes="queueTableRow" Height="42" HorizontalAlignment="Left" Loaded="OnQueueTableRowLoaded">
-                                    <views:QueueTableGrid ColumnDefinitions="48,56,210,210,60,128,68,68,68,68,84,76,68,68,0,68,68,180" ClipToBounds="True">
+                                    <views:QueueTableGrid ColumnDefinitions="48,56,210,210,60,128,68,68,68,68,84,76,0,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <Button Grid.Column="2"
@@ -495,19 +457,13 @@
                                         <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding ProofMaterialStatusBackgroundBrush}" BorderBrush="{Binding ProofMaterialStatusBorderBrush}" ToolTip.Tip="{Binding ProofMaterialStatus}">
                                             <TextBlock Text="{Binding ProofMaterialStatus}" Foreground="{Binding ProofMaterialStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding TimestampCertificateStatusBackgroundBrush}" BorderBrush="{Binding TimestampCertificateStatusBorderBrush}" ToolTip.Tip="{Binding TimestampCertificateStatus}">
-                                            <TextBlock Text="{Binding TimestampCertificateStatus}" Foreground="{Binding TimestampCertificateStatusBrush}" Classes="stepStatusText" />
-                                        </Border>
-                                        <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding RepairStatusBackgroundBrush}" BorderBrush="{Binding RepairStatusBorderBrush}" ToolTip.Tip="{Binding RepairStatus}">
-                                            <TextBlock Text="{Binding RepairStatus}" Foreground="{Binding RepairStatusBrush}" Classes="stepStatusText" />
-                                        </Border>
-                                        <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding VideoTranslateStatusBackgroundBrush}" BorderBrush="{Binding VideoTranslateStatusBorderBrush}" ToolTip.Tip="{Binding VideoTranslateStatus}" IsVisible="False">
+                                        <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding VideoTranslateStatusBackgroundBrush}" BorderBrush="{Binding VideoTranslateStatusBorderBrush}" ToolTip.Tip="{Binding VideoTranslateStatus}" IsVisible="False">
                                             <TextBlock Text="{Binding VideoTranslateStatus}" Foreground="{Binding VideoTranslateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="15" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
+                                        <Border Grid.Column="13" Classes="stepStatusBadge" Background="{Binding ValidateStatusBackgroundBrush}" BorderBrush="{Binding ValidateStatusBorderBrush}" ToolTip.Tip="{Binding ValidateStatus}">
                                             <TextBlock Text="{Binding ValidateStatus}" Foreground="{Binding ValidateStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <Border Grid.Column="16" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
+                                        <Border Grid.Column="14" Classes="stepStatusBadge" Background="{Binding UploadStatusBackgroundBrush}" BorderBrush="{Binding UploadStatusBorderBrush}" ToolTip.Tip="{Binding DetailText}">
                                             <Border.ContextMenu>
                                                 <ContextMenu>
                                                     <MenuItem Header="标记上传成功" Click="OnMarkUploadCompletedClick" />
@@ -516,7 +472,7 @@
                                             </Border.ContextMenu>
                                             <TextBlock Text="{Binding UploadStatus}" Foreground="{Binding UploadStatusBrush}" Classes="stepStatusText" />
                                         </Border>
-                                        <TextBox Grid.Column="17"
+                                        <TextBox Grid.Column="15"
                                                  Classes="queueRemarkBox"
                                                  Text="{Binding Remark, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                  Watermark="备注"

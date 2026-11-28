@@ -22,7 +22,7 @@ public sealed class QueueStepExecutionGraphTests
         dependencies[QueueStepRegistry.GenerateEpisodeScript].Should().BeEmpty();
         dependencies[QueueStepRegistry.GenerateAiDramaMaterials].Should().BeEmpty();
         dependencies[QueueStepRegistry.GenerateAiScriptOutline].Should().BeEmpty();
-        dependencies[QueueStepRegistry.GenerateTimestampCertificate].Should().BeEmpty();
+        dependencies.Should().NotContainKey(QueueStepRegistry.GenerateTimestampCertificate);
         dependencies[QueueStepRegistry.GenerateRoleVector]
             .Should().Equal(QueueStepRegistry.GenerateAiDramaMaterials);
         dependencies[QueueStepRegistry.GenerateProofMaterial].Should().Equal(

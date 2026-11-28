@@ -627,10 +627,6 @@ public static class WorkspaceQueueService
             () => TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir));
         ResetCompletedWhenMissing(
             item,
-            QueueStepKeys.GenerateTimestampCertificate,
-            () => TikTokTimestampCertificateService.HasCurrentOutput(item));
-        ResetCompletedWhenMissing(
-            item,
             QueueStepKeys.MaterialValidate,
             () => TikTokMaterialValidationService.HasCurrentValidationState(context.SourceProjectDir));
     }
@@ -674,8 +670,6 @@ public static class WorkspaceQueueService
             item.StatusText = QueueStepStatus.Completed;
             item.LastError = "";
             item.StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
-            item.StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
-            item.StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
             item.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
             return;
         }
@@ -684,8 +678,6 @@ public static class WorkspaceQueueService
         {
             item.UploadCompletedAt = "";
             CompleteIfPending(item, QueueStepKeys.GenerateProjectImages);
-            CompleteIfPending(item, QueueStepKeys.SmallVideoRepair);
-            CompleteIfPending(item, QueueStepKeys.MaterialValidate);
 
             var uploadStatus = item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries, QueueStepStatus.Pending).Trim();
             if (!string.IsNullOrWhiteSpace(uploadFailedAt) || !string.IsNullOrWhiteSpace(uploadError))

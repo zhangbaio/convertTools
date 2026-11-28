@@ -107,7 +107,6 @@ public static class TikTokRemoteCommandStepDefaults
         QueueStepRegistry.Download,
         QueueStepRegistry.RewriteInfo,
         QueueStepRegistry.GeneratePoster,
-        QueueStepRegistry.SmallVideoRepair,
         QueueStepRegistry.MaterialValidate,
         QueueStepRegistry.UploadSeries,
     };

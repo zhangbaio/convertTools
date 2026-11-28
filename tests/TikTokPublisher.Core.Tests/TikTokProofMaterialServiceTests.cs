@@ -114,13 +114,13 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public async Task Publish_item_prerequisite_skips_generation_when_cooperation_agreement_is_not_selected()
+    public async Task Publish_item_prerequisite_skips_generation_when_only_manual_materials_are_selected()
     {
         var account = new TikTokAccountProfile
         {
             TiktokCopyrightMaterialTypes =
             [
-                "filing_or_distribution_license",
+                "work_registration_certificate",
                 "opening_ending_rights_notice",
             ],
         };
@@ -129,6 +129,19 @@ public sealed class TikTokProofMaterialServiceTests
             new PublishItem(), account, log: null, CancellationToken.None);
 
         result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Publish_item_prerequisite_requires_the_project_directory_for_timestamp()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokCopyrightMaterialTypes = ["filing_or_distribution_license", "opening_ending_rights_notice"],
+        };
+        var action = () => TikTokProofMaterialService.EnsureCurrentForUploadAsync(
+            new PublishItem(), account, log: null, CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("*未提供当前项目目录*可信时间戳 PDF*");
     }
 
     [Fact]

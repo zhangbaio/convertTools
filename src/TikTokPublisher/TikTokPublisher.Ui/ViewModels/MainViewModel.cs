@@ -198,8 +198,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool? _queueAiProductionEnabled = false;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
-    [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
-    [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
     [ObservableProperty] private bool _queueVideoTranslateEnabled;
     [ObservableProperty] private bool _queueMaterialValidateEnabled;
     [ObservableProperty] private bool _queueUploadEnabled = true;
@@ -1275,9 +1273,7 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueAiProductionEnabledChanged(bool? value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueVideoTranslateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueMaterialValidateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
 
@@ -1488,8 +1484,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGeneratePosterEnabled = true;
             QueueAiProductionEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
-            QueueGenerateTimestampCertificateEnabled = true;
-            QueueSmallVideoRepairEnabled = true;
             QueueVideoTranslateEnabled = false;
             QueueMaterialValidateEnabled = true;
             QueueUploadEnabled = true;
@@ -1517,8 +1511,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGeneratePosterEnabled = false;
             QueueAiProductionEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
-            QueueGenerateTimestampCertificateEnabled = false;
-            QueueSmallVideoRepairEnabled = false;
             QueueVideoTranslateEnabled = false;
             QueueMaterialValidateEnabled = false;
             QueueUploadEnabled = false;
@@ -5152,8 +5144,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueAiProductionEnabled = QueueAiProductionGroup.CheckState(aiProductionSteps.Count);
             UpdateAiProductionRowSteps(aiProductionSteps);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
-            QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
-            QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
             QueueVideoTranslateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoTranslate);
             QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
             QueueUploadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.UploadSeries);
@@ -5180,8 +5170,6 @@ public sealed partial class MainViewModel : ViewModelBase
         var aiProductionSteps = QueueAiProductionGroup.ResolveSelection(QueueAiProductionEnabled, _queueRunOptions);
         steps.AddRange(aiProductionSteps);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
-        if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
-        if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (QueueVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
         if (QueueUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);

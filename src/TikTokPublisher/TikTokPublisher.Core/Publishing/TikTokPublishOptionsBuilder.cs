@@ -47,9 +47,7 @@ public static class TikTokPublishOptionsBuilder
                 }
             }
 
-            if (options.CopyrightMaterialTypes.Contains(
-                    TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
-                    StringComparer.Ordinal))
+            if (TikTokPublishConstants.RequiresTimestampCertificate(options.CopyrightMaterialTypes))
             {
                 var timestampCertificate = Path.Combine(
                     workflowProjectDir,

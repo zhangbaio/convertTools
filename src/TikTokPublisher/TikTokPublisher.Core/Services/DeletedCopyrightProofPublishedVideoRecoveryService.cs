@@ -195,7 +195,6 @@ public static class DeletedCopyrightProofPublishedVideoRecoveryService
             [QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed,
             [QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed,
             [QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Pending,
-            [QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed,
             [QueueStepKeys.VideoTranslate] = QueueStepStatus.Completed,
             [QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed,
             [QueueStepKeys.DeleteSourceVideos] = QueueStepStatus.Completed,

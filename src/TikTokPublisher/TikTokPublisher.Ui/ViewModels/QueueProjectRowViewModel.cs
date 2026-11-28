@@ -135,8 +135,6 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string AiProductionStatus => GetAiProductionStatus();
     public string ProjectImageStatus => StepOf(QueueStepKeys.GenerateProjectImages);
     public string ProofMaterialStatus => StepOf(QueueStepKeys.GenerateProofMaterial);
-    public string TimestampCertificateStatus => StepOf(QueueStepKeys.GenerateTimestampCertificate);
-    public string RepairStatus => StepOf(QueueStepKeys.SmallVideoRepair);
     public string VideoTranslateStatus => StepOf(QueueStepKeys.VideoTranslate);
     public string ValidateStatus => StepOf(QueueStepKeys.MaterialValidate);
     public string UploadStatus => StepOf(QueueStepKeys.UploadSeries);
@@ -149,8 +147,6 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush AiProductionStatusBrush => BrushOf(AiProductionStatus);
     public IBrush ProjectImageStatusBrush => BrushOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBrush => BrushOf(ProofMaterialStatus);
-    public IBrush TimestampCertificateStatusBrush => BrushOf(TimestampCertificateStatus);
-    public IBrush RepairStatusBrush => BrushOf(RepairStatus);
     public IBrush VideoTranslateStatusBrush => BrushOf(VideoTranslateStatus);
     public IBrush ValidateStatusBrush => BrushOf(ValidateStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
@@ -169,8 +165,6 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush AiProductionStatusBackgroundBrush => BackgroundOf(AiProductionStatus);
     public IBrush ProjectImageStatusBackgroundBrush => BackgroundOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBackgroundBrush => BackgroundOf(ProofMaterialStatus);
-    public IBrush TimestampCertificateStatusBackgroundBrush => BackgroundOf(TimestampCertificateStatus);
-    public IBrush RepairStatusBackgroundBrush => BackgroundOf(RepairStatus);
     public IBrush VideoTranslateStatusBackgroundBrush => BackgroundOf(VideoTranslateStatus);
     public IBrush ValidateStatusBackgroundBrush => BackgroundOf(ValidateStatus);
     public IBrush UploadStatusBackgroundBrush => BackgroundOf(UploadStatus);
@@ -182,8 +176,6 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush AiProductionStatusBorderBrush => BorderOf(AiProductionStatus);
     public IBrush ProjectImageStatusBorderBrush => BorderOf(ProjectImageStatus);
     public IBrush ProofMaterialStatusBorderBrush => BorderOf(ProofMaterialStatus);
-    public IBrush TimestampCertificateStatusBorderBrush => BorderOf(TimestampCertificateStatus);
-    public IBrush RepairStatusBorderBrush => BorderOf(RepairStatus);
     public IBrush VideoTranslateStatusBorderBrush => BorderOf(VideoTranslateStatus);
     public IBrush ValidateStatusBorderBrush => BorderOf(ValidateStatus);
     public IBrush UploadStatusBorderBrush => BorderOf(UploadStatus);

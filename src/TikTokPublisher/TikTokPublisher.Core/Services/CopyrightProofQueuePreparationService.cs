@@ -28,6 +28,7 @@ public static class CopyrightProofQueuePreparationService
             .Select(item => Path.GetFullPath(item.ProjectDir))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var plannedGenerationSteps = (requiredGenerationSteps ?? [])
+            .Select(QueueStepRegistry.NormalizeEnabledStepKey)
             .Where(step =>
                 QueueStepRegistry.IsAvailable(step) &&
                 !string.Equals(step, QueueStepRegistry.GenerateProofMaterial, StringComparison.Ordinal) &&
@@ -71,15 +72,8 @@ public static class CopyrightProofQueuePreparationService
                     item.StepStates[step] = QueueStepStatus.Pending;
             }
             item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
-            foreach (var step in new[]
-                     {
-                         QueueStepRegistry.GenerateTimestampCertificate,
-                         QueueStepRegistry.GenerateProjectImages,
-                     })
-            {
-                if (plannedGenerationSteps.Contains(step, StringComparer.Ordinal))
-                    item.StepStates[step] = QueueStepStatus.Pending;
-            }
+            if (plannedGenerationSteps.Contains(QueueStepRegistry.GenerateProjectImages, StringComparer.Ordinal))
+                item.StepStates[QueueStepRegistry.GenerateProjectImages] = QueueStepStatus.Pending;
 
             if (executionMode == CopyrightProofExecutionMode.GenerateAndEdit)
             {

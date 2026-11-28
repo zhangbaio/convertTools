@@ -80,6 +80,7 @@ public sealed class QueueProjectItem
     {
         RecoverLegacyLiveActionBlock();
         RemoveRetiredSteps();
+        CurrentStep = QueueStepRegistry.NormalizeEnabledStepKey(CurrentStep);
 
         // An explicit pending proof-material state must survive normalization (for example,
         // after a title rename). Only legacy uploaded records that predate this step are
@@ -88,7 +89,6 @@ public sealed class QueueProjectItem
         var hadAiScriptOutlineState = StepStates.ContainsKey(QueueStepKeys.GenerateAiScriptOutline);
         var hadAiDramaMaterialsState = StepStates.ContainsKey(QueueStepKeys.GenerateAiDramaMaterials);
         var hadRoleVectorState = StepStates.ContainsKey(QueueStepKeys.GenerateRoleVector);
-        var hadTimestampState = StepStates.ContainsKey(QueueStepKeys.GenerateTimestampCertificate);
 
         foreach (var key in new[]
                  {
@@ -102,10 +102,8 @@ public sealed class QueueProjectItem
                      QueueStepKeys.GenerateRoleVector,
                      QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.GenerateProofMaterial,
-                     QueueStepKeys.GenerateTimestampCertificate,
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
-                     QueueStepKeys.SmallVideoRepair,
                      QueueStepKeys.VideoTranslate,
                  })
             StepStates.TryAdd(key, QueueStepStatus.Pending);
@@ -127,17 +125,12 @@ public sealed class QueueProjectItem
                 StepStates[QueueStepKeys.GenerateAiDramaMaterials] = QueueStepStatus.Completed;
             if (!hadRoleVectorState && HasCurrentRoleVector())
                 StepStates[QueueStepKeys.GenerateRoleVector] = QueueStepStatus.Completed;
-            if (!hadTimestampState && HasCurrentTimestampCertificate())
-                StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.MaterialValidate) == QueueStepStatus.Pending &&
                 HasCurrentMaterialValidation())
                 StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
             if (StepStates.GetValueOrDefault(QueueStepKeys.GenerateProjectImages) == QueueStepStatus.Pending &&
                 HasCurrentProjectImages())
                 StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
-            if (StepStates.GetValueOrDefault(QueueStepKeys.SmallVideoRepair) == QueueStepStatus.Pending &&
-                HasCurrentSmallVideoRepair())
-                StepStates[QueueStepKeys.SmallVideoRepair] = QueueStepStatus.Completed;
         }
     }
 
@@ -160,17 +153,11 @@ public sealed class QueueProjectItem
         }
     }
 
-    private bool HasCurrentTimestampCertificate() =>
-        TikTokPublisher.Core.Services.TikTokTimestampCertificateService.HasCurrentOutput(this);
-
     private bool HasCurrentMaterialValidation() =>
         TikTokPublisher.Core.Services.TikTokMaterialValidationService.HasCurrentValidationState(ProjectDir);
 
     private bool HasCurrentProjectImages() =>
         TikTokPublisher.Core.Services.TikTokProjectImageService.HasCurrentProjectImages(ProjectDir);
-
-    private bool HasCurrentSmallVideoRepair() =>
-        !TikTokPublisher.Core.Services.TikTokSmallVideoRepairService.NeedsRepair(ProjectDir, checkFrames: false);
 
     private bool HasCurrentRoleVector()
     {

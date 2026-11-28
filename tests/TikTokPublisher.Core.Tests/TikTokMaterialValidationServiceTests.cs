@@ -1,6 +1,7 @@
 using FluentAssertions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
@@ -209,6 +210,62 @@ public sealed class TikTokMaterialValidationServiceTests
     }
 
     [Fact]
+    public async Task Validation_pads_small_upload_before_recording_success()
+    {
+        var workspace = Directory.CreateTempSubdirectory("material-validation-repair-");
+        var sourceDir = workspace.CreateSubdirectory("source").FullName;
+        var sourcePath = Path.Combine(sourceDir, "01.mp4");
+        var log = new List<string>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try
+        {
+            await FfmpegRunner.RunAsync(MediaBinaryResolver.ResolveFfmpeg(),
+                ["-y", "-f", "lavfi", "-i", "color=c=blue:s=480x270:r=1:d=16", "-c:v", "libx264", "-pix_fmt", "yuv420p", sourcePath],
+                timeout.Token);
+            var sourceBytes = File.ReadAllBytes(sourcePath);
+            sourceBytes.Length.Should().BeLessThan((int)TikTokVideoConstraints.MinSizeBytes);
+            var options = new TikTokMaterialValidationService.Options { MinimumEpisodeCount = 1 };
+
+            await TikTokMaterialValidationService.ValidateAsync(sourceDir, "Current", "Original", options, log.Add, timeout.Token);
+
+            var uploadPath = ProjectVideoResolver.ResolveStagedUploadVideos(sourceDir).Should().ContainSingle().Which;
+            new FileInfo(uploadPath).Length.Should().BeGreaterThanOrEqualTo(TikTokVideoConstraints.MinSizeBytes);
+            var probe = await MediaProbe.ProbeAsync(MediaBinaryResolver.ResolveFfprobe(), uploadPath, timeout.Token);
+            (probe.Width, probe.Height).Should().Be((480, 270));
+            File.ReadAllBytes(sourcePath).Should().Equal(sourceBytes);
+            log.Should().Contain(message => message.Contains("按需修复视频"));
+            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 1, options.MaximumEpisodeCount)
+                .Should().BeTrue();
+        }
+        finally
+        {
+            TryDelete(workspace.FullName);
+        }
+    }
+
+    [Fact]
+    public async Task Failed_repair_does_not_record_validation_success()
+    {
+        var workspace = Directory.CreateTempSubdirectory("material-validation-repair-failed-");
+        var sourceDir = workspace.CreateSubdirectory("source").FullName;
+        File.WriteAllBytes(Path.Combine(sourceDir, "01.avi"), [1]);
+        try
+        {
+            var options = new TikTokMaterialValidationService.Options { MinimumEpisodeCount = 1 };
+            var validate = () => TikTokMaterialValidationService.ValidateAsync(
+                sourceDir, "Current", "Original", options, log: null, CancellationToken.None);
+
+            await validate.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("校验中的视频修复失败：*第1集*");
+            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir).Should().BeFalse();
+        }
+        finally
+        {
+            TryDelete(workspace.FullName);
+        }
+    }
+
+    [Fact]
     public void HasCurrentValidationState_Uses_Actual_Staged_Videos_When_Their_Title_Differs()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"material-validation-{Guid.NewGuid():N}");
@@ -219,9 +276,9 @@ public sealed class TikTokMaterialValidationServiceTests
         Directory.CreateDirectory(stagingDir);
 
         var sourcePath = Path.Combine(sourceDir, "episode-1.mp4");
-        var stagingPath = Path.Combine(stagingDir, "RenamedShow-第1集.mp4");
         File.WriteAllBytes(sourcePath, [1]);
-        File.WriteAllBytes(stagingPath, [2, 3]);
+        var stagingPath = TikTokUploadStagingService.BuildPayload(sourceDir, "RenamedShow", "Original",
+            rebuildStaging: true, repairSmallVideos: false, log: null).UploadPaths.Single();
 
         try
         {
@@ -270,6 +327,11 @@ public sealed class TikTokMaterialValidationServiceTests
                 workflowDir);
             TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 30, 120).Should().BeTrue();
             TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 30, 80).Should().BeFalse();
+            // Simulate a new source replacing the old inode, leaving the staged bytes unchanged.
+            var replacement = Path.Combine(sourceDir, "replacement.tmp");
+            File.WriteAllBytes(replacement, [3, 4]);
+            File.Move(replacement, sourcePath, overwrite: true);
+            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 30, 120).Should().BeFalse();
         }
         finally
         {
@@ -480,14 +542,13 @@ public sealed class TikTokMaterialValidationServiceTests
                     EnabledSteps = new HashSet<string>(
                         [
                             QueueStepRegistry.GenerateProofMaterial,
-                            QueueStepRegistry.GenerateTimestampCertificate,
                         ],
                         StringComparer.Ordinal),
                 },
                 log: null);
 
             action.Should().Throw<InvalidOperationException>()
-                .WithMessage("*备案/发行许可时间戳*")
+                .WithMessage("*可信时间戳证书缺失或无效*")
                 .Which.Message.Should().NotContain("合作协议")
                 .And.NotContain("原始文件")
                 .And.NotContain("剪辑工程");

@@ -60,7 +60,7 @@ public static class TikTokSmallVideoRepairService
         {
             log?.Invoke(framedCount > 0
                 ? $"通过：已修复 {framedCount} 个比例不对的上传副本，未发现小于 5MB 的视频，共检查 {checkedCount} 个。"
-                : $"跳过：未发现小于 5MB 或比例不是 9:16 的视频，共检查 {checkedCount} 个待上传视频。");
+                : $"跳过：已检查 {checkedCount} 个待上传视频，文件大小和画面比例无需修复。");
             return;
         }
 
@@ -124,9 +124,9 @@ public static class TikTokSmallVideoRepairService
             return 0;
 
         log?.Invoke(
-            $"开始：检测到 {misframed.Count} 个画面比例不是 9:16 的视频" +
+            $"开始：检测到 {misframed.Count} 个画面比例超出上传范围的视频" +
             $"（{string.Join("、", misframed.Take(5).Select(Path.GetFileName))}{(misframed.Count > 5 ? " 等" : "")}），" +
-            "等比缩放到 1080×1920 并补黑边，原片备份到同目录 " + TikTokVideoFrameRepairService.BackupDirectoryName + "。");
+            "等比缩放并补黑边，原片备份到同目录 " + TikTokVideoFrameRepairService.BackupDirectoryName + "。");
         foreach (var path in misframed)
         {
             ct.ThrowIfCancellationRequested();
@@ -167,7 +167,7 @@ public static class TikTokSmallVideoRepairService
                     .GetAwaiter()
                     .GetResult();
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 issues.Add($"{name} 自动补齐失败（{ex.Message}）");
             }
