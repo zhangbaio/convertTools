@@ -16,12 +16,9 @@ internal static class KuaishouVideoDedup
     internal const string DispatchStep = "video_dedup";
     internal const string Label = "视频去重";
     internal const string MissingDraftBatchMessage = "已有快手草稿绑定的去重成片缺失或未通过校验。请恢复原批次后续传，或按新分集另建草稿。";
-    private const string LibraryKey = "kuaishou.video-dedup.templates";
     private static readonly PlatformDatabase Database = new(PlatformPublisherPaths.MainDatabasePath);
-    private static readonly JsonSettingStore Settings = new(Database);
     private static readonly AccountJsonSettingStore Accounts = new(Database);
     private const string EnabledKey = "kuaishou.video-dedup.enabled";
-    private const string PresetKey = "kuaishou.video-dedup.account-preset";
     private const string ManifestName = ".validated.json";
     private const string BatchPrefix = "批次-";
 
@@ -40,25 +37,9 @@ internal static class KuaishouVideoDedup
 
     internal static void SetEnabled(string accountId, bool enabled) => Accounts.Save(accountId, EnabledKey, enabled);
 
-    internal static VideoDedupPreset LoadPreset(string accountId, string? legacyTemplateId, PlatformDatabase? database = null)
-    {
-        var accounts = database is null ? Accounts : new AccountJsonSettingStore(database);
-        if (accounts.TryLoad<VideoDedupPreset>(accountId, PresetKey, out var saved) && saved is not null)
-            return saved.NormalizedCopy();
-        var settings = database is null ? Settings : new JsonSettingStore(database);
-        if (!string.IsNullOrWhiteSpace(legacyTemplateId) && legacyTemplateId != "default" &&
-            settings.TryLoad<Dictionary<string, VideoDedupPreset>>(LibraryKey, out var legacy))
-            return legacy?.GetValueOrDefault(legacyTemplateId)?.NormalizedCopy() ?? VideoDedupPreset.CreateDefault();
-        return VideoDedupPreset.CreateDefault();
-    }
-
-    internal static void SavePreset(string accountId, VideoDedupPreset preset, PlatformDatabase? database = null)
-    {
-        preset = preset.NormalizedCopy();
-        Validate(preset);
-        var accounts = database is null ? Accounts : new AccountJsonSettingStore(database);
-        accounts.Save(accountId, PresetKey, preset);
-    }
+    internal static VideoDedupPreset LoadPreset(string accountId, VideoDedupTemplateCatalog? catalog = null) =>
+        (catalog ?? VideoDedupTemplateCatalog.OpenDefault()).CaptureRunPreset(
+            VideoDedupTemplateAccount.ForKuaishou(accountId), message => System.Diagnostics.Trace.TraceWarning(message));
 
     internal static void Validate(VideoDedupPreset preset)
     {
@@ -77,6 +58,7 @@ internal static class KuaishouVideoDedup
         await using var lease = await AcquireOutputLockAsync(workflow, ct);
         var directory = Path.Combine(workflow, VideosDirectoryName);
         EnsureOrdinaryDirectory(directory);
+        var presetFingerprint = preset.Fingerprint();
 
         if (!force)
         {
@@ -100,13 +82,16 @@ internal static class KuaishouVideoDedup
                     ? "已有快手草稿使用原片。请取消视频去重后续传，或按新分集另建草稿。"
                     : MissingDraftBatchMessage);
             }
-            if (current is not null)
+            if (current is not null && (!string.IsNullOrWhiteSpace(upload.MiniSeriesId) ||
+                ReadDedupManifest(directory)?.PresetFingerprint == presetFingerprint))
             {
                 upload.BindVideoBatch(current);
                 log($"复用当前账号已校验的 {current.Paths.Count} 集去重成片。");
                 return current;
             }
-            if (reuseFailure is not null)
+            if (current is not null)
+                log("现有成片的模板参数与当前模板不同，将使用原片重新生成。");
+            else if (reuseFailure is not null)
                 log($"无法复用旧去重批次，将继续使用原片重新生成：{reuseFailure}");
         }
 
@@ -178,7 +163,7 @@ internal static class KuaishouVideoDedup
                     throw new InvalidOperationException($"第 {index + 1} 集去重成片无法播放。");
             }
             ct.ThrowIfCancellationRequested();
-            WriteMarker(manifestPath, new DedupManifest(identity, BatchAccountKey(accountId), generatedFiles!));
+            WriteMarker(manifestPath, new DedupManifest(identity, BatchAccountKey(accountId), generatedFiles!, presetFingerprint));
             File.Delete(writingPath);
             log($"已校验去重成片，原片 {sources.Count} 集，成片 {paths.Count} 集。目录 {directory}。");
             return new PublishVideoBatch(identity, paths);

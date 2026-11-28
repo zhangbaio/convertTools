@@ -257,7 +257,7 @@
                     <Panel Grid.Row="1">
                         <views:TikTokQueueView x:Name="QueueView" />
                         <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />
-                        <views:VideoDedupTemplatesView x:Name="DedupTemplatesView" IsVisible="False" />
+                        <views:VideoDedupAccountView x:Name="DedupAccountView" IsVisible="False" />
                         <views:LogView x:Name="LogView" IsVisible="False" />
                         <views:ArchivedProjectsView x:Name="ArchivedView" IsVisible="False" />
                         <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" />

@@ -26,6 +26,8 @@
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Resources\VideoDedupBuiltInTemplates.json"
+                      LogicalName="TikTokPublisher.Core.Resources.VideoDedupBuiltInTemplates.json" />
     <Content Include="Assets\MaterialClip\**\*.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Condition="'$(ExcludeRegistrationPdfAssets)' != 'true'">

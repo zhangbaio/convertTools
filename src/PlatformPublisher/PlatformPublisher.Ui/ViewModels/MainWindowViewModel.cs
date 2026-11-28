@@ -2182,7 +2182,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             enterprise ? "企业版" : "个人版",
             PipelineAutoArchiveAfterUpload,
-            GetKuaishouDedupPreset(accountId, config, PipelineKuaishouDedupEnabled));
+            GetKuaishouDedupPreset(accountId, PipelineKuaishouDedupEnabled));
     }
 
     private async Task RunCurrentKuaishouAccountPipelineAsync(IReadOnlyList<string> targets)

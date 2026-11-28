@@ -823,6 +823,7 @@ public sealed partial class MainWindowViewModel
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版",
             Has("auto_archive"),
+            VideoDedupPreset: GetKuaishouDedupPreset(account.Id, dedup),
             RemoteVideoDedup: dedup);
     }
 

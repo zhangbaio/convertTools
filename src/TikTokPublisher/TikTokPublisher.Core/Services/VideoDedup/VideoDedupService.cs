@@ -67,7 +67,7 @@ public static class VideoDedupService
         RunWithPresetAsync(
             item,
             account,
-            account.VideoDedupPreset?.Clone(),
+            VideoDedupTemplateCatalog.OpenDefault().CaptureRunPreset(VideoDedupTemplateAccount.ForTikTok(account), log),
             OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum,
             force,
             log,

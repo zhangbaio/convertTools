@@ -1,6 +1,5 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -37,7 +36,24 @@ public static class PublisherConfigTransfer
         try
         {
             if (File.Exists(AppPaths.AccountsFile))
-                ExportAccountsAndDedupTemplates(tempRoot, accounts);
+            {
+                var destination = Path.Combine(tempRoot, "accounts.json");
+                manifest.DedupTemplateSelections = VideoDedupTemplateCatalog.OpenDefault().CaptureAccountSelections(accounts);
+                if (accounts.Any(account => !string.IsNullOrWhiteSpace(account.VideoDedupTemplateId) || account.VideoDedupPreset is not null))
+                {
+                    var accountJson = JsonNode.Parse(File.ReadAllText(AppPaths.AccountsFile))!.AsArray();
+                    foreach (var account in accountJson.OfType<JsonObject>())
+                    {
+                        var legacyKeys = account.Select(property => property.Key).Where(IsLegacyDedupSetting).ToArray();
+                        foreach (var key in legacyKeys) account.Remove(key);
+                    }
+                    File.WriteAllText(destination, accountJson.ToJsonString(JsonOptions));
+                }
+                else
+                {
+                    File.Copy(AppPaths.AccountsFile, destination, overwrite: true);
+                }
+            }
             if (File.Exists(AppPaths.ActiveAccountFile))
                 File.Copy(AppPaths.ActiveAccountFile, Path.Combine(tempRoot, "active-account.json"), overwrite: true);
             if (includeRunData)
@@ -129,35 +145,6 @@ public static class PublisherConfigTransfer
         }
     }
 
-    private static void ExportAccountsAndDedupTemplates(string packageRoot, IReadOnlyList<TikTokAccountProfile> accounts)
-    {
-        var effective = VideoDedupTemplateCatalog.OpenDefault().CaptureRunPresets(accounts,
-            message => System.Diagnostics.Trace.TraceWarning(message));
-        var templates = new Dictionary<string, VideoDedupTemplate>();
-        foreach (var account in accounts)
-        {
-            var preset = effective.GetValueOrDefault(account.Id);
-            account.VideoDedupPreset = preset;
-            if (preset is null)
-            {
-                account.VideoDedupTemplateId = VideoDedupTemplateStore.SystemId;
-                continue;
-            }
-            var fingerprint = preset.Fingerprint();
-            var id = account.VideoDedupTemplateId;
-            if (string.IsNullOrWhiteSpace(id) || id == VideoDedupTemplateStore.SystemId ||
-                (templates.TryGetValue(id, out var existing) &&
-                 (existing.Name != preset.Name || existing.Preset.Fingerprint() != fingerprint)))
-                id = "export-" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(preset.Name + "\n" + fingerprint)));
-            account.VideoDedupTemplateId = id;
-            templates[id] = new VideoDedupTemplate(id, preset);
-        }
-        File.WriteAllText(Path.Combine(packageRoot, "accounts.json"), JsonSerializer.Serialize(accounts, JsonOptions));
-        if (templates.Count > 0)
-            File.WriteAllText(Path.Combine(packageRoot, VideoDedupTemplateStore.FileName),
-                JsonSerializer.Serialize(templates.Values, JsonOptions));
-    }
-
     public static ConfigPackageInfo Inspect(string zipPath)
     {
         var manifest = ReadManifest(zipPath);
@@ -192,7 +179,6 @@ public static class PublisherConfigTransfer
             }
 
             var importedAccounts = ReadAccounts(Path.Combine(tempRoot, "accounts.json"));
-            VideoDedupTemplateStore.Import(Path.Combine(tempRoot, VideoDedupTemplateStore.FileName), importedAccounts);
             var current = ReadAccounts(AppPaths.AccountsFile);
             foreach (var account in importedAccounts)
             {
@@ -215,13 +201,16 @@ public static class PublisherConfigTransfer
             }
 
             AccountStore.SaveAccounts(current);
-            try
+            if (manifest.DedupTemplateSelections is { } selections)
             {
-                VideoDedupTemplateCatalog.OpenDefault().ApplyImportedAccountPresets(importedAccounts);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-            {
-                notes.Add($"账号已导入，已有去重模板选择未更新：{ex.Message}");
+                try
+                {
+                    VideoDedupTemplateCatalog.OpenDefault().ImportAccountSelections(selections, importedAccounts);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+                {
+                    notes.Add($"账号已导入，已有去重模板选择未更新：{ex.Message}");
+                }
             }
             var activeId = manifest.ActiveAccountId;
             if (current.All(item => item.Id != activeId))
@@ -480,6 +469,10 @@ public static class PublisherConfigTransfer
             entry.ExtractToFile(dest, overwrite: true);
         }
     }
+
+    private static bool IsLegacyDedupSetting(string key) =>
+        key.Equals("videoDedupTemplateId", StringComparison.OrdinalIgnoreCase) ||
+        key.Equals("videoDedupPreset", StringComparison.OrdinalIgnoreCase);
 
     private static List<TikTokAccountProfile> ReadAccounts(string path)
     {
@@ -785,6 +778,7 @@ public static class PublisherConfigTransfer
         public string Scope { get; set; } = "";
         public bool HasAppDatabase { get; set; }
         public bool HasAppSettings { get; set; }
+        public Dictionary<string, VideoDedupTemplateEntry>? DedupTemplateSelections { get; set; }
 
         [JsonIgnore]
         public bool IncludesRunData =>

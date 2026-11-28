@@ -52,7 +52,7 @@ public sealed class TikTokAccountBatchImporterTests
 
         var reopened = new AccountStore();
         reopened.Load();
-        var catalog = fixture.Catalog.Load(reopened.Accounts);
+        var catalog = fixture.Catalog.Load();
         Assert.All(reopened.Accounts.Where(account => account.Id != "existing"), account =>
         {
             Assert.Equal(account.TiktokImportedCompanyName, account.TiktokAccountNickname);
@@ -61,7 +61,7 @@ public sealed class TikTokAccountBatchImporterTests
             Assert.Equal(seal, account.TiktokProofSealPath);
             Assert.Equal(FixturePassword, account.TiktokLoginPassword);
             Assert.True(Directory.Exists(account.ResolveWorkspacePath()));
-            Assert.Equal(template.Id, catalog.DefaultFor(account.Id).Id);
+            Assert.Equal(template.Id, catalog.DefaultFor(VideoDedupTemplateAccount.ForTikTok(account)).Id);
         });
     }
 
@@ -159,7 +159,7 @@ public sealed class TikTokAccountBatchImporterTests
             Assert.Equal(TikTokAccountImportStatus.Failed, Assert.Single(failed.Rows).Status);
             Assert.Empty(failed.Accounts);
             Assert.False(Directory.Exists(target));
-            Assert.Empty(fixture.Catalog.Load([]).AccountDefaults);
+            Assert.Empty(fixture.Catalog.Load().AccountDefaults);
             Assert.Single(fixture.Store.Accounts);
         }
         finally
@@ -192,7 +192,7 @@ public sealed class TikTokAccountBatchImporterTests
         public AccountStore Store { get; } = new();
         public VideoDedupTemplateCatalog Catalog { get; }
         public TikTokAccountBatchImporter Importer { get; }
-        public TikTokAccountImportOptions Options => new("local", true, "zh", VideoDedupTemplateCatalog.SystemId, "", "", true, Root);
+        public TikTokAccountImportOptions Options => new("local", true, "zh", VideoDedupTemplateCatalog.FollowDefaultId, "", "", true, Root);
 
         public ImportFixture()
         {

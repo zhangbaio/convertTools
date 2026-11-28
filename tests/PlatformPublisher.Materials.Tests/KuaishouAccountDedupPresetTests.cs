@@ -2,8 +2,8 @@ using System.Text.Json;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
-using PlatformPublisher.Persistence;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services.VideoDedup;
 using Xunit;
 
 namespace PlatformPublisher.Materials.Tests;
@@ -79,39 +79,63 @@ public sealed class KuaishouAccountDedupPresetTests
         }
     }
 
+    [Fact]
+    public async Task Unbound_batch_is_reused_only_when_template_parameters_match()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        try
+        {
+            const string account = "account-a";
+            var output = root.CreateSubdirectory("videos");
+            var episode = Path.Combine(output.FullName, "第1集.mp4");
+            var identity = new string('A', 64);
+            var original = new VideoDedupPreset { TrimStartSeconds = 1 };
+            var manifest = Path.Combine(output.FullName, KuaishouSettlementEpisodeVideoService.DedupManifestName);
+            File.WriteAllText(episode, "validated episode");
+            File.WriteAllText(manifest, JsonSerializer.Serialize(new KuaishouSettlementEpisodeVideoService.DedupManifest(
+                identity, KuaishouSettlementEpisodeVideoService.BatchAccountKey(account), ["第1集.mp4"], original.Fingerprint())));
+
+            Task<PublishVideoBatch> Run(VideoDedupPreset preset) =>
+                KuaishouVideoDedup.RunAsync(Project(root.FullName), account, "测试账号", preset,
+                    PublishPlatform.KuaishouPersonalRevenue, force: false, _ => { }, (_, _) => Task.FromResult(true), CancellationToken.None);
+
+            Assert.Equal(identity, (await Run(original)).Identity);
+            var changed = new VideoDedupPreset { TrimStartSeconds = 2 };
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(changed));
+            Assert.Contains("没有可去重的原视频", error.Message);
+            Assert.Equal("validated episode", File.ReadAllText(episode));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     private static KuaishouPersonalProjectData Project(string directory) =>
         new(directory, directory, "测试剧集", "", "", [], "", "", "", [], [], []);
 
     [Fact]
-    public void AccountPresetsAreIndependentAndSavedPresetsTakePriorityOverLegacyTemplates()
+    public void Kuaishou_uses_the_shared_chinese_default_and_snapshots_explicit_templates()
     {
         var root = Directory.CreateTempSubdirectory();
-        var database = new PlatformDatabase(Path.Combine(root.FullName, "app.db"));
         try
         {
-            var legacy = VideoDedupPreset.CreateDefault();
-            legacy.Name = "旧方案";
-            legacy.TrimStartSeconds = 2;
-            new JsonSettingStore(database).Save("kuaishou.video-dedup.templates",
-                new Dictionary<string, VideoDedupPreset> { ["legacy"] = legacy });
+            var catalog = new VideoDedupTemplateCatalog(root.FullName);
+            var kuaishou = VideoDedupTemplateAccount.ForKuaishou("account-a");
+            var tikTok = new VideoDedupTemplateAccount("account-b", VideoDedupTemplateTarget.TikTokOverseas);
+            Assert.Equal("通用中文模板", KuaishouVideoDedup.LoadPreset(kuaishou.Id, catalog).Name);
 
-            Assert.Equal(legacy.Fingerprint(), KuaishouVideoDedup.LoadPreset("account-a", "legacy", database).Fingerprint());
-            var personal = KuaishouVideoDedup.LoadPreset("account-a", "legacy", database);
-            personal.TrimStartSeconds = 4;
-            KuaishouVideoDedup.SavePreset("account-a", personal, database);
+            var template = catalog.SaveAccountConfiguration(tikTok, null, "共享自定义", new VideoDedupPreset { TrimStartSeconds = 4 });
+            catalog.SaveAccountConfiguration(kuaishou, template.Id);
+            var captured = KuaishouVideoDedup.LoadPreset(kuaishou.Id, catalog);
+            catalog.Save(template.Id, template.Name, new VideoDedupPreset { TrimStartSeconds = 5 });
 
-            var enterprise = KuaishouVideoDedup.LoadPreset("account-b", null, database);
-            Assert.Equal(0, enterprise.TrimStartSeconds);
-            enterprise.TrimStartSeconds = 1;
-            KuaishouVideoDedup.SavePreset("account-b", enterprise, database);
-
-            Assert.Equal(4, KuaishouVideoDedup.LoadPreset("account-a", "legacy", database).TrimStartSeconds);
-            Assert.Equal(1, KuaishouVideoDedup.LoadPreset("account-b", "legacy", database).TrimStartSeconds);
-            Assert.Equal(2, KuaishouVideoDedup.LoadPreset("account-c", "legacy", database).TrimStartSeconds);
+            Assert.Equal(4, captured.TrimStartSeconds);
+            Assert.Equal(5, KuaishouVideoDedup.LoadPreset(kuaishou.Id, catalog).TrimStartSeconds);
+            Assert.Equal("通用中文模板", KuaishouVideoDedup.LoadPreset("account-c", catalog).Name);
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             root.Delete(recursive: true);
         }
     }

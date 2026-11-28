@@ -88,7 +88,7 @@ public partial class MainWindow : Window
             MaterialClipPage.BindWeixinExport(SendClippedMaterialsToWeixinAsync);
         AccountsView.Bind(_viewModel);
         AccountsView.UseWorkspaceNavigation();
-        DedupTemplatesView.Bind(_viewModel);
+        DedupAccountView.Bind(_viewModel);
         TikTokBasicSettingsButton.IsVisible = AccountsView.HasWorkspacePage("基础设置");
         KuaishouWorkspace.SettingsRequested += () => NavigateTo("settings");
         KuaishouWorkspace.RuntimeChanged += () =>
@@ -838,7 +838,7 @@ public partial class MainWindow : Window
         if (_activeNavTag != "queue")
             return Task.FromResult(true);
         if (_tikTokSubPage == "dedup")
-            return DedupTemplatesView.TryLeaveAsync(this);
+            return DedupAccountView.TryLeaveAsync(this);
         return IsTikTokConfigurationPage(_tikTokSubPage) ? AccountsView.TryLeaveAsync(this) : Task.FromResult(true);
     }
 
@@ -907,11 +907,11 @@ public partial class MainWindow : Window
         MaterialClipPage.IsVisible = tag == "material-clip";
         MaterialClipPage.ZIndex = tag == "material-clip" ? activeZ : inactiveZ;
         SetUploadWorkspacePresentation(TikTokWorkspace, showUploadWorkspaces, tikTokActive);
-        if (DedupTemplatesView.IsVisible != dedupActive)
+        if (DedupAccountView.IsVisible != dedupActive)
         {
-            DedupTemplatesView.IsVisible = dedupActive;
+            DedupAccountView.IsVisible = dedupActive;
             if (dedupActive)
-                DedupTemplatesView.RefreshSelectedAccount();
+                DedupAccountView.RefreshSelectedAccount();
         }
         SetUploadWorkspacePresentation(KuaishouWorkspace, showUploadWorkspaces, kuaishouActive);
         WeixinWorkspace.IsVisible = tag == "weixin";

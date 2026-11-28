@@ -42,11 +42,11 @@ public sealed partial class MainWindowViewModel
         NotifyCommands();
     }
 
-    private static VideoDedupPreset? GetKuaishouDedupPreset(string accountId, KuaishouPersonalConfig config, bool enabled)
+    private static VideoDedupPreset? GetKuaishouDedupPreset(string accountId, bool enabled)
     {
         if (!enabled)
             return null;
-        var preset = KuaishouVideoDedup.LoadPreset(accountId, config.VideoDedupTemplateId);
+        var preset = KuaishouVideoDedup.LoadPreset(accountId);
         KuaishouVideoDedup.Validate(preset);
         return preset;
     }
@@ -58,8 +58,8 @@ public sealed partial class MainWindowViewModel
         var data = await _kuaishouPersonalProjectDataService.ResolveAsync(
             projectDirectory, config, cancellationToken, prepareVideos: false);
         void Log(string message) => AppendActivityLog($"视频去重：{message}", projectName);
-        Log($"使用账号「{request.AccountName}」的去重方案。");
-        var preset = request.VideoDedupPreset ?? KuaishouVideoDedup.LoadPreset(request.AccountId, config.VideoDedupTemplateId);
+        var preset = request.VideoDedupPreset ?? KuaishouVideoDedup.LoadPreset(request.AccountId);
+        Log($"账号「{request.AccountName}」使用去重模板「{preset.Name}」。");
         return await KuaishouVideoDedup.RunAsync(data, request.AccountId, request.AccountName, preset,
             request.Platform, request.Force, Log, _dramaDownloader.HasFfmpegSupportedVideoAsync, cancellationToken);
     }

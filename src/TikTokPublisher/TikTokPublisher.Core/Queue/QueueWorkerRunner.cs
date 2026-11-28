@@ -1512,7 +1512,9 @@ public sealed class QueueWorkerRunner
                             stepAccount,
                             stepAccount is not null && dedupPresets.TryGetValue(stepAccount.Id, out var capturedPreset)
                                 ? capturedPreset
-                                : stepAccount?.VideoDedupPreset?.Clone(),
+                                : stepAccount is not null && stepKey == QueueStepRegistry.VideoDedup
+                                    ? VideoDedupTemplateCatalog.BuiltInFor(VideoDedupTemplateAccount.ForTikTok(stepAccount))
+                                    : null,
                             host,
                             stepLog,
                             ct),

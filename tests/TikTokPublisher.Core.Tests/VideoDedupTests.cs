@@ -13,6 +13,11 @@ public sealed class VideoDedupTests : IDisposable
 
     public void Dispose() => _settings.Dispose();
 
+    private static Task RunWithTestPresetAsync(QueueProjectItem item, TikTokAccountProfile account, bool force,
+        Action<string>? log, CancellationToken ct) =>
+        VideoDedupService.RunWithPresetAsync(item, account, account.VideoDedupPreset?.Clone(),
+            OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum, force, log, ct);
+
     [Fact]
     public void Step_order_puts_dedup_after_download_and_retires_source_deletion()
     {
@@ -814,7 +819,7 @@ public sealed class VideoDedupTests : IDisposable
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1" };
             var logs = new List<string>();
 
-            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+            await RunWithTestPresetAsync(item, account, force: false, logs.Add, CancellationToken.None);
 
             item.EpisodeCount.Should().Be(1);
             (await File.ReadAllBytesAsync(source)).Should().Equal([9, 9, 9, 9, 9]);
@@ -832,7 +837,7 @@ public sealed class VideoDedupTests : IDisposable
             Directory.CreateDirectory(staging);
             await File.WriteAllBytesAsync(Path.Combine(staging, "kept-第1集.mp4"), [6]);
             logs.Clear();
-            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+            await RunWithTestPresetAsync(item, account, force: false, logs.Add, CancellationToken.None);
             logs.Should().Contain(line => line.StartsWith("跳过", StringComparison.Ordinal));
             File.Exists(Path.Combine(staging, "kept-第1集.mp4")).Should().BeTrue();
         }
@@ -872,7 +877,7 @@ public sealed class VideoDedupTests : IDisposable
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
             var logs = new List<string>();
 
-            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+            await RunWithTestPresetAsync(item, account, force: false, logs.Add, CancellationToken.None);
 
             logs.Should().Contain(line => line.Contains("分集计算通过：2 个原片共 0.5 分钟，平均分成 1 集，每集 30 秒，在 20–40 秒内。", StringComparison.Ordinal));
 
@@ -928,7 +933,7 @@ public sealed class VideoDedupTests : IDisposable
             preset.MaximumDurationSeconds = 40;
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
             var item = new QueueProjectItem { ProjectDir = project.FullName, EpisodeCount = sourceCount };
-            Func<Task> run = () => VideoDedupService.RunAsync(item, account, force: false, null, CancellationToken.None);
+            Func<Task> run = () => RunWithTestPresetAsync(item, account, force: false, null, CancellationToken.None);
 
             if (plannedCount < 30)
             {
@@ -987,7 +992,7 @@ public sealed class VideoDedupTests : IDisposable
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
             var logs = new List<string>();
 
-            var act = () => VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+            var act = () => RunWithTestPresetAsync(item, account, force: false, logs.Add, CancellationToken.None);
 
             await act.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*第 1 集预计 30 秒，短于最小 35 秒*");
@@ -1065,7 +1070,7 @@ public sealed class VideoDedupTests : IDisposable
             item.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
 
-            await VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+            await RunWithTestPresetAsync(item, account, force: false, _ => { }, CancellationToken.None);
 
             item.EpisodeCount.Should().Be(1);
             item.SourceEpisodeCount.Should().Be(9);
@@ -1115,7 +1120,7 @@ public sealed class VideoDedupTests : IDisposable
         {
             var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 1 };
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1" };
-            var act = () => VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+            var act = () => RunWithTestPresetAsync(item, account, force: false, _ => { }, CancellationToken.None);
 
             await act.Should().ThrowAsync<InvalidOperationException>();
             (await File.ReadAllBytesAsync(source)).Should().Equal([4, 5, 6]);
@@ -1156,7 +1161,7 @@ public sealed class VideoDedupTests : IDisposable
             var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 2 };
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
 
-            var interrupted = () => VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+            var interrupted = () => RunWithTestPresetAsync(item, account, force: false, _ => { }, CancellationToken.None);
             await interrupted.Should().ThrowAsync<InvalidOperationException>();
             (await File.ReadAllBytesAsync(Path.Combine(root, "01.mp4"))).Should().Equal([1, 1, 1]);
 
@@ -1169,7 +1174,7 @@ public sealed class VideoDedupTests : IDisposable
                 return Task.CompletedTask;
             };
             var logs = new List<string>();
-            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+            await RunWithTestPresetAsync(item, account, force: false, logs.Add, CancellationToken.None);
 
             encoded.Should().Be(1);
             logs.Should().Contain(line => line.Contains("第 1/2 集已完成，跳过编码", StringComparison.Ordinal));

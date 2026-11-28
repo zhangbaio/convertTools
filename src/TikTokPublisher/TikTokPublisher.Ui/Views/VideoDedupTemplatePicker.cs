@@ -8,14 +8,18 @@ namespace TikTokPublisher.Ui.Views;
 
 internal static class VideoDedupTemplatePicker
 {
-    internal static Task<string?> SelectAsync(Window owner, string title, string description,
-        IReadOnlyList<VideoDedupTemplateEntry> entries, string? selectedId)
+    internal static Task<string?> SelectReplacementAsync(Window owner, string title, string description,
+        IReadOnlyList<VideoDedupTemplateEntry> entries)
     {
-        var items = entries.Select(template => new ComboBoxItem { Content = template.Name, Tag = template.Id }).ToArray();
+        var items = new List<ComboBoxItem>
+        {
+            new() { Content = "恢复各账号的默认模板", Tag = VideoDedupTemplateCatalog.FollowDefaultId },
+        };
+        items.AddRange(entries.Select(template => new ComboBoxItem { Content = template.Name, Tag = template.Id }));
         var combo = new ComboBox
         {
             ItemsSource = items,
-            SelectedItem = items.FirstOrDefault(item => Equals(item.Tag, selectedId)) ?? items.FirstOrDefault(),
+            SelectedIndex = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
         var ok = new Button { Content = "确定", IsEnabled = combo.SelectedItem is not null, Classes = { "primaryAction" } };

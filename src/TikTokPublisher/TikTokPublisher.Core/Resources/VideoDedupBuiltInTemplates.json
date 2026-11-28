@@ -1,0 +1,258 @@
+[
+  {
+    "id": "builtin-zh",
+    "name": "通用中文模板",
+    "preset": {
+      "schemaVersion": 1,
+      "name": "通用中文模板",
+      "encodingPreference": "HardwareFirst",
+      "parallel": 2,
+      "minimumDurationSeconds": 40,
+      "maximumDurationSeconds": 60,
+      "transitionsEnabled": true,
+      "transitionFadeBlack": true,
+      "transitionDissolve": true,
+      "transitionPush": true,
+      "transitionSlide": true,
+      "transitionZoom": true,
+      "trimStartSeconds": 1,
+      "trimEndSeconds": 1,
+      "cropTopPercent": 2,
+      "cropBottomPercent": 2,
+      "cropLeftPercent": 2,
+      "cropRightPercent": 2,
+      "portraitWidth": 0,
+      "portraitHeight": 0,
+      "landscapeWidth": 0,
+      "landscapeHeight": 0,
+      "speedFactor": 1.1,
+      "frameDropPercent": 0,
+      "brightness": 0,
+      "contrast": 1,
+      "saturation": 1,
+      "grayscale": false,
+      "sharpness": 0,
+      "effects": {
+        "temperature": 0,
+        "tint": 0,
+        "vibrance": 0,
+        "exposure": 0,
+        "gamma": 0,
+        "curveAmount": 0,
+        "curveMaster": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "curveRed": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "curveGreen": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "curveBlue": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "levelsAmount": 0,
+        "inputBlack": 0,
+        "inputWhite": 1,
+        "levelsGamma": 1,
+        "outputBlack": 0,
+        "outputWhite": 1,
+        "splitToneAmount": 0,
+        "shadowColor": "#406080",
+        "highlightColor": "#FFC080",
+        "splitToneBalance": 0,
+        "lutAmount": 0,
+        "lutPath": "",
+        "frameMixEnabled": false,
+        "frameMixCount": 2,
+        "frameMixCurrentWeight": 4,
+        "reframeEnabled": false,
+        "reframeKeepPercent": 95,
+        "reframeHorizontalPercent": 60,
+        "reframeVerticalPercent": 50,
+        "reframeVaryByEpisode": false,
+        "naturalColorStrength": 10,
+        "blur": 0,
+        "vignetteAmount": 0,
+        "vignetteRadius": 70,
+        "vignetteFeather": 50,
+        "grainAmount": 0,
+        "grainSize": 15,
+        "grainDensity": 50,
+        "mosaicAmount": 0,
+        "mosaicRegions": [],
+        "layers": []
+      },
+      "videoCodec": "h264",
+      "fps": 30,
+      "bitrateMode": "Vbr",
+      "useSourceVideoBitrate": false,
+      "videoBitrateMbps": 2,
+      "crf": 23,
+      "audioCodec": "aac",
+      "audioBitrateKbps": 0,
+      "audioLowGainDb": 0,
+      "audioMidGainDb": 0,
+      "audioHighGainDb": 0,
+      "hasAnyTransition": true,
+      "hasDurationLimit": true,
+      "keepsOriginalResolution": true
+    }
+  },
+  {
+    "id": "builtin-en",
+    "name": "通用英文模板",
+    "preset": {
+      "schemaVersion": 1,
+      "name": "通用英文模板",
+      "encodingPreference": "HardwareFirst",
+      "parallel": 2,
+      "minimumDurationSeconds": 40,
+      "maximumDurationSeconds": 50,
+      "transitionsEnabled": true,
+      "transitionFadeBlack": true,
+      "transitionDissolve": true,
+      "transitionPush": true,
+      "transitionSlide": true,
+      "transitionZoom": true,
+      "trimStartSeconds": 1,
+      "trimEndSeconds": 1,
+      "cropTopPercent": 2,
+      "cropBottomPercent": 2,
+      "cropLeftPercent": 2,
+      "cropRightPercent": 2,
+      "portraitWidth": 0,
+      "portraitHeight": 0,
+      "landscapeWidth": 0,
+      "landscapeHeight": 0,
+      "speedFactor": 1.1,
+      "frameDropPercent": 0,
+      "brightness": 0,
+      "contrast": 1,
+      "saturation": 1,
+      "grayscale": false,
+      "sharpness": 0,
+      "effects": {
+        "temperature": 0,
+        "tint": 0,
+        "vibrance": 0,
+        "exposure": 0,
+        "gamma": 0,
+        "curveAmount": 0,
+        "curveMaster": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "curveRed": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "curveGreen": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "curveBlue": [
+          {
+            "x": 0,
+            "y": 0
+          },
+          {
+            "x": 1,
+            "y": 1
+          }
+        ],
+        "levelsAmount": 0,
+        "inputBlack": 0,
+        "inputWhite": 1,
+        "levelsGamma": 1,
+        "outputBlack": 0,
+        "outputWhite": 1,
+        "splitToneAmount": 0,
+        "shadowColor": "#406080",
+        "highlightColor": "#FFC080",
+        "splitToneBalance": 0,
+        "lutAmount": 0,
+        "lutPath": "",
+        "frameMixEnabled": false,
+        "frameMixCount": 2,
+        "frameMixCurrentWeight": 4,
+        "reframeEnabled": false,
+        "reframeKeepPercent": 95,
+        "reframeHorizontalPercent": 60,
+        "reframeVerticalPercent": 50,
+        "reframeVaryByEpisode": false,
+        "naturalColorStrength": 10,
+        "blur": 0,
+        "vignetteAmount": 0,
+        "vignetteRadius": 70,
+        "vignetteFeather": 50,
+        "grainAmount": 0,
+        "grainSize": 15,
+        "grainDensity": 50,
+        "mosaicAmount": 0,
+        "mosaicRegions": [],
+        "layers": []
+      },
+      "videoCodec": "h264",
+      "fps": 30,
+      "bitrateMode": "Vbr",
+      "useSourceVideoBitrate": false,
+      "videoBitrateMbps": 1.8,
+      "crf": 23,
+      "audioCodec": "aac",
+      "audioBitrateKbps": 0,
+      "audioLowGainDb": 5,
+      "audioMidGainDb": -8,
+      "audioHighGainDb": 9,
+      "hasAnyTransition": true,
+      "hasDurationLimit": true,
+      "keepsOriginalResolution": true
+    }
+  }
+]

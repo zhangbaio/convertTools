@@ -13,7 +13,7 @@ public static class KuaishouSettlementEpisodeVideoService
     public const string DedupManifestName = ".validated.json";
     public const string DedupWritingName = ".kuaishou-dedup-writing.json";
 
-    public sealed record DedupManifest(string Identity, string AccountKey, string[] Files);
+    public sealed record DedupManifest(string Identity, string AccountKey, string[] Files, string? PresetFingerprint = null);
 
     public static string BatchAccountKey(string accountId) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(accountId.ToUpperInvariant())));

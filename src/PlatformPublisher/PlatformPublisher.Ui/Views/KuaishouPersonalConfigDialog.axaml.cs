@@ -51,8 +51,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     internal void UseAccountAiStore(KuaishouAccountAiStore store) => AiEditor.Store = store;
 
-    internal string LegacyVideoDedupTemplateId => _config.VideoDedupTemplateId;
-
     internal void UseWorkspaceNavigation(Control workDirectoryEditor)
     {
         _usesWorkspaceNavigation = true;
@@ -91,7 +89,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         if (!_usesWorkspaceNavigation)
         {
             var dedup = StandaloneDedupHost.Content as KuaishouVideoDedupView ?? new KuaishouVideoDedupView();
-            dedup.LoadAccount(account?.Id, account?.Name, LegacyVideoDedupTemplateId);
+            dedup.LoadAccount(account?.Id, account?.Name);
             StandaloneDedupHost.Content = dedup;
         }
         LoadValues();

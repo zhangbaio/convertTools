@@ -42,7 +42,12 @@ public partial class TikTokAccountBatchImportDialog : Window
         _onImported = onImported;
         _publishAccountRunner = publishAccountRunner;
         CreatePublishAccounts.IsEnabled = publishAccountRunner is not null;
-        TemplateBox.ItemsSource = templates.Templates.Select(template => new ComboBoxItem { Content = template.Name, Tag = template.Id }).ToArray();
+        var templateItems = new List<ComboBoxItem>
+        {
+            new() { Content = "跟随剧集类型默认模板", Tag = VideoDedupTemplateCatalog.FollowDefaultId },
+        };
+        templateItems.AddRange(templates.Templates.Select(template => new ComboBoxItem { Content = template.Name, Tag = template.Id }));
+        TemplateBox.ItemsSource = templateItems;
         TemplateBox.SelectedIndex = 0;
         var choices = accounts.Where(account => !string.IsNullOrWhiteSpace(account.TiktokProofDeclarantCompanyName))
             .Select(account => new DeclarantChoice(account.TiktokProofDeclarantCompanyName.Trim(), account.TiktokProofSealPath.Trim()))
@@ -147,7 +152,7 @@ public partial class TikTokAccountBatchImportDialog : Window
     private TikTokAccountImportPlan CreatePreview() =>
         _importer!.Preview(InputText.Text ?? "", new TikTokAccountImportOptions(
             SelectedTag(MarketBox, TikTokAccountProfile.DramaMarketLocal), EnglishBox.IsChecked == true,
-            SelectedTag(LanguageBox), SelectedTag(TemplateBox, VideoDedupTemplateCatalog.SystemId),
+            SelectedTag(LanguageBox), SelectedTag(TemplateBox, VideoDedupTemplateCatalog.FollowDefaultId),
             DeclarantBox.Text ?? "", SealBox.Text ?? "", AutoWorkspace.IsChecked == true, WorkspaceRootBox.Text ?? ""), _manualPaths);
 
     private void ShowPreview()
@@ -160,7 +165,7 @@ public partial class TikTokAccountBatchImportDialog : Window
             return;
         }
         StageHeading.Text = "导入预览";
-        var template = (TemplateBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "系统默认";
+        var template = (TemplateBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "跟随剧集类型默认模板";
         var company = string.IsNullOrWhiteSpace(DeclarantBox.Text) ? "留空" : DeclarantBox.Text.Trim();
         var seal = string.IsNullOrWhiteSpace(SealBox.Text) ? "未选择" : Path.GetFileName(SealBox.Text.Trim());
         PreviewSettings.Text = $"去重模板 · {template}　 本公司／声明人 · {company}　 印章 · {seal}";

@@ -5,108 +5,125 @@ using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Services.VideoDedup;
 
-public sealed record VideoDedupTemplateEntry(string Id, string Name, VideoDedupPreset? Preset);
+public sealed record VideoDedupTemplateEntry(string Id, string Name, VideoDedupPreset Preset);
+
+public enum VideoDedupTemplateTarget { TikTokLocal, TikTokOverseas, Kuaishou }
+
+public readonly record struct VideoDedupTemplateAccount(string Id, VideoDedupTemplateTarget Target)
+{
+    internal string BindingKey => (Target == VideoDedupTemplateTarget.Kuaishou ? "kuaishou:" : "tiktok:") + Id;
+
+    public string DefaultTemplateId => Target == VideoDedupTemplateTarget.TikTokOverseas
+        ? VideoDedupTemplateCatalog.EnglishId : VideoDedupTemplateCatalog.ChineseId;
+
+    public static VideoDedupTemplateAccount ForTikTok(TikTokAccountProfile account) =>
+        new(account.Id, TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket) == TikTokAccountProfile.DramaMarketOverseas
+            ? VideoDedupTemplateTarget.TikTokOverseas : VideoDedupTemplateTarget.TikTokLocal);
+
+    public static VideoDedupTemplateAccount ForKuaishou(string accountId) =>
+        new(accountId, VideoDedupTemplateTarget.Kuaishou);
+}
 
 public sealed record VideoDedupTemplateSnapshot(
     IReadOnlyList<VideoDedupTemplateEntry> Templates,
     IReadOnlyDictionary<string, string> AccountDefaults)
 {
-    public VideoDedupTemplateEntry DefaultFor(string? accountId)
-    {
-        var id = accountId is null ? null : AccountDefaults.GetValueOrDefault(accountId);
-        return Templates.FirstOrDefault(template => template.Id == id) ?? Templates[0];
-    }
+    public string? SelectedTemplateId(VideoDedupTemplateAccount account) =>
+        AccountDefaults.GetValueOrDefault(account.BindingKey);
+
+    public VideoDedupTemplateEntry DefaultFor(VideoDedupTemplateAccount account) =>
+        Templates.FirstOrDefault(template => template.Id == SelectedTemplateId(account)) ??
+        Templates.First(template => template.Id == account.DefaultTemplateId);
 }
 
-/// <summary>共享模板和账号选择保存在同一个文件，所有修改以一份目录快照提交。</summary>
+/// <summary>快手和 TikTok 共用模板库。账号仅保存显式选择，默认模板由平台和剧集类型决定。</summary>
 public sealed class VideoDedupTemplateCatalog(string dataRoot)
 {
-    public const string SystemId = "system";
+    public const string ChineseId = "builtin-zh";
+    public const string EnglishId = "builtin-en";
+    public const string FollowDefaultId = "follow-default";
+
+    private const int CurrentVersion = 2;
     private const string FileName = "video-dedup-template-library.json";
+    private const string SeedResource = "TikTokPublisher.Core.Resources.VideoDedupBuiltInTemplates.json";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly Lazy<VideoDedupTemplateEntry[]> BuiltInTemplates = new(ReadBuiltInTemplates);
     private readonly string _root = Path.GetFullPath(dataRoot);
-    private static VideoDedupTemplateEntry SystemDefault => new(SystemId, "系统默认", null);
 
     public static VideoDedupTemplateCatalog OpenDefault() => new(AppPaths.DataRoot);
 
-    public VideoDedupTemplateSnapshot Load(IEnumerable<TikTokAccountProfile> accounts) => Edit(state =>
-    {
-        var migrated = ImportLegacy(state);
-        var changed = ApplyAccountProfiles(state, accounts, replace: false) | migrated;
-        return (ToSnapshot(state), changed);
-    });
+    public static bool IsBuiltIn(string? id) => id is ChineseId or EnglishId;
+
+    public VideoDedupTemplateSnapshot Load() => Edit(state =>
+        (new VideoDedupTemplateSnapshot(state.Templates.ToArray(), state.AccountDefaults), false));
 
     public VideoDedupTemplateEntry Save(string? id, string name, VideoDedupPreset preset) =>
-        SaveTemplate(id, name, preset, accountId: null);
+        Edit(state => (SaveTemplate(state, id, name, preset), true));
 
     public VideoDedupTemplateEntry SaveAccountConfiguration(
-        string accountId, string? templateId, string? name = null, VideoDedupPreset? preset = null)
+        VideoDedupTemplateAccount account, string? selectionId, string? name = null, VideoDedupPreset? preset = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
-        if (preset is not null)
-            return SaveTemplate(templateId, name ?? "", preset, accountId);
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(templateId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(account.Id);
         return Edit(state =>
         {
-            var entry = RequireTemplate(state, templateId);
-            var changed = state.AccountDefaults.GetValueOrDefault(accountId) != entry.Id;
-            state.AccountDefaults[accountId] = entry.Id;
-            return (entry, changed);
+            var followDefault = selectionId == FollowDefaultId;
+            var templateId = followDefault ? account.DefaultTemplateId : selectionId;
+            var template = preset is null
+                ? RequireTemplate(state, templateId)
+                : SaveTemplate(state, templateId, name ?? "", preset);
+            var changed = followDefault
+                ? state.AccountDefaults.Remove(account.BindingKey)
+                : state.AccountDefaults.GetValueOrDefault(account.BindingKey) != template.Id;
+            if (!followDefault)
+                state.AccountDefaults[account.BindingKey] = template.Id;
+            return (template, changed || preset is not null);
         });
     }
 
-    private VideoDedupTemplateEntry SaveTemplate(string? id, string name, VideoDedupPreset preset, string? accountId)
+    private static VideoDedupTemplateEntry SaveTemplate(
+        CatalogState state, string? id, string name, VideoDedupPreset preset)
     {
         ArgumentNullException.ThrowIfNull(preset);
-        name = name.Trim();
-        if (name.Length is 0 or > 80 || string.Equals(name, SystemDefault.Name, StringComparison.OrdinalIgnoreCase))
+        var index = id is null ? -1 : state.Templates.FindIndex(item => item.Id == id);
+        if (id is not null && index < 0)
+            throw new InvalidOperationException("该模板已不存在，请重新选择。");
+
+        name = IsBuiltIn(id) ? state.Templates[index].Name : name.Trim();
+        if (name.Length is 0 or > 80 || name == "跟随默认")
             throw new InvalidOperationException("请输入 1–80 字的自定义模板名称。");
-        if (id == SystemId)
-            throw new InvalidOperationException("系统默认模板可复制后编辑。");
-        var parameters = preset.NormalizedCopy();
-        if (parameters.DurationRangeError() is { } durationError)
-            throw new InvalidOperationException(durationError);
-        VideoDedupEffectFilters.Validate(parameters);
-        parameters.Name = name;
-        return Edit(state =>
-        {
-            var index = id is null ? -1 : state.Templates.FindIndex(item => item.Id == id);
-            if (id is not null && index < 0)
-                throw new InvalidOperationException("该模板已不存在，请重新选择。");
-            if (state.Templates.Any(item => item.Id != id && item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("已存在同名视频去重模板。");
-            var entry = new VideoDedupTemplateEntry(id ?? Guid.NewGuid().ToString("N"), name, parameters);
-            if (index < 0) state.Templates.Add(entry);
-            else state.Templates[index] = entry;
-            if (accountId is not null)
-                state.AccountDefaults[accountId] = entry.Id;
-            return (entry, true);
-        });
+        if (state.Templates.Any(item => item.Id != id && item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("已存在同名视频去重模板。");
+
+        var entry = CreateEntry(id ?? Guid.NewGuid().ToString("N"), name, preset);
+        if (index < 0) state.Templates.Add(entry);
+        else state.Templates[index] = entry;
+        return entry;
     }
 
-    public void SetDefault(string accountId, string templateId) =>
-        SaveAccountConfiguration(accountId, templateId);
-
-    internal void BindImportedAccounts(string templateId, IReadOnlyList<string> accountIds) => Edit(state =>
+    internal void BindImportedAccounts(string templateId, IReadOnlyList<string> accountIds)
     {
-        RequireTemplate(state, templateId);
-        foreach (var id in accountIds)
-            state.AccountDefaults[id] = templateId;
-        return (0, accountIds.Count > 0);
-    });
+        if (templateId == FollowDefaultId || accountIds.Count == 0)
+            return;
+        Edit(state =>
+        {
+            RequireTemplate(state, templateId);
+            foreach (var id in accountIds)
+                state.AccountDefaults[new VideoDedupTemplateAccount(id, VideoDedupTemplateTarget.TikTokLocal).BindingKey] = templateId;
+            return (0, true);
+        });
+    }
 
     internal void RemoveImportedAccountBindings(IReadOnlyList<string> accountIds) => Edit(state =>
     {
         var changed = false;
         foreach (var id in accountIds)
-            changed |= state.AccountDefaults.Remove(id);
+            changed |= state.AccountDefaults.Remove(new VideoDedupTemplateAccount(id, VideoDedupTemplateTarget.TikTokLocal).BindingKey);
         return (0, changed);
     });
 
     public void Delete(string id, string? replacementId = null)
     {
-        if (id == SystemId) throw new InvalidOperationException("系统默认模板不能删除。");
+        if (IsBuiltIn(id)) throw new InvalidOperationException("内置模板不能删除。");
         Edit(state =>
         {
             RequireTemplate(state, id);
@@ -115,124 +132,98 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
             {
                 if (replacementId is null || replacementId == id)
                     throw new InvalidOperationException("仍有账号使用此模板，请先选择替代模板。");
-                RequireTemplate(state, replacementId);
-                foreach (var account in bound) state.AccountDefaults[account] = replacementId;
+                if (replacementId == FollowDefaultId)
+                {
+                    foreach (var account in bound) state.AccountDefaults.Remove(account);
+                }
+                else
+                {
+                    RequireTemplate(state, replacementId);
+                    foreach (var account in bound) state.AccountDefaults[account] = replacementId;
+                }
             }
             state.Templates.RemoveAll(item => item.Id == id);
             return (0, true);
         });
     }
 
-    internal void ApplyImportedAccountPresets(IEnumerable<TikTokAccountProfile> accounts) =>
-        Edit(state =>
-        {
-            var migrated = ImportLegacy(state);
-            return (0, ApplyAccountProfiles(state, accounts, replace: true) | migrated);
-        });
-
     internal IReadOnlyDictionary<string, VideoDedupPreset?> CaptureRunPresets(
         IReadOnlyList<TikTokAccountProfile> accounts, Action<string>? log)
     {
+        var snapshot = LoadForRun(log);
+        var captured = new Dictionary<string, VideoDedupPreset?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in accounts)
+            captured[account.Id] = snapshot.DefaultFor(VideoDedupTemplateAccount.ForTikTok(account)).Preset.Clone();
+        return captured;
+    }
+
+    public VideoDedupPreset CaptureRunPreset(VideoDedupTemplateAccount account, Action<string>? log) =>
+        LoadForRun(log).DefaultFor(account).Preset.Clone();
+
+    private VideoDedupTemplateSnapshot LoadForRun(Action<string>? log)
+    {
         try
         {
-            var snapshot = Edit(state => (ToSnapshot(state), false));
-            var entries = snapshot.Templates.ToDictionary(item => item.Id);
-            var legacy = accounts.Any(account => !snapshot.AccountDefaults.ContainsKey(account.Id) &&
-                         !string.IsNullOrWhiteSpace(account.VideoDedupTemplateId) && account.VideoDedupTemplateId != SystemId)
-                ? ReadLegacy() : [];
-            var captured = new Dictionary<string, VideoDedupPreset?>(StringComparer.OrdinalIgnoreCase);
-            foreach (var account in accounts)
-                captured[account.Id] = snapshot.AccountDefaults.TryGetValue(account.Id, out var id) &&
-                                       entries.TryGetValue(id, out var entry)
-                    ? entry.Preset?.Clone() : ResolveLegacy(account, legacy);
-            return captured;
+            return Load();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            log?.Invoke($"无法读取视频去重模板，使用账号原有配置：{ex.Message}");
-            var captured = new Dictionary<string, VideoDedupPreset?>(StringComparer.OrdinalIgnoreCase);
-            var legacy = ReadLegacy();
-            foreach (var account in accounts)
-                captured[account.Id] = ResolveLegacy(account, legacy);
-            return captured;
+            log?.Invoke($"无法读取视频去重模板，使用内置默认模板：{ex.Message}");
+            return new VideoDedupTemplateSnapshot(BuiltInTemplates.Value, new Dictionary<string, string>());
         }
     }
 
-    private static bool ApplyAccountProfiles(CatalogState state, IEnumerable<TikTokAccountProfile> accounts, bool replace)
+    internal static VideoDedupPreset BuiltInFor(VideoDedupTemplateAccount account) =>
+        BuiltInTemplates.Value.First(item => item.Id == account.DefaultTemplateId).Preset.Clone();
+
+    internal Dictionary<string, VideoDedupTemplateEntry> CaptureAccountSelections(IEnumerable<TikTokAccountProfile> accounts)
     {
-        var changed = false;
-        foreach (var account in accounts)
+        var snapshot = Load();
+        var selections = new Dictionary<string, VideoDedupTemplateEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in accounts)
         {
-            if (string.IsNullOrWhiteSpace(account.Id) || (!replace && state.AccountDefaults.ContainsKey(account.Id))) continue;
-            var previous = account.VideoDedupTemplateId == SystemId ? null : account.VideoDedupPreset;
-            var fingerprint = previous?.Fingerprint();
-            if (replace && state.AccountDefaults.TryGetValue(account.Id, out var assignedId) &&
-                (assignedId == SystemId ? previous is null :
-                    fingerprint is not null && state.Templates.FirstOrDefault(item => item.Id == assignedId)?.Preset?.Fingerprint() == fingerprint))
-                continue;
-            var matchingLegacy = state.Templates.FirstOrDefault(template =>
-                template.Id.StartsWith("legacy-", StringComparison.Ordinal) &&
-                (template.Id == "legacy-" + account.VideoDedupTemplateId ||
-                 (fingerprint is not null && template.Preset?.Fingerprint() == fingerprint)));
-            if (!replace && previous is null && matchingLegacy is null) continue;
-            var entry = matchingLegacy ?? (replace && previous is not null
-                ? state.Templates.FirstOrDefault(template => template.Name == previous.Name && template.Preset?.Fingerprint() == fingerprint)
-                : null);
-            if (entry is null && previous is not null)
+            var account = VideoDedupTemplateAccount.ForTikTok(profile);
+            if (snapshot.SelectedTemplateId(account) is not null)
+                selections[account.Id] = snapshot.DefaultFor(account);
+        }
+        return selections;
+    }
+
+    internal void ImportAccountSelections(
+        IReadOnlyDictionary<string, VideoDedupTemplateEntry> selections, IEnumerable<TikTokAccountProfile> accounts) =>
+        Edit(state =>
+        {
+            var imported = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var profile in accounts)
             {
-                var copy = previous.Clone();
-                var display = string.IsNullOrWhiteSpace(account.DisplayName) ? account.Id : account.DisplayName;
-                copy.Name = UniqueName(state, display + (replace ? " · 导入配置" : " · 原配置"));
-                entry = new VideoDedupTemplateEntry(Guid.NewGuid().ToString("N"), copy.Name, copy);
-                state.Templates.Add(entry);
+                var account = VideoDedupTemplateAccount.ForTikTok(profile);
+                if (!selections.TryGetValue(account.Id, out var entry))
+                {
+                    state.AccountDefaults.Remove(account.BindingKey);
+                    continue;
+                }
+
+                if (entry is null || string.IsNullOrWhiteSpace(entry.Id) || entry.Preset is null)
+                    throw new JsonException("导入的去重模板缺少参数或标识。");
+                if (!imported.TryGetValue(entry.Id, out var id))
+                {
+                    var fingerprint = entry.Preset.Fingerprint();
+                    var existing = state.Templates.FirstOrDefault(template =>
+                        (template.Id == entry.Id || template.Name == entry.Name) &&
+                        template.Preset.Fingerprint() == fingerprint);
+                    var name = string.IsNullOrWhiteSpace(entry.Name) ? "导入模板" : entry.Name.Trim();
+                    id = existing?.Id ?? SaveTemplate(state, null, UniqueName(state, name), entry.Preset).Id;
+                    imported[entry.Id] = id;
+                }
+                state.AccountDefaults[account.BindingKey] = id;
             }
-            state.AccountDefaults[account.Id] = entry?.Id ?? SystemId;
-            changed = true;
-        }
-        return changed;
-    }
-
-    private bool ImportLegacy(CatalogState state)
-    {
-        if (state.LegacyImported) return false;
-        var legacy = ReadLegacy();
-        if (legacy is null) return false;
-        foreach (var item in legacy)
-        {
-            if (item?.Preset is null || string.IsNullOrWhiteSpace(item.Id) || item.Id == SystemId) continue;
-            var id = "legacy-" + item.Id;
-            if (state.Templates.Any(template => template.Id == id)) continue;
-            var preset = item.Preset.Clone();
-            preset.Name = UniqueName(state, string.IsNullOrWhiteSpace(preset.Name) ? "旧模板" : preset.Name);
-            state.Templates.Add(new(id, preset.Name, preset));
-        }
-        state.LegacyImported = true;
-        return true;
-    }
-
-    private IReadOnlyList<LegacyEntry>? ReadLegacy()
-    {
-        var path = Path.Combine(_root, VideoDedupTemplateStore.FileName);
-        if (!File.Exists(path)) return null;
-        List<LegacyEntry>? legacy;
-        try { legacy = JsonSerializer.Deserialize<List<LegacyEntry>>(File.ReadAllText(path), JsonOptions); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
-        return legacy ?? [];
-    }
-
-    private static VideoDedupPreset? ResolveLegacy(TikTokAccountProfile account, IReadOnlyList<LegacyEntry>? legacy)
-    {
-        if (account.VideoDedupTemplateId == SystemId) return null;
-        return (legacy?.FirstOrDefault(item => item?.Id == account.VideoDedupTemplateId)?.Preset
-                ?? account.VideoDedupPreset)?.Clone();
-    }
+            return (0, true);
+        });
 
     private static string UniqueName(CatalogState state, string name)
     {
-        var candidate = name.Trim();
-        var length = Math.Min(70, candidate.Length);
-        var root = candidate[..length];
-        candidate = root;
+        var root = name[..Math.Min(70, name.Length)];
+        var candidate = root;
         for (var number = 2; state.Templates.Any(template => template.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)); number++)
             candidate = $"{root} ({number})";
         return candidate;
@@ -250,20 +241,70 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
         {
             var path = Path.Combine(_root, FileName);
             var state = File.Exists(path)
-                ? JsonSerializer.Deserialize<CatalogState>(File.ReadAllText(path), JsonOptions) ?? throw new JsonException("视频去重模板库为空。")
-                : new CatalogState();
-            if (state.Version != 1) throw new JsonException("视频去重模板库版本不受支持。");
+                ? JsonSerializer.Deserialize<CatalogState>(File.ReadAllText(path), JsonOptions)
+                    ?? throw new JsonException("视频去重模板库为空。")
+                : new CatalogState { Version = 1 };
+            var upgraded = state.Version == 1;
+            if (upgraded)
+                state = Upgrade(state);
+            if (state.Version != CurrentVersion) throw new JsonException("视频去重模板库版本不受支持。");
             if (state.AccountDefaults is null || state.Templates is null ||
                 state.Templates.Any(item => item is null || string.IsNullOrWhiteSpace(item.Id) ||
-                    string.IsNullOrWhiteSpace(item.Name) || item.Preset is null || item.Id == SystemId) ||
-                state.Templates.Select(item => item.Id).Distinct().Count() != state.Templates.Count)
+                    string.IsNullOrWhiteSpace(item.Name) || item.Preset is null || item.Id == FollowDefaultId) ||
+                state.Templates.Select(item => item.Id).Distinct().Count() != state.Templates.Count ||
+                !state.Templates.Any(item => item.Id == ChineseId) || !state.Templates.Any(item => item.Id == EnglishId))
                 throw new JsonException("视频去重模板库包含无效或重复的模板。");
+
             state.AccountDefaults = new Dictionary<string, string>(state.AccountDefaults, StringComparer.OrdinalIgnoreCase);
             var (result, changed) = action(state);
-            if (changed) Write(path, state);
+            if (changed || upgraded) Write(path, state);
             return result;
         }
         finally { mutex.ReleaseMutex(); }
+    }
+
+    private static CatalogState Upgrade(CatalogState old)
+    {
+        if (old.Templates is null)
+            throw new JsonException("旧视频去重模板库缺少模板列表。");
+
+        var state = new CatalogState { Version = CurrentVersion };
+        foreach (var builtIn in BuiltInTemplates.Value)
+        {
+            var previous = old.Templates.FirstOrDefault(item => item?.Name == builtIn.Name);
+            try
+            {
+                if (previous is not null && previous.Preset is null)
+                    throw new InvalidOperationException("缺少原模板参数。");
+                state.Templates.Add(CreateEntry(builtIn.Id, builtIn.Name, previous?.Preset ?? builtIn.Preset));
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new JsonException($"无法升级去重模板「{builtIn.Name}」：{ex.Message}", ex);
+            }
+        }
+        return state;
+    }
+
+    private static VideoDedupTemplateEntry[] ReadBuiltInTemplates()
+    {
+        using var stream = typeof(VideoDedupTemplateCatalog).Assembly.GetManifestResourceStream(SeedResource)
+            ?? throw new InvalidOperationException("缺少内置视频去重模板。");
+        var entries = JsonSerializer.Deserialize<VideoDedupTemplateEntry[]>(stream, JsonOptions)
+            ?? throw new InvalidOperationException("内置视频去重模板为空。");
+        if (entries.Length != 2 || entries[0].Id != ChineseId || entries[1].Id != EnglishId)
+            throw new InvalidOperationException("内置视频去重模板不完整。");
+        return entries.Select(entry => CreateEntry(entry.Id, entry.Name, entry.Preset)).ToArray();
+    }
+
+    private static VideoDedupTemplateEntry CreateEntry(string id, string name, VideoDedupPreset preset)
+    {
+        var parameters = preset.NormalizedCopy();
+        if (parameters.DurationRangeError() is { } durationError)
+            throw new InvalidOperationException(durationError);
+        VideoDedupEffectFilters.Validate(parameters);
+        parameters.Name = name;
+        return new VideoDedupTemplateEntry(id, name, parameters);
     }
 
     private static void Write(string path, CatalogState state)
@@ -278,21 +319,14 @@ public sealed class VideoDedupTemplateCatalog(string dataRoot)
         finally { File.Delete(temp); }
     }
 
-    private static VideoDedupTemplateEntry RequireTemplate(CatalogState state, string id) =>
-        id == SystemId ? SystemDefault :
+    private static VideoDedupTemplateEntry RequireTemplate(CatalogState state, string? id) =>
         state.Templates.FirstOrDefault(template => template.Id == id)
-            ?? throw new InvalidOperationException("该视频去重模板已不存在，请重新选择。");
-
-    private static VideoDedupTemplateSnapshot ToSnapshot(CatalogState state) =>
-        new(new[] { SystemDefault }.Concat(state.Templates).ToArray(), state.AccountDefaults);
+        ?? throw new InvalidOperationException("该视频去重模板已不存在，请重新选择。");
 
     private sealed class CatalogState
     {
-        public int Version { get; set; } = 1;
-        public bool LegacyImported { get; set; }
+        public int Version { get; set; }
         public List<VideoDedupTemplateEntry> Templates { get; set; } = [];
         public Dictionary<string, string> AccountDefaults { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
-
-    private sealed record LegacyEntry(string Id, VideoDedupPreset Preset);
 }

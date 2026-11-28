@@ -374,7 +374,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     }
 
     private void LoadDedupAccount() =>
-        DedupConfiguration.LoadAccount(_selectedAccount?.Id, _selectedAccount?.Name, Configuration.LegacyVideoDedupTemplateId);
+        DedupConfiguration.LoadAccount(_selectedAccount?.Id, _selectedAccount?.Name);
 
     private async void AddAccount_Click(object? sender, RoutedEventArgs e)
     {
