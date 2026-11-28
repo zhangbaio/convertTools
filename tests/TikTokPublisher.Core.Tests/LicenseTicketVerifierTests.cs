@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 
 namespace TikTokPublisher.Core.Tests;
 

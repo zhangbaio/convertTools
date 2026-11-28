@@ -2,9 +2,8 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using TikTokPublisher.Core.Services;
 
-namespace TikTokPublisher.Core.Licensing;
+namespace PublisherShared.Licensing;
 
 public static class LicenseStore
 {
@@ -17,8 +16,10 @@ public static class LicenseStore
     };
 
     private static string? _stateDirectory;
+    private static readonly string LegacyTikTokStateDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".tiktok_publisher");
 
-    public static string StateDirectory => _stateDirectory ?? AppPaths.DataRoot;
+    public static string StateDirectory => _stateDirectory ?? LegacyTikTokStateDirectory;
 
     public static string StatePath => Path.Combine(StateDirectory, "license_state.bin");
 

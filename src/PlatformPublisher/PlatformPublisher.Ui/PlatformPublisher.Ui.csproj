@@ -22,6 +22,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\PublisherShared\PublisherShared.Licensing.Ui\PublisherShared.Licensing.Ui.csproj" />
     <ProjectReference Include="..\..\LicenseTranslate\LicenseTranslate.Core\LicenseTranslate.Core.csproj" />
     <ProjectReference Include="..\..\PublisherShared\PublisherShared.Scheduling\PublisherShared.Scheduling.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />

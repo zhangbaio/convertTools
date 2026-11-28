@@ -8,7 +8,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Kuaishou.Publishing;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;

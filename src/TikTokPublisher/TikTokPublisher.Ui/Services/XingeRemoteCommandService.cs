@@ -2,7 +2,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;

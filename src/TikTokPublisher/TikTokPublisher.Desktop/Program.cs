@@ -1,4 +1,5 @@
 using Avalonia;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Services;
 using Velopack;
 
@@ -32,6 +33,7 @@ internal static class Program
                 eventArgs.SetObserved();
             };
 
+            LicenseStore.UseStateDirectory(AppPaths.DataRoot);
             return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)

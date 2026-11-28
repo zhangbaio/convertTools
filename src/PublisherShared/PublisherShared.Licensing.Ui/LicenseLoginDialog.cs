@@ -2,9 +2,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 
-namespace TikTokPublisher.Ui.Views;
+namespace PublisherShared.Licensing.Ui;
 
 public sealed record LicenseLoginDialogResult(
     string ServerUrl,

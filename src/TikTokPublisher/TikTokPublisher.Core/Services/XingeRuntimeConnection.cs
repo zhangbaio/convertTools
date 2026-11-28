@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Services;

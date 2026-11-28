@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace TikTokPublisher.Core.Licensing;
+namespace PublisherShared.Licensing;
 
 internal sealed record LicenseTicketClaims(
     string Subject,

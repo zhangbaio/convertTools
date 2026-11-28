@@ -1,6 +1,6 @@
 using Avalonia.Threading;
 using PlatformPublisher.Desktop.ViewModels;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 
 namespace PlatformPublisher.Desktop.Views;
 

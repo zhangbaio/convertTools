@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\PublisherShared\PublisherShared.Scheduling\PublisherShared.Scheduling.csproj" />
     <ProjectReference Include="..\..\PublisherShared\PublisherShared.Certificates\PublisherShared.Certificates.csproj" />
+    <ProjectReference Include="..\..\PublisherShared\PublisherShared.Licensing\PublisherShared.Licensing.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj" />
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />

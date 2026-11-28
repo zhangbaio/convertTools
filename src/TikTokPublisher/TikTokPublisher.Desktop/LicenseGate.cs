@@ -1,4 +1,6 @@
+using PublisherShared.Licensing.Ui;
 using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
 

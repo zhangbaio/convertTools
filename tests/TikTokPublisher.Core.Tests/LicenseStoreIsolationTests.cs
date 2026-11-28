@@ -1,5 +1,5 @@
 using FluentAssertions;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 
 namespace TikTokPublisher.Core.Tests;
 

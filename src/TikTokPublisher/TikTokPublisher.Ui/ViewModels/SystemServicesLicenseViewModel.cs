@@ -1,4 +1,5 @@
 using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.ViewModels;

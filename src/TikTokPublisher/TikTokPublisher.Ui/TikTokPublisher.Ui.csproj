@@ -16,6 +16,7 @@
     <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\PublisherShared\PublisherShared.Licensing.Ui\PublisherShared.Licensing.Ui.csproj" />
     <ProjectReference Include="..\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
   </ItemGroup>
   <ItemGroup>

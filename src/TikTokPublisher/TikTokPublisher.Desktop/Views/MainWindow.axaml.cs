@@ -1,4 +1,5 @@
-﻿using Avalonia;
+﻿using PublisherShared.Licensing.Ui;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -9,7 +10,7 @@ using Avalonia.Threading;
 using PlatformPublisher.Common.Services;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Desktop;
 using TikTokPublisher.Ui.Services;

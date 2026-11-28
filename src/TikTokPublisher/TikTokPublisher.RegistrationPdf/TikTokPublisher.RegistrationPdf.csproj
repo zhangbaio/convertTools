@@ -18,10 +18,10 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\PublisherShared\PublisherShared.Licensing.Ui\PublisherShared.Licensing.Ui.csproj" />
     <ProjectReference Include="..\TikTokPublisher.Core\TikTokPublisher.Core.csproj" AdditionalProperties="ExcludeRegistrationPdfAssets=true;BaseOutputPath=obj\registration-pdf\" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\TikTokPublisher.Ui\Views\ArticlesOfIncorporationDialog.cs" Link="Views\ArticlesOfIncorporationDialog.cs" />
-    <Compile Include="..\TikTokPublisher.Ui\Views\LicenseLoginDialog.cs" Link="Views\LicenseLoginDialog.cs" />
   </ItemGroup>
 </Project>

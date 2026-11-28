@@ -1,9 +1,10 @@
+using PublisherShared.Licensing.Ui;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Ui.Views;
 
 namespace TikTokPublisher.RegistrationPdf;

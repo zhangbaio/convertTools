@@ -1,7 +1,8 @@
+using PublisherShared.Licensing.Ui;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using PlatformPublisher.Common.Services;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
 

@@ -1,5 +1,5 @@
 using Avalonia;
-using TikTokPublisher.Core.Licensing;
+using PublisherShared.Licensing;
 
 namespace TikTokPublisher.RegistrationPdf;
 

@@ -1,4 +1,4 @@
-namespace TikTokPublisher.Core.Licensing;
+namespace PublisherShared.Licensing;
 
 public enum LicenseStartupAction
 {
