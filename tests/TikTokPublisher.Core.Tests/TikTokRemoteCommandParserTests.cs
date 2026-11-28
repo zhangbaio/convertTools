@@ -158,7 +158,6 @@ public sealed class TikTokRemoteCommandParserTests
         options.EnabledSteps.Should().NotContain(QueueStepRegistry.GenerateProofMaterial);
         options.AutoArchiveAfterUpload.Should().BeFalse();
         options.ForceRerunCompletedSteps.Should().BeFalse();
-        options.PreferUploadWhenReady.Should().BeFalse();
     }
 
     [Fact]
@@ -188,7 +187,7 @@ public sealed class TikTokRemoteCommandParserTests
             QueueStepRegistry.UploadSeries);
         options.AutoArchiveAfterUpload.Should().BeTrue();
         options.ForceRerunCompletedSteps.Should().BeTrue();
-        options.PreferUploadWhenReady.Should().BeTrue();
+        options.ToPersistentDictionary().Should().NotContainKey("prefer_upload_when_ready");
         options.SyncManagementAfterUpload.Should().BeTrue();
     }
 }

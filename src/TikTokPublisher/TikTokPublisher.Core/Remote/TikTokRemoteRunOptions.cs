@@ -24,10 +24,6 @@ public static class TikTokRemoteRunOptions
                 queueOptions,
                 "force_rerun_completed_steps",
                 false),
-            PreferUploadWhenReady = RemoteOptionBool(
-                queueOptions,
-                "prefer_upload_when_ready",
-                false),
             SyncManagementAfterUpload =
                 RemoteOptionBool(queueOptions, "sync_management_on_upload_success", false) ||
                 RemoteOptionBool(queueOptions, "sync_management_after_upload", false),

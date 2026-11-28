@@ -217,7 +217,6 @@ public sealed class TikTokAccountProfile
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }
-    public bool? TiktokQueuePreferUploadWhenReady { get; set; }
     public bool? TiktokQueueSyncManagementAfterUpload { get; set; }
     public bool TiktokDeleteVideosOnArchive { get; set; } = true;
     public bool TiktokDeleteVideosOnArchiveConfigured { get; set; }

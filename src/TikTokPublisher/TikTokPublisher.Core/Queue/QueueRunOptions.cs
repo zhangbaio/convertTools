@@ -86,7 +86,6 @@ public sealed class QueueRunOptions
     public List<string> EnabledSteps { get; set; } = QueueStepRegistry.DefaultEnabledSteps.ToList();
     public bool AutoArchiveAfterUpload { get; set; }
     public bool ForceRerunCompletedSteps { get; set; }
-    public bool PreferUploadWhenReady { get; set; }
     public bool SyncManagementAfterUpload { get; set; }
     public int ProjectConcurrency { get; set; } = 4;
     public string UploadEntryMode { get; set; } = "";
@@ -111,7 +110,6 @@ public sealed class QueueRunOptions
         EnabledSteps = EnabledSteps.ToList(),
         AutoArchiveAfterUpload = AutoArchiveAfterUpload,
         ForceRerunCompletedSteps = ForceRerunCompletedSteps,
-        PreferUploadWhenReady = PreferUploadWhenReady,
         SyncManagementAfterUpload = SyncManagementAfterUpload,
         ProjectConcurrency = ProjectConcurrency,
         UploadEntryMode = UploadEntryMode,
@@ -139,7 +137,6 @@ public sealed class QueueRunOptions
         ["enabled_steps"] = QueueStepRegistry.OrderEnabledSteps(EnabledSteps).ToList(),
         ["auto_archive_after_upload"] = AutoArchiveAfterUpload,
         ["force_rerun_completed_steps"] = ForceRerunCompletedSteps,
-        ["prefer_upload_when_ready"] = PreferUploadWhenReady,
         ["sync_management_after_upload"] = SyncManagementAfterUpload,
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
         ["upload_entry_mode"] = NormalizeUploadEntryMode(UploadEntryMode),
@@ -174,7 +171,6 @@ public sealed class QueueRunOptions
             EnabledSteps = enabled,
             AutoArchiveAfterUpload = GetBool(payload, "auto_archive_after_upload"),
             ForceRerunCompletedSteps = GetBool(payload, "force_rerun_completed_steps"),
-            PreferUploadWhenReady = GetBool(payload, "prefer_upload_when_ready"),
             SyncManagementAfterUpload =
                 GetBool(payload, "sync_management_after_upload") ||
                 GetBool(payload, "sync_management_on_upload_success"),

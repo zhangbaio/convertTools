@@ -306,10 +306,6 @@
                                                   IsChecked="{Binding ForceRerunCompletedSteps}"
                                                   Margin="0,0,16,0"
                                                   ToolTip.Tip="已完成步骤会重新执行。" />
-                                        <CheckBox Content="优先上传"
-                                                  IsChecked="{Binding PreferUploadWhenReady}"
-                                                  Margin="0,0,16,0"
-                                                  ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
                                     </WrapPanel>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Vertical" Spacing="4" VerticalAlignment="Center">

@@ -190,7 +190,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private string _runningWorkspacesSummary = "";
     [ObservableProperty] private bool _forceRerunCompletedSteps;
     [ObservableProperty] private bool _autoArchiveAfterUpload;
-    [ObservableProperty] private bool _preferUploadWhenReady;
     [ObservableProperty] private bool _syncManagementAfterUpload;
     [ObservableProperty] private bool _queueDownloadEnabled;
     [ObservableProperty] private bool _queueVideoDedupEnabled;
@@ -1189,13 +1188,6 @@ public sealed partial class MainViewModel : ViewModelBase
         PersistAccountQueueSettings();
     }
 
-    partial void OnPreferUploadWhenReadyChanged(bool value)
-    {
-        _queueRunOptions.PreferUploadWhenReady = value;
-        PersistQueueRunOptions();
-        PersistAccountQueueSettings();
-    }
-
     partial void OnSyncManagementAfterUploadChanged(bool value)
     {
         _queueRunOptions.SyncManagementAfterUpload = value;
@@ -1520,7 +1512,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueUploadEnabled = true;
             SyncManagementAfterUpload = true;
             AutoArchiveAfterUpload = true;
-            PreferUploadWhenReady = true;
             // “全选步骤”不应开启破坏性较强的重跑选项，必须由用户单独勾选。
             ForceRerunCompletedSteps = false;
         }
@@ -1550,7 +1541,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueUploadEnabled = false;
             SyncManagementAfterUpload = false;
             AutoArchiveAfterUpload = false;
-            PreferUploadWhenReady = false;
             ForceRerunCompletedSteps = false;
         }
         finally
@@ -2055,7 +2045,6 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.ForceRerunCompletedSteps = currentForceRerunCompletedSteps;
         ForceRerunCompletedSteps = currentForceRerunCompletedSteps;
         AutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
-        PreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
         SyncManagementAfterUpload = _queueRunOptions.SyncManagementAfterUpload;
         ApplyQueueStepTogglesFromOptions();
         UpdateWorkspaceBindingSummary(root);
@@ -5186,7 +5175,6 @@ public sealed partial class MainViewModel : ViewModelBase
         UpdateAiProductionRowSteps(aiProductionSteps);
         _queueRunOptions.ForceRerunCompletedSteps = ForceRerunCompletedSteps;
         _queueRunOptions.AutoArchiveAfterUpload = AutoArchiveAfterUpload;
-        _queueRunOptions.PreferUploadWhenReady = PreferUploadWhenReady;
         _queueRunOptions.SyncManagementAfterUpload = SyncManagementAfterUpload;
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
@@ -5223,12 +5211,10 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.EnabledSteps = steps;
         _queueRunOptions.AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
         _queueRunOptions.ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
-        _queueRunOptions.PreferUploadWhenReady = options.PreferUploadWhenReady;
         _queueRunOptions.SyncManagementAfterUpload = options.SyncManagementAfterUpload;
         ApplyQueueStepTogglesFromOptions();
         ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
         AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
-        PreferUploadWhenReady = options.PreferUploadWhenReady;
         SyncManagementAfterUpload = options.SyncManagementAfterUpload;
         PersistQueueRunOptions();
     }
@@ -5243,7 +5229,6 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             account.TiktokQueueEnabledSteps = steps.ToList();
             account.TiktokQueueAutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
-            account.TiktokQueuePreferUploadWhenReady = options.PreferUploadWhenReady;
             account.TiktokQueueSyncManagementAfterUpload = options.SyncManagementAfterUpload;
             _context.NotifyProfileUpdated(account);
         }
@@ -5255,12 +5240,10 @@ public sealed partial class MainViewModel : ViewModelBase
         _queueRunOptions.EnabledSteps = steps.ToList();
         _queueRunOptions.AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
         _queueRunOptions.ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
-        _queueRunOptions.PreferUploadWhenReady = options.PreferUploadWhenReady;
         _queueRunOptions.SyncManagementAfterUpload = options.SyncManagementAfterUpload;
         ApplyQueueStepTogglesFromOptions();
         ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
         AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
-        PreferUploadWhenReady = options.PreferUploadWhenReady;
         SyncManagementAfterUpload = options.SyncManagementAfterUpload;
     }
 
@@ -5304,11 +5287,6 @@ public sealed partial class MainViewModel : ViewModelBase
                 account.TiktokQueueAutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
                 changedAccountSettings = true;
             }
-            if (!account.TiktokQueuePreferUploadWhenReady.HasValue)
-            {
-                account.TiktokQueuePreferUploadWhenReady = options.PreferUploadWhenReady;
-                changedAccountSettings = true;
-            }
             if (!account.TiktokQueueSyncManagementAfterUpload.HasValue)
             {
                 account.TiktokQueueSyncManagementAfterUpload = options.SyncManagementAfterUpload;
@@ -5316,7 +5294,6 @@ public sealed partial class MainViewModel : ViewModelBase
             }
 
             options.AutoArchiveAfterUpload = account.TiktokQueueAutoArchiveAfterUpload.GetValueOrDefault();
-            options.PreferUploadWhenReady = account.TiktokQueuePreferUploadWhenReady.GetValueOrDefault();
             options.SyncManagementAfterUpload = account.TiktokQueueSyncManagementAfterUpload.GetValueOrDefault();
 
             if (changedAccountSettings)
@@ -5346,11 +5323,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (account.TiktokQueueAutoArchiveAfterUpload != _queueRunOptions.AutoArchiveAfterUpload)
         {
             account.TiktokQueueAutoArchiveAfterUpload = _queueRunOptions.AutoArchiveAfterUpload;
-            changed = true;
-        }
-        if (account.TiktokQueuePreferUploadWhenReady != _queueRunOptions.PreferUploadWhenReady)
-        {
-            account.TiktokQueuePreferUploadWhenReady = _queueRunOptions.PreferUploadWhenReady;
             changed = true;
         }
         if (account.TiktokQueueSyncManagementAfterUpload != _queueRunOptions.SyncManagementAfterUpload)

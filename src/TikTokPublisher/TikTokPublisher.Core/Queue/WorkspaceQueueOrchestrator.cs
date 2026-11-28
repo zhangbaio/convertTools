@@ -278,7 +278,6 @@ public sealed class WorkspaceQueueOrchestrator
             run.Options.EnabledSteps = source.EnabledSteps?.ToList() ?? [];
             run.Options.AutoArchiveAfterUpload = source.AutoArchiveAfterUpload;
             run.Options.ForceRerunCompletedSteps = source.ForceRerunCompletedSteps;
-            run.Options.PreferUploadWhenReady = source.PreferUploadWhenReady;
             run.Options.SyncManagementAfterUpload = source.SyncManagementAfterUpload;
             return true;
         }
