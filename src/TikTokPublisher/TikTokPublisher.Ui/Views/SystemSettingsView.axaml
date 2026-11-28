@@ -12,13 +12,14 @@
 
     <DockPanel Classes="pageRoot">
         <Grid x:Name="SettingsSaveFooter" DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
-            <TextBlock Grid.Column="0" VerticalAlignment="Center" Classes="pageSummary" Text="{Binding SaveMessage}" />
-            <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}" Classes="primaryAction" MinWidth="140" />
+            <TextBlock Grid.Column="0" VerticalAlignment="Center" Classes="pageSummary" Text="{Binding SaveMessage}" TextWrapping="Wrap" />
+            <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}"
+                    CommandParameter="{Binding #GeneralSettingsTab.IsSelected}" Classes="primaryAction" MinWidth="140" />
         </Grid>
 
         <TextBlock DockPanel.Dock="Top" Text="系统设置" Classes="pageTitle" FontWeight="Bold" Margin="0,0,0,10" />
 
-        <Border Classes="configurationPanel">
+        <Border Classes="configurationPanel" IsEnabled="{Binding !SaveSettingsCommand.IsRunning}">
             <TabControl Classes="secondaryTabs" SelectionChanged="OnSettingsTabChanged">
             <TabItem Header="下载设置">
                 <ScrollViewer>
@@ -337,6 +338,106 @@
                 </ScrollViewer>
             </TabItem>
 
+            <TabItem x:Name="GeneralSettingsTab" Header="通用设置">
+                <ScrollViewer>
+                    <StackPanel Spacing="24" Margin="4" MaxWidth="1080">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="并发管理" FontWeight="Bold" />
+                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
+                                  IsVisible="{Binding ProjectConcurrencySettings.ShowsKuaishou}">
+                                <TextBlock Text="快手项目并发数量" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                               Value="{Binding ProjectConcurrencySettings.KuaishouProjectConcurrency}"
+                                               Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
+                                               FormatString="0" Width="120" />
+                            </Grid>
+                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
+                                  IsVisible="{Binding ProjectConcurrencySettings.ShowsTikTok}">
+                                <TextBlock Text="TikTok 项目并发数量" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                               Value="{Binding ProjectConcurrencySettings.TikTokProjectConcurrency}"
+                                               Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
+                                               FormatString="0" Width="120" />
+                            </Grid>
+                            <TextBlock Text="共享视频处理上限" FontWeight="SemiBold" />
+                            <CheckBox Content="根据硬件自动设置上限"
+                                      IsChecked="{Binding ProjectConcurrencySettings.VideoAutomatic}" />
+                            <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
+                                <TextBlock Text="手动上限（路）" VerticalAlignment="Center" />
+                                <NumericUpDown Grid.Column="1" Classes="configurationInput"
+                                               Value="{Binding ProjectConcurrencySettings.VideoManualLimit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                               IsEnabled="{Binding !ProjectConcurrencySettings.VideoAutomatic}"
+                                               Minimum="1" Maximum="{Binding ProjectConcurrencySettings.VideoManualMaximum}"
+                                               ParsingNumberStyle="Integer" FormatString="0" Width="120"
+                                               AutomationProperties.Name="共享视频处理手动上限" />
+                            </Grid>
+                            <TextBlock Text="{Binding ProjectConcurrencySettings.VideoProcessingStatus}"
+                                       Classes="pageSummary" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ProjectConcurrencySettings.SaveMessage}" Classes="pageSummary"
+                                       IsVisible="{Binding !!ProjectConcurrencySettings.SaveMessage}" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />
+                            <TextBlock Text="所有账号共用这里的 Word 模板生成权利声明 PDF。留空时使用内置中文模板。PDF 默认由 WPS 渲染，公司和印章在各账号配置中填写。" Classes="pageSummary" TextWrapping="Wrap" />
+                            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Word 模板" VerticalAlignment="Center" />
+                                <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                    <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="留空则使用内置中文模板" />
+                                    <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" Margin="8,0,0,0" />
+                                </Grid>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="WPS 路径" VerticalAlignment="Center" />
+                                <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
+                                    <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofWpsPath}" Watermark="留空自动检测 WPS 程序" />
+                                    <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofWpsClick" Margin="8,0,0,0" />
+                                </Grid>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="PDF 渲染器" VerticalAlignment="Center" />
+                                <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ProofPdfRendererCombo" Width="220" HorizontalAlignment="Left" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="中间文件" VerticalAlignment="Center" />
+                                <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokProofKeepDocx}" OnContent="保留生成后的 DOCX" OffContent="保留生成后的 DOCX" />
+                            </Grid>
+                            <TextBlock Text="本公司/声明人、印章图片和致贵方名称请在账号管理的“证明材料”页签配置；改写后剧名和当天日期由队列自动填入。"
+                                       Classes="pageSummary" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="TikTok 业务设置" FontWeight="Bold" />
+                            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Excel 自动导出" VerticalAlignment="Center" />
+                                <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding TiktokExcelAutoExportEnabled}" OnContent="队列状态变化后自动导出 Excel" OffContent="队列状态变化后自动导出 Excel" />
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="管理系统去重" VerticalAlignment="Center" />
+                                <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ManagementDedupEnabled}" OnContent="上传短剧批量导入前检查原剧名重复" OffContent="上传短剧批量导入前检查原剧名重复" />
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="去重范围" VerticalAlignment="Center" />
+                                <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ManagementDedupScopeCombo" Width="220" HorizontalAlignment="Left" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="超长剧入队" VerticalAlignment="Center" />
+                                <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" OnContent="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" OffContent="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" />
+
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="剧集最小集数" VerticalAlignment="Center" />
+                                <NumericUpDown Classes="configurationInput" Grid.Row="4" Grid.Column="1" Value="{Binding TiktokMinimumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
+
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="剧集最大集数" VerticalAlignment="Center" />
+                                <NumericUpDown Classes="configurationInput" Grid.Row="5" Grid.Column="1" Value="{Binding TiktokMaximumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
+                            </Grid>
+
+                            <TextBlock Text="账号数据统计" FontWeight="Bold" />
+                            <ToggleSwitch IsChecked="{Binding TiktokAccountAnalyticsEnabled}" OnContent="在顶栏显示数据统计，并允许拉取账号播放数据" OffContent="在顶栏显示数据统计，并允许拉取账号播放数据" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="主数据库" FontWeight="Bold" />
+                            <TextBox Classes="configurationInput" Text="{Binding MainDatabasePath, Mode=OneWay}" IsReadOnly="True"
+                                     AutomationProperties.Name="主数据库路径" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem Header="ASR配置">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
@@ -609,131 +710,6 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="证明材料">
-                <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
-                        <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />
-                        <TextBlock Text="所有账号共用这里的 Word 模板生成权利声明 PDF。留空时使用内置中文模板。PDF 默认由 WPS 渲染，公司和印章在各账号配置中填写。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Word 模板" VerticalAlignment="Center" />
-                            <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
-                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="留空则使用内置中文模板" />
-                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" Margin="8,0,0,0" />
-                            </Grid>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="WPS 路径" VerticalAlignment="Center" />
-                            <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
-                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofWpsPath}" Watermark="留空自动检测 WPS 程序" />
-                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofWpsClick" Margin="8,0,0,0" />
-                            </Grid>
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="PDF 渲染器" VerticalAlignment="Center" />
-                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ProofPdfRendererCombo" Width="220" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="中间文件" VerticalAlignment="Center" />
-                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokProofKeepDocx}" OnContent="保留生成后的 DOCX" OffContent="保留生成后的 DOCX" />
-                        </Grid>
-                        <TextBlock Text="本公司/声明人、印章图片和致贵方名称请在账号管理的“证明材料”页签配置；改写后剧名和当天日期由队列自动填入。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="数据存储">
-                <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
-                        <TextBlock Text="数据库位置" FontWeight="Bold" />
-                        <TextBlock Text="主数据库保存账号、共享设置和执行历史。已迁移工作区的队列、归档和上传断点也保存在主库。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="主数据库" VerticalAlignment="Center" />
-                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding MainDatabasePath}" IsReadOnly="True" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="工作区数据库" VerticalAlignment="Center" />
-                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding WorkspaceDatabasePath}" IsReadOnly="True" />
-                        </Grid>
-
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="刷新统计" Command="{Binding RefreshDatabaseStatsCommand}" />
-                            <Button Content="打开主库目录" Command="{Binding OpenMainDatabaseFolderCommand}" />
-                            <Button Content="打开工作区库目录" Command="{Binding OpenWorkspaceDatabaseFolderCommand}" />
-                            <Button Content="备份主库" Command="{Binding BackupMainDatabaseCommand}" />
-                            <Button Content="备份当前工作区" Command="{Binding BackupWorkspaceDatabaseCommand}" />
-                            <Button Content="压缩主库" Command="{Binding CompactMainDatabaseCommand}" />
-                        </StackPanel>
-
-                        <TextBlock Text="TikTok 队列与管理系统" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Excel 自动导出" VerticalAlignment="Center" />
-                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding TiktokExcelAutoExportEnabled}" OnContent="队列状态变化后自动导出 Excel" OffContent="队列状态变化后自动导出 Excel" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="管理系统去重" VerticalAlignment="Center" />
-                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ManagementDedupEnabled}" OnContent="上传短剧批量导入前检查原剧名重复" OffContent="上传短剧批量导入前检查原剧名重复" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="去重范围" VerticalAlignment="Center" />
-                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ManagementDedupScopeCombo" Width="220" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="超长剧入队" VerticalAlignment="Center" />
-                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" OnContent="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" OffContent="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="剧集最小集数" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="4" Grid.Column="1" Value="{Binding TiktokMinimumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="剧集最大集数" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="5" Grid.Column="1" Value="{Binding TiktokMaximumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
-                        </Grid>
-
-                        <TextBlock Text="账号数据统计" FontWeight="Bold" />
-                        <ToggleSwitch IsChecked="{Binding TiktokAccountAnalyticsEnabled}" OnContent="在顶栏显示数据统计，并允许拉取账号播放数据" OffContent="在顶栏显示数据统计，并允许拉取账号播放数据" />
-
-                        <TextBlock Text="数据统计" FontWeight="Bold" />
-                        <TextBox Classes="configurationInput" Text="{Binding DatabaseStatsText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem x:Name="ProjectConcurrencyTab" Header="并发管理">
-                <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="12,8" MaxWidth="1080" HorizontalAlignment="Left">
-                        <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
-                              IsVisible="{Binding ProjectConcurrencySettings.ShowsKuaishou}">
-                            <TextBlock Text="快手项目并发数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Column="1" Classes="configurationInput"
-                                           Value="{Binding ProjectConcurrencySettings.KuaishouProjectConcurrency}"
-                                           Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
-                                           FormatString="0" Width="120" />
-                        </Grid>
-                        <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10"
-                              IsVisible="{Binding ProjectConcurrencySettings.ShowsTikTok}">
-                            <TextBlock Text="TikTok 项目并发数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Column="1" Classes="configurationInput"
-                                           Value="{Binding ProjectConcurrencySettings.TikTokProjectConcurrency}"
-                                           Minimum="1" Maximum="{Binding ProjectConcurrencySettings.Maximum}"
-                                           FormatString="0" Width="120" />
-                        </Grid>
-                        <TextBlock Text="共享视频处理上限" FontWeight="SemiBold" />
-                        <CheckBox Content="根据硬件自动设置上限"
-                                  IsChecked="{Binding ProjectConcurrencySettings.VideoAutomatic}" />
-                        <Grid ColumnDefinitions="175,Auto" ColumnSpacing="10">
-                            <TextBlock Text="手动上限（路）" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Column="1" Classes="configurationInput"
-                                           Value="{Binding ProjectConcurrencySettings.VideoManualLimit, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                           IsEnabled="{Binding !ProjectConcurrencySettings.VideoAutomatic}"
-                                           Minimum="1" Maximum="{Binding ProjectConcurrencySettings.VideoManualMaximum}"
-                                           ParsingNumberStyle="Integer" FormatString="0" Width="120"
-                                           AutomationProperties.Name="共享视频处理手动上限" />
-                        </Grid>
-                        <TextBlock Text="{Binding ProjectConcurrencySettings.VideoProcessingStatus}"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <WrapPanel Orientation="Horizontal">
-                            <Button Content="保存设置" Command="{Binding ProjectConcurrencySettings.SaveCommand}"
-                                    Classes="primaryAction" MinWidth="140" />
-                            <TextBlock Text="{Binding ProjectConcurrencySettings.SaveMessage}" Classes="pageSummary"
-                                       Margin="10,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" />
-                        </WrapPanel>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
                 <TabItem x:Name="SoftwareLicenseTab" Header="软件授权" IsVisible="False">
                     <views:SystemServicesView x:Name="SoftwareLicenseHost" />
                 </TabItem>

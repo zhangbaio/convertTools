@@ -117,7 +117,11 @@ public static class ClientSettingsStore
         AppDatabaseInitializer.EnsureInitialized(path);
         TikTokExecutionHistoryService.EnsureStorageOptimized(path);
         TikTokExecutionHistoryService.PruneOldEventsIfDue(path);
-        var raw = LoadRawObject(path);
+        return ReadSettings(LoadRawObject(path));
+    }
+
+    private static ClientSettings ReadSettings(JsonObject? raw)
+    {
         if (raw is null)
         {
             return new ClientSettings { KuaishouGlobalProjectConcurrency = QueueProjectSlotCoordinator.DefaultCapacity };
@@ -153,6 +157,27 @@ public static class ClientSettingsStore
         AppDatabaseInitializer.EnsureInitialized(path);
 
         var existing = LoadRawObject(path) ?? new JsonObject();
+        MergeSettings(existing, normalized);
+        SaveRawObject(path, existing);
+    }
+
+    public static void Update(Action<ClientSettings> update, string? databasePath = null)
+    {
+        var path = ResolvePath(databasePath);
+        AppDatabaseInitializer.EnsureInitialized(path);
+        using var connection = AppDatabaseInitializer.OpenConnection(path);
+        using var transaction = connection.BeginTransaction();
+        var existing = LoadRawObject(connection, transaction);
+        var settings = ReadSettings(existing);
+        update(settings);
+        existing ??= new JsonObject();
+        MergeSettings(existing, Normalize(settings));
+        SaveRawObject(connection, existing, transaction);
+        transaction.Commit();
+    }
+
+    private static void MergeSettings(JsonObject existing, ClientSettings normalized)
+    {
         RemoveRetiredCommandSettings(existing);
         var incoming = JsonSerializer.SerializeToNode(normalized, JsonOptions)?.AsObject() ?? new JsonObject();
 
@@ -187,7 +212,6 @@ public static class ClientSettingsStore
         existing.Remove("tiktok_project_image_generation_mode");
         existing.Remove("tiktok_project_image_fable_cut_root");
         existing.Remove("tiktok_project_image_fable_cut_clip_count");
-        SaveRawObject(path, existing);
     }
 
     public static void ResetInstallerDataSecrets(string? databasePath = null)

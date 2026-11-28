@@ -312,7 +312,7 @@ public sealed partial class MainViewModel : ViewModelBase
         };
         SystemSettings.StatusRequested += message => StatusMessage = message;
         SystemSettings.ProjectConcurrencySettings.TikTokLimitSaved += _queueOrchestrator.ApplyProjectLimit;
-        SystemSettings.Load(WorkspacePath);
+        SystemSettings.Load();
         SystemSettings.BeginHongguoAppPlaybackIdentity();
         DramaDownload.ChainPersisted += (chain, overseas) =>
         {
@@ -4008,7 +4008,6 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var full = Path.GetFullPath(workspace);
         WorkspacePath = full;
-        SystemSettings.UpdateWorkspacePath(full);
         ArchivedProjects.SetWorkspace(full);
         await RefreshWorkspaceProjectsNowAsync(full).ConfigureAwait(true);
     }
@@ -4600,7 +4599,6 @@ public sealed partial class MainViewModel : ViewModelBase
         var full = Path.GetFullPath(workspace);
         WorkspacePath = full;
         RefreshWorkspaceProjects(full);
-        SystemSettings.UpdateWorkspacePath(full);
         ArchivedProjects.SetWorkspace(full);
     }
 
@@ -5369,7 +5367,6 @@ public sealed partial class MainViewModel : ViewModelBase
         WorkspacePath = workspace;
         RefreshWorkspaceProjects(workspace);
 
-        SystemSettings.UpdateWorkspacePath(WorkspacePath);
         ArchivedProjects.SetWorkspace(WorkspacePath, refresh: false);
     }
 
@@ -5587,7 +5584,6 @@ public sealed partial class MainViewModel : ViewModelBase
                 if (string.Equals(SelectedAccount?.Id, target.AccountProfileId, StringComparison.Ordinal))
                 {
                     WorkspacePath = root;
-                    SystemSettings.UpdateWorkspacePath(root);
                     ArchivedProjects.SetWorkspace(root, refresh: false);
                     ApplyWorkspaceScanResult(root, snapshot.Items.ToList(), snapshot.Options);
                 }
@@ -5625,7 +5621,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
         {
             WorkspacePath = root;
-            SystemSettings.UpdateWorkspacePath(root);
             ArchivedProjects.SetWorkspace(root, refresh: false);
         }
 
@@ -5757,7 +5752,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!string.Equals(NormalizeWorkspacePath(WorkspacePath), root, StringComparison.OrdinalIgnoreCase))
         {
             WorkspacePath = root;
-            SystemSettings.UpdateWorkspacePath(root);
             ArchivedProjects.SetWorkspace(root, refresh: false);
         }
 

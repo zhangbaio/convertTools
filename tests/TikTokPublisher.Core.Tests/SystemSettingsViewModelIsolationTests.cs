@@ -1,4 +1,5 @@
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Ui.ViewModels;
 using Microsoft.Data.Sqlite;
 
@@ -30,6 +31,57 @@ public sealed class SystemSettingsViewModelIsolationTests
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(tempRoot))
                 Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task GeneralSettingsSaveCommitsProjectConcurrencyAndBusinessSettingsTogether()
+    {
+        var tempRoot = Directory.CreateTempSubdirectory("general-settings-");
+        var databasePath = Path.Combine(tempRoot.FullName, "settings.db");
+        try
+        {
+            ClientSettingsStore.Update(settings =>
+            {
+                settings.TiktokGlobalProjectConcurrency = 3;
+                settings.TiktokProofKeepDocx = false;
+                settings.TiktokMinimumEpisodeCount = 30;
+            }, databasePath);
+
+            var viewModel = new SystemSettingsViewModel(databasePath);
+            viewModel.Load();
+            viewModel.TiktokProofKeepDocx = true;
+            viewModel.TiktokMinimumEpisodeCount = 42;
+            viewModel.ProjectConcurrencySettings.TikTokProjectConcurrency = 2.5m;
+            ClientSettings? applied = null;
+            viewModel.ProjectConcurrencySettings.TikTokLimitSaved += settings => applied = settings;
+
+            await viewModel.SaveSettingsCommand.ExecuteAsync(true);
+
+            Assert.False(viewModel.LastSaveSucceeded);
+            Assert.Contains("项目并发", viewModel.SaveMessage);
+            Assert.Null(applied);
+            var saved = ClientSettingsStore.Load(databasePath);
+            Assert.Equal(3, saved.TiktokGlobalProjectConcurrency);
+            Assert.False(saved.TiktokProofKeepDocx);
+            Assert.Equal(30, saved.TiktokMinimumEpisodeCount);
+
+            viewModel.ProjectConcurrencySettings.TikTokProjectConcurrency = 4;
+            await viewModel.SaveSettingsCommand.ExecuteAsync(true);
+
+            Assert.True(viewModel.LastSaveSucceeded);
+            saved = ClientSettingsStore.Load(databasePath);
+            Assert.Equal(4, saved.TiktokGlobalProjectConcurrency);
+            Assert.True(saved.TiktokProofKeepDocx);
+            Assert.Equal(42, saved.TiktokMinimumEpisodeCount);
+            Assert.NotNull(applied);
+            Assert.Equal(4, applied.TiktokGlobalProjectConcurrency);
+            Assert.True(applied.TiktokProofKeepDocx);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            tempRoot.Delete(recursive: true);
         }
     }
 

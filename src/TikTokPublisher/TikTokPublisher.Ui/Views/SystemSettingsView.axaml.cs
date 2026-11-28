@@ -46,9 +46,9 @@ public partial class SystemSettingsView : UserControl
         if (sender is TabControl { SelectedItem: TabItem selected } tabs &&
             ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
         {
-            var showsProjectConcurrency = selected == ProjectConcurrencyTab;
-            footer.IsVisible = !showsProjectConcurrency && selected != SoftwareLicenseTab && selected != XingeSettingsTab;
-            if (showsProjectConcurrency && _vm is { } vm)
+            var showsGeneralSettings = selected == GeneralSettingsTab;
+            footer.IsVisible = selected != SoftwareLicenseTab && selected != XingeSettingsTab;
+            if (showsGeneralSettings && _vm is { } vm)
             {
                 vm.ProjectConcurrencySettings.RefreshVideoProcessingUsage();
                 _concurrencyUsageTimer.Start();
@@ -121,6 +121,9 @@ public partial class SystemSettingsView : UserControl
 
     private async void OnSettingsSaved(ClientSettings settings)
     {
+        if (_vm?.LastSaveSucceeded != true)
+            return;
+
         var owner = TopLevel.GetTopLevel(this) as Window;
         await InfoDialog.ShowSaveSuccessAsync(owner, "系统设置已保存成功。");
     }

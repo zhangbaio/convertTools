@@ -8,7 +8,6 @@ using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.Asr;
 
@@ -37,6 +36,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public bool ShowsKuaishouPublishPrompt { get; }
     public bool ShowsTikTokPublishPrompt { get; }
     public ProjectConcurrencySettingsViewModel ProjectConcurrencySettings { get; }
+    public bool LastSaveSucceeded { get; private set; }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -47,10 +47,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _loginSettingsHint =
         "本土剧和海外剧数据链路是全局配置，账号按剧集类型选用；TikTok 登录信息请到账号管理的登录设置中维护。";
     [ObservableProperty] private string _hgnewProbeStatus = "";
-    [ObservableProperty] private string _databaseStatsText = "";
     [ObservableProperty] private string _mainDatabasePath = ClientSettingsStore.MainDatabasePath;
-    [ObservableProperty] private string _workspaceDatabasePath = "";
-    private string? _databaseWorkspaceRoot;
 
     [ObservableProperty] private string _dramaSourceChain = VisibleDramaSource.DefaultChain;
     [ObservableProperty] private string _overseasDramaSourceChain = VisibleDramaSource.DefaultOverseasChain;
@@ -282,12 +279,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];
     public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user", "all_series"];
 
-    public void Load(string? workspacePath = null)
+    public void Load()
     {
         ApplyFromSettings(ClientSettingsStore.Load(_settingsDatabasePath));
         ProjectConcurrencySettings.Load();
         MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
-        UpdateWorkspacePath(workspacePath);
     }
 
     private int _hongguoPlaybackIdentityStarted;
@@ -677,14 +673,54 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         };
 
     [RelayCommand]
-    private void SaveSettings()
+    private async Task SaveSettingsAsync(bool? includeConcurrency)
     {
+        LastSaveSucceeded = false;
+        SaveMessage = "";
         try
         {
-            var loaded = ClientSettingsStore.Load(_settingsDatabasePath);
-            var storedDeviceId = loaded.HongguoAppDeviceId;
-            var storedInstallId = loaded.HongguoAppInstallId;
-            var settings = ApplySystemSettingsForm(loaded);
+            ClientSettings? saved;
+            if (includeConcurrency == true)
+            {
+                var result = await ProjectConcurrencySettings.SaveWithSystemSettingsAsync(MainDatabasePath, PersistSystemSettings);
+                saved = result.Settings;
+                LastSaveSucceeded = result.Succeeded;
+                SaveMessage = result.Succeeded
+                    ? "系统设置已保存。"
+                    : saved is null
+                        ? ProjectConcurrencySettings.SaveMessage
+                        : $"主库配置已保存。{ProjectConcurrencySettings.SaveMessage}";
+            }
+            else
+            {
+                saved = PersistSystemSettings(null);
+                LastSaveSucceeded = true;
+                SaveMessage = "系统设置已保存。";
+            }
+
+            if (saved is not null)
+            {
+                ApplyFromSettings(saved);
+                SettingsSaved?.Invoke(saved);
+            }
+        }
+        catch (Exception ex)
+        {
+            LastSaveSucceeded = false;
+            SaveMessage = $"系统设置保存失败：{ex.Message}";
+        }
+        StatusRequested?.Invoke(SaveMessage);
+    }
+
+    private ClientSettings PersistSystemSettings(Action<ClientSettings>? applyProjectLimits)
+    {
+        PersistHghighMastersFromForm();
+        ClientSettingsStore.Update(settings =>
+        {
+            var storedDeviceId = settings.HongguoAppDeviceId;
+            var storedInstallId = settings.HongguoAppInstallId;
+            ApplySystemSettingsForm(settings);
+            applyProjectLimits?.Invoke(settings);
             if (string.IsNullOrWhiteSpace(HongguoAppDeviceId) &&
                 string.IsNullOrWhiteSpace(HongguoAppInstallId) &&
                 string.IsNullOrWhiteSpace(_hongguoAppPlaybackLoadedDeviceId) &&
@@ -694,18 +730,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
                 settings.HongguoAppDeviceId = storedDeviceId;
                 settings.HongguoAppInstallId = storedInstallId;
             }
-            PersistHghighMastersFromForm();
-            ClientSettingsStore.Save(settings, _settingsDatabasePath);
-            ApplyFromSettings(settings);
-            SaveMessage = "系统设置已保存。";
-            SettingsSaved?.Invoke(settings);
-            StatusRequested?.Invoke("系统设置已保存");
-        }
-        catch (Exception ex)
-        {
-            SaveMessage = $"保存失败：{ex.Message}";
-            StatusRequested?.Invoke(SaveMessage);
-        }
+        }, _settingsDatabasePath);
+        return ClientSettingsStore.Load(_settingsDatabasePath);
     }
 
     [RelayCommand]
@@ -1133,120 +1159,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         StatusRequested?.Invoke(AsrProbeStatus);
     }
 
-    [RelayCommand]
-    private void BackupMainDatabase()
-    {
-        try
-        {
-            var source = MainDatabasePath;
-            if (!File.Exists(source))
-            {
-                StatusRequested?.Invoke("主数据库不存在");
-                return;
-            }
-
-            var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
-            Directory.CreateDirectory(backupDir);
-            var target = Path.Combine(backupDir, $"tiktok_publisher_{DateTime.Now:yyyyMMdd_HHmmss}.db");
-            WorkspaceDatabaseMigration.BackupDatabase(source, target);
-            StatusRequested?.Invoke($"已备份到 {target}");
-        }
-        catch (Exception ex)
-        {
-            StatusRequested?.Invoke($"备份失败：{ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    private void BackupWorkspaceDatabase()
-    {
-        try
-        {
-            var source = WorkspaceDatabasePath;
-            if (string.IsNullOrWhiteSpace(_databaseWorkspaceRoot) || string.IsNullOrWhiteSpace(source) || !File.Exists(source))
-            {
-                StatusRequested?.Invoke("工作区数据库不存在");
-                return;
-            }
-
-            var backupDir = Path.Combine(Path.GetDirectoryName(source)!, "backups");
-            Directory.CreateDirectory(backupDir);
-            var target = Path.Combine(backupDir, $".tiktok-task-queue_{DateTime.Now:yyyyMMdd_HHmmss}.db");
-            WorkspaceDatabaseMigration.BackupWorkspace(_databaseWorkspaceRoot!, target);
-            StatusRequested?.Invoke($"已备份到 {target}");
-        }
-        catch (Exception ex)
-        {
-            StatusRequested?.Invoke($"备份失败：{ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    private void CompactMainDatabase()
-    {
-        try
-        {
-            if (!File.Exists(MainDatabasePath))
-            {
-                StatusRequested?.Invoke("主数据库不存在");
-                return;
-            }
-
-            using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={MainDatabasePath}");
-            connection.Open();
-            using var command = connection.CreateCommand();
-            command.CommandText = "VACUUM;";
-            command.ExecuteNonQuery();
-            RefreshDatabaseStats();
-            StatusRequested?.Invoke("主数据库已压缩");
-        }
-        catch (Exception ex)
-        {
-            StatusRequested?.Invoke($"压缩失败：{ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    private void RefreshDatabaseStats()
-    {
-        var lines = new List<string>();
-        AppendDatabaseStats(lines, "主数据库", MainDatabasePath);
-        if (!string.IsNullOrWhiteSpace(WorkspaceDatabasePath) &&
-            string.Equals(WorkspaceDatabasePath, MainDatabasePath, StringComparison.OrdinalIgnoreCase))
-        {
-            lines.Add("当前工作区数据已纳入主数据库");
-        }
-        else if (!string.IsNullOrWhiteSpace(WorkspaceDatabasePath))
-        {
-            AppendDatabaseStats(lines, "工作区数据库", WorkspaceDatabasePath);
-        }
-        else
-        {
-            lines.Add("工作区数据库：未绑定工作目录");
-        }
-
-        DatabaseStatsText = string.Join(Environment.NewLine, lines);
-    }
-
-    [RelayCommand]
-    private void OpenMainDatabaseFolder()
-    {
-        OpenParentFolder(MainDatabasePath);
-    }
-
-    [RelayCommand]
-    private void OpenWorkspaceDatabaseFolder()
-    {
-        OpenParentFolder(WorkspaceDatabasePath);
-    }
-
-    public void UpdateWorkspacePath(string? workspacePath)
-    {
-        _databaseWorkspaceRoot = workspacePath;
-        WorkspaceDatabasePath = ClientSettingsStore.WorkspaceDatabasePath(workspacePath);
-        RefreshDatabaseStats();
-    }
-
     private void ApplyFromSettings(ClientSettings settings)
     {
         DramaSourceChain = settings.DramaSourceChain;
@@ -1379,27 +1291,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokMaximumEpisodeCount = settings.TiktokMaximumEpisodeCount;
     }
 
-    private static void AppendDatabaseStats(List<string> lines, string label, string path)
-    {
-        lines.Add($"{label}：{path}");
-        if (!File.Exists(path))
-        {
-            lines.Add("  状态：文件不存在");
-            return;
-        }
-
-        var info = new FileInfo(path);
-        lines.Add($"  大小：{FormatBytes(info.Length)}");
-        lines.Add($"  修改时间：{info.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
-    }
-
-    private static string FormatBytes(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
-        return $"{bytes / (1024.0 * 1024.0):0.##} MB";
-    }
-
     private static string NormalizeHghighClientVersion(string? value, string fallback)
     {
         var text = (value ?? "").Trim();
@@ -1410,33 +1301,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         string.Equals(value?.Trim(), "manga", StringComparison.OrdinalIgnoreCase)
             ? "manga"
             : "short";
-
-    private static void OpenParentFolder(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-
-        var directory = Path.GetDirectoryName(Path.GetFullPath(path));
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-        {
-            return;
-        }
-
-        try
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = directory,
-                UseShellExecute = true,
-            });
-        }
-        catch
-        {
-            // Explorer open is best-effort.
-        }
-    }
 
     private static HttpClient CreateProbeHttpClient()
     {

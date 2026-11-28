@@ -91,25 +91,65 @@ public sealed partial class ProjectConcurrencySettingsViewModel(
     partial void OnVideoManualLimitChanged(decimal? value) => SaveMessage = "";
 
     [RelayCommand]
-    private async Task SaveAsync()
+    private Task SaveAsync() => SaveCoreAsync();
+
+    internal Task<(bool Succeeded, ClientSettings? Settings)> SaveWithSystemSettingsAsync(
+        string systemDatabasePath,
+        Func<Action<ClientSettings>, ClientSettings> saveSystemSettings) =>
+        SaveCoreAsync(systemDatabasePath, saveSystemSettings);
+
+    private async Task<(bool Succeeded, ClientSettings? Settings)> SaveCoreAsync(
+        string? systemDatabasePath = null,
+        Func<Action<ClientSettings>, ClientSettings>? saveSystemSettings = null)
     {
         if ((ShowsKuaishou && !IsValid(KuaishouProjectConcurrency)) ||
             (ShowsTikTok && !IsValid(TikTokProjectConcurrency)))
         {
-            SaveMessage = $"项目并发数量必须是 1 到 {Maximum} 之间的整数。";
-            return;
+            SaveMessage = $"并发管理：项目并发数量必须是 1 到 {Maximum} 之间的整数。";
+            return (false, null);
         }
 
         var validManualLimit = IsValid(VideoManualLimit, VideoManualMaximum);
         if (!VideoAutomatic && !validManualLimit)
         {
-            SaveMessage = $"共享视频处理上限必须是 1 到 {VideoManualMaximum} 之间的整数。";
-            return;
+            SaveMessage = $"并发管理：共享视频处理上限必须是 1 到 {VideoManualMaximum} 之间的整数。";
+            return (false, null);
         }
         var videoSettings = new VideoProcessingConcurrencySettings(VideoAutomatic,
             validManualLimit ? (int)VideoManualLimit.GetValueOrDefault() : _savedVideoSettings.ManualLimit);
+        var kuaishouLimit = (int)(KuaishouProjectConcurrency ?? 0);
+        var tikTokLimit = (int)(TikTokProjectConcurrency ?? 0);
+
+        void ApplyKuaishouLimit(ClientSettings settings) => settings.KuaishouGlobalProjectConcurrency = kuaishouLimit;
+        void ApplyTikTokLimit(ClientSettings settings) => settings.TiktokGlobalProjectConcurrency = tikTokLimit;
+
+        var savesKuaishouWithSystem = ShowsKuaishou && SharesSystemDatabase(kuaishouDatabasePath);
+        var savesTikTokWithSystem = ShowsTikTok && SharesSystemDatabase(tikTokDatabasePath);
+        ClientSettings? savedSystemSettings = null;
+        if (saveSystemSettings is not null)
+        {
+            try
+            {
+                savedSystemSettings = saveSystemSettings(settings =>
+                {
+                    if (savesKuaishouWithSystem)
+                        ApplyKuaishouLimit(settings);
+                    if (savesTikTokWithSystem)
+                        ApplyTikTokLimit(settings);
+                });
+            }
+            catch (Exception ex)
+            {
+                SaveMessage = $"通用设置保存失败：{ex.Message}";
+                return (false, null);
+            }
+
+            if (savesTikTokWithSystem)
+                TikTokLimitSaved?.Invoke(savedSystemSettings);
+        }
 
         var results = new List<string>();
+        var succeeded = true;
         if (videoSettings != _savedVideoSettings)
         {
             try
@@ -126,14 +166,22 @@ public sealed partial class ProjectConcurrencySettingsViewModel(
             }
             catch (Exception ex)
             {
+                succeeded = false;
                 results.Add($"共享视频处理上限保存失败：{ex.Message}");
             }
         }
-        if (ShowsKuaishou)
-            Update("快手", (int)KuaishouProjectConcurrency!.Value, kuaishou: true, kuaishouDatabasePath);
-        if (ShowsTikTok)
-            Update("TikTok", (int)TikTokProjectConcurrency!.Value, kuaishou: false, tikTokDatabasePath);
-        SaveMessage = string.Join("。", results) + "。";
+        if (ShowsKuaishou && !savesKuaishouWithSystem)
+            Update("快手项目并发", kuaishouLimit, kuaishou: true, kuaishouDatabasePath);
+        if (ShowsTikTok && !savesTikTokWithSystem)
+            Update("TikTok 项目并发", tikTokLimit, kuaishou: false, tikTokDatabasePath);
+
+        SaveMessage = results.Count == 0 ? "" : string.Join("。", results) + "。";
+        return (succeeded, savedSystemSettings);
+
+        bool SharesSystemDatabase(string? databasePath) =>
+            systemDatabasePath is not null && string.Equals(systemDatabasePath,
+                string.IsNullOrWhiteSpace(databasePath) ? ClientSettingsStore.MainDatabasePath : Path.GetFullPath(databasePath),
+                StringComparison.OrdinalIgnoreCase);
 
         void Update(string platform, int limit, bool kuaishou, string? databasePath)
         {
@@ -147,11 +195,11 @@ public sealed partial class ProjectConcurrencySettingsViewModel(
             }
             catch (Exception ex)
             {
-                results.Add($"{platform} 保存失败：{ex.Message}");
+                succeeded = false;
+                results.Add($"{platform}保存失败：{ex.Message}");
                 return;
             }
-
-            results.Add($"{platform} 已保存");
+            results.Add($"{platform}已保存");
             if (settings is not null)
             {
                 settings.TiktokGlobalProjectConcurrency = limit;
